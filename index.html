@@ -180,7 +180,7 @@
     <div class="brand-name">Κόμβος</div>
   </div>
   <div class="card">
-    <div class="tabs">
+    <div class="tabs" id="auth-tabs">
       <div class="tab active" data-tab="login">Σύνδεση</div>
       <div class="tab" data-tab="signup">Εγγραφή</div>
     </div>
@@ -191,6 +191,7 @@
       <p class="sub">Συνδέσου με τον λογαριασμό σου.</p>
       <div class="field"><label>Email</label><input type="email" id="login-email" required autocomplete="email"></div>
       <div class="field"><label>Κωδικός</label><input type="password" id="login-password" required autocomplete="current-password"></div>
+      <button type="button" class="add-link" id="forgot-password-link" style="margin:-8px 0 14px;">Ξέχασα τον κωδικό μου</button>
       <button type="submit" class="btn-primary btn-full" id="login-btn">Σύνδεση</button>
     </form>
 
@@ -201,6 +202,22 @@
       <div class="field"><label>Email</label><input type="email" id="signup-email" required autocomplete="email"></div>
       <div class="field"><label>Κωδικός</label><input type="password" id="signup-password" required minlength="6" autocomplete="new-password"></div>
       <button type="submit" class="btn-primary btn-full" id="signup-btn">Εγγραφή</button>
+    </form>
+
+    <form id="forgot-form" class="hidden">
+      <h1>Επαναφορά κωδικού</h1>
+      <p class="sub">Δώσε το email του λογαριασμού σου — θα σου στείλουμε σύνδεσμο για να ορίσεις νέο κωδικό.</p>
+      <div class="field"><label>Email</label><input type="email" id="forgot-email" required autocomplete="email"></div>
+      <button type="submit" class="btn-primary btn-full" id="forgot-btn">Αποστολή συνδέσμου</button>
+      <button type="button" class="add-link" id="back-to-login-link" style="margin-top:12px;">← Πίσω στη σύνδεση</button>
+    </form>
+
+    <form id="reset-password-form" class="hidden">
+      <h1>Νέος κωδικός</h1>
+      <p class="sub">Όρισε τον νέο κωδικό πρόσβασης του λογαριασμού σου.</p>
+      <div class="field"><label>Νέος κωδικός</label><input type="password" id="reset-password" required minlength="6" autocomplete="new-password"></div>
+      <div class="field"><label>Επιβεβαίωση κωδικού</label><input type="password" id="reset-password-confirm" required minlength="6" autocomplete="new-password"></div>
+      <button type="submit" class="btn-primary btn-full" id="reset-password-btn">Αποθήκευση νέου κωδικού</button>
     </form>
   </div>
 </div>
@@ -481,6 +498,61 @@
     PROFILE = null; USER = null;
     appView.classList.add("hidden");
     authView.classList.remove("hidden");
+  });
+
+  // ================= FORGOT / RESET PASSWORD =================
+  function showAuthForm(which){
+    // which: "login" | "signup" | "forgot" | "reset"
+    $("#auth-tabs").classList.toggle("hidden", which === "forgot" || which === "reset");
+    $("#login-form").classList.toggle("hidden", which !== "login");
+    $("#signup-form").classList.toggle("hidden", which !== "signup");
+    $("#forgot-form").classList.toggle("hidden", which !== "forgot");
+    $("#reset-password-form").classList.toggle("hidden", which !== "reset");
+    clearMsg($("#auth-msg"));
+  }
+
+  $("#forgot-password-link").addEventListener("click", () => showAuthForm("forgot"));
+  $("#back-to-login-link").addEventListener("click", () => {
+    $$(".tab").forEach(t => t.classList.toggle("active", t.dataset.tab === "login"));
+    showAuthForm("login");
+  });
+
+  $("#forgot-form").addEventListener("submit", async (e) => {
+    e.preventDefault();
+    const btn = $("#forgot-btn");
+    btn.disabled = true; btn.innerHTML = '<span class="spinner"></span>Αποστολή...';
+    const email = $("#forgot-email").value.trim();
+    const { error } = await sb.auth.resetPasswordForEmail(email, {
+      redirectTo: window.location.origin + window.location.pathname
+    });
+    btn.disabled = false; btn.textContent = "Αποστολή συνδέσμου";
+    if (error) { showMsg($("#auth-msg"), "Σφάλμα: " + error.message, "error"); return; }
+    $("#forgot-email").value = "";
+    showMsg($("#auth-msg"), "Αν υπάρχει λογαριασμός με αυτό το email, στάλθηκε σύνδεσμος επαναφοράς κωδικού. Έλεγξε τα εισερχόμενά σου (και τα spam).", "ok");
+  });
+
+  $("#reset-password-form").addEventListener("submit", async (e) => {
+    e.preventDefault();
+    const pw = $("#reset-password").value;
+    const pw2 = $("#reset-password-confirm").value;
+    if (pw !== pw2) { showMsg($("#auth-msg"), "Οι κωδικοί δεν ταιριάζουν.", "error"); return; }
+    const btn = $("#reset-password-btn");
+    btn.disabled = true; btn.innerHTML = '<span class="spinner"></span>Αποθήκευση...';
+    const { error } = await sb.auth.updateUser({ password: pw });
+    btn.disabled = false; btn.textContent = "Αποθήκευση νέου κωδικού";
+    if (error) { showMsg($("#auth-msg"), "Σφάλμα: " + error.message, "error"); return; }
+    showMsg($("#auth-msg"), "Ο κωδικός άλλαξε.", "ok");
+    await boot();
+  });
+
+  // Supabase fires this when the user arrives via the password-reset email link —
+  // override whatever boot()/getSession() is doing and force the reset-password screen.
+  sb.auth.onAuthStateChange((event) => {
+    if (event === "PASSWORD_RECOVERY") {
+      appView.classList.add("hidden");
+      authView.classList.remove("hidden");
+      showAuthForm("reset");
+    }
   });
 
   // ================= DRAWER =================
