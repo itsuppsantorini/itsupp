@@ -79,6 +79,13 @@
   .notif-item:hover{background:var(--teal-light);}
   .notif-item.unread{background:#F4FAF9;}
   .notif-item .notif-time{color:var(--ink-soft);font-size:11px;margin-top:3px;}
+  .vlog-open{background:var(--green-bg);color:var(--green);border-radius:8px;padding:11px 13px;font-size:13px;margin-bottom:10px;line-height:1.5;}
+  .vlog-open.stale{background:var(--amber-bg);color:var(--amber);}
+  .vlog-row{padding:9px 2px;border-bottom:1px solid var(--line);font-size:12.5px;line-height:1.5;}
+  .vlog-row:last-child{border-bottom:none;}
+  .vlog-row .vlog-who{color:var(--ink-soft);font-size:11.5px;}
+  .btn-checkin{width:100%;padding:13px;font-size:15px;margin-bottom:6px;}
+  .geo-link{font-size:11.5px;}
   .nav{display:flex;gap:6px;padding:12px 24px 0;}
   .nav-item{padding:8px 14px;border-radius:8px;font-size:13.5px;font-weight:600;color:var(--ink-soft);cursor:pointer;}
   .nav-item:hover{background:#EEF3F3;}
@@ -282,6 +289,10 @@
         </div>
         <div id="dashboard-msg" style="padding:0 20px;"></div>
         <div class="stat-row" id="dashboard-stats"></div>
+      </div>
+      <div class="panel" style="margin-bottom:16px;">
+        <div class="panel-head"><h2>Τεχνικοί σε δουλειά τώρα</h2></div>
+        <div class="panel-body" id="dashboard-onsite" style="padding:4px 0;"></div>
       </div>
       <div class="panel" style="margin-bottom:16px;">
         <div class="panel-head"><h2>Επείγοντα ανοιχτά αιτήματα</h2></div>
@@ -714,7 +725,14 @@
       $("#nav-tickets-label").textContent = isOwnerRole ? "Αιτήματα" : "Οι εργασίες μου";
       $("#notif-wrap").classList.remove("hidden");
       await loadNotifications();
-      if (!NOTIF_POLL_STARTED) { NOTIF_POLL_STARTED = true; setInterval(loadNotifications, 60000); }
+      if (!NOTIF_POLL_STARTED) {
+        NOTIF_POLL_STARTED = true;
+        setInterval(async () => {
+          await loadNotifications();
+          // όσο η Αρχική είναι ανοιχτή, το «ποιος είναι σε δουλειά τώρα» ανανεώνεται μόνο του
+          if (!$("#view-dashboard").classList.contains("hidden")) await loadOnsiteNow();
+        }, 60000);
+      }
       const defaultView = isOwnerRole ? "dashboard" : "tickets";
       $$(".nav-item").forEach(i => i.classList.remove("active"));
       $(`.nav-item[data-view="${defaultView}"]`).classList.add("active");
@@ -724,6 +742,125 @@
       $("#view-portal").classList.remove("hidden");
       await loadPortal(profile.client_id);
     }
+  }
+
+  // ================= VISIT CHECK-IN / CHECK-OUT (GPS) =================
+  // Ζητάει τοποθεσία από τη συσκευή. ΠΟΤΕ δεν πετάει σφάλμα: αν ο τεχνικός
+  // αρνηθεί την άδεια ή αργήσει το GPS, επιστρέφει null και η άφιξη
+  // καταγράφεται κανονικά, απλώς χωρίς σημείο — δεν μπλοκάρει τη δουλειά.
+  function getGeoPosition(){
+    return new Promise(resolve => {
+      if (!navigator.geolocation) { resolve(null); return; }
+      let done = false;
+      const finish = (val) => { if (!done) { done = true; resolve(val); } };
+      navigator.geolocation.getCurrentPosition(
+        pos => finish({ lat: pos.coords.latitude, lng: pos.coords.longitude, acc: pos.coords.accuracy }),
+        () => finish(null),
+        { enableHighAccuracy: true, timeout: 12000, maximumAge: 0 }
+      );
+      setTimeout(() => finish(null), 13000);
+    });
+  }
+  function fmtTime(iso){
+    return new Date(iso).toLocaleTimeString("el-GR", { hour:"2-digit", minute:"2-digit", hour12:false });
+  }
+  function fmtDateTime(iso){
+    return new Date(iso).toLocaleString("el-GR", { day:"2-digit", month:"2-digit", hour:"2-digit", minute:"2-digit", hour12:false });
+  }
+  function formatDuration(ms){
+    const mins = Math.max(0, Math.round(ms / 60000));
+    const h = Math.floor(mins / 60), m = mins % 60;
+    if (h === 0) return `${m}′`;
+    return m === 0 ? `${h}ώ` : `${h}ώ ${m}′`;
+  }
+  function geoLink(lat, lng, label){
+    if (lat == null || lng == null) return '<span class="cell-sub">χωρίς τοποθεσία</span>';
+    return `<a class="geo-link" href="https://www.google.com/maps?q=${lat},${lng}" target="_blank" rel="noopener">${label}</a>`;
+  }
+  // Σύγκριση ώρας άφιξης με το ραντεβού — μόνο όταν η άφιξη έγινε την
+  // προγραμματισμένη ημέρα, αλλιώς η διαφορά δεν σημαίνει τίποτα.
+  function latenessLabel(ticket, checkinAt){
+    if (!ticket || !ticket.scheduled_date || !ticket.scheduled_time) return "";
+    const arrived = new Date(checkinAt);
+    const localDay = `${arrived.getFullYear()}-${String(arrived.getMonth()+1).padStart(2,"0")}-${String(arrived.getDate()).padStart(2,"0")}`;
+    if (localDay !== ticket.scheduled_date) return "";
+    const sched = new Date(ticket.scheduled_date + "T" + ticket.scheduled_time);
+    const diff = Math.round((arrived - sched) / 60000);
+    if (Math.abs(diff) <= 10) return ' · <span style="color:var(--green);font-weight:600;">στην ώρα του</span>';
+    const amount = formatDuration(Math.abs(diff) * 60000);
+    if (diff > 0) return ` · <span style="color:var(--red);font-weight:600;">${amount} αργότερα</span>`;
+    return ` · <span style="color:var(--ink-soft);">${amount} νωρίτερα</span>`;
+  }
+
+  // Το περιεχόμενο του πλαισίου «Άφιξη / Αναχώρηση» μέσα σε ένα αίτημα.
+  function vlogBoxHtml(vlogs, ticket){
+    const open = vlogs.find(v => !v.checkout_at);
+    const done = vlogs.filter(v => v.checkout_at);
+    let html = "";
+    if (open) {
+      const elapsed = Date.now() - new Date(open.checkin_at).getTime();
+      const stale = elapsed > 4 * 3600000;
+      const mine = USER && open.tech_id === USER.id;
+      const who = open.profiles ? (open.profiles.full_name || open.profiles.email) : "—";
+      html += `
+        <div class="vlog-open ${stale ? "stale" : ""}">
+          <strong>${mine ? "Είσαι σε επίσκεψη" : escapeHtml(who) + " σε επίσκεψη"}</strong> — άφιξη ${fmtTime(open.checkin_at)}${latenessLabel(ticket, open.checkin_at)}<br>
+          Διάρκεια μέχρι τώρα: ${formatDuration(elapsed)} · ${geoLink(open.checkin_lat, open.checkin_lng, "σημείο άφιξης")}
+        </div>
+        <button type="button" class="btn-primary btn-checkin" id="vlog-checkout">${mine ? "Αναχώρηση (check-out)" : "Κλείσιμο επίσκεψης"}</button>`;
+    } else {
+      html += `<button type="button" class="btn-primary btn-checkin" id="vlog-checkin">📍 Άφιξη (check-in)</button>`;
+    }
+    if (done.length > 0) {
+      html += done.map(v => {
+        const dur = new Date(v.checkout_at) - new Date(v.checkin_at);
+        const who = v.profiles ? (v.profiles.full_name || v.profiles.email) : "—";
+        return `
+          <div class="vlog-row">
+            <strong>${fmtDateTime(v.checkin_at)} → ${fmtTime(v.checkout_at)}</strong> · ${formatDuration(dur)}${latenessLabel(ticket, v.checkin_at)}
+            <div class="vlog-who">${escapeHtml(who)} · ${geoLink(v.checkin_lat, v.checkin_lng, "άφιξη")} · ${geoLink(v.checkout_lat, v.checkout_lng, "αναχώρηση")}</div>
+          </div>`;
+      }).join("");
+    } else if (!open) {
+      html += '<div class="cell-sub" style="padding:8px 2px;">Δεν έχει καταγραφεί ακόμα επίσκεψη σε αυτό το αίτημα.</div>';
+    }
+    return html;
+  }
+
+  // Ανοιχτές επισκέψεις (άφιξη χωρίς αναχώρηση) — «ποιος είναι πού τώρα».
+  async function loadOnsiteNow(){
+    const box = $("#dashboard-onsite");
+    if (!box) return 0;
+    const { data, error } = await sb.from("visit_logs")
+      .select("id, checkin_at, checkin_lat, checkin_lng, profiles(full_name, email), tickets(id, ticket_no, title, scheduled_date, scheduled_time, clients(name))")
+      .is("checkout_at", null).order("checkin_at");
+    if (error) { box.innerHTML = `<div class="empty-state">Σφάλμα φόρτωσης: ${escapeHtml(error.message)}</div>`; return 0; }
+    const rows = data || [];
+    const numEl = $("#stat-onsite-num");
+    if (numEl) numEl.textContent = String(rows.length);
+    if (rows.length === 0) {
+      box.innerHTML = '<div class="empty-state">Κανένας τεχνικός δεν είναι σε επίσκεψη αυτή τη στιγμή.</div>';
+      return 0;
+    }
+    box.innerHTML = rows.map(v => {
+      const tk = v.tickets || {};
+      const elapsed = Date.now() - new Date(v.checkin_at).getTime();
+      const stale = elapsed > 4 * 3600000;
+      const who = v.profiles ? (v.profiles.full_name || v.profiles.email) : "—";
+      return `
+        <div class="sched-visit" ${tk.id ? `data-id="${tk.id}"` : ""}>
+          <div class="sched-time">${fmtTime(v.checkin_at)}</div>
+          <div class="sched-info">
+            <strong>${escapeHtml(tk.clients ? tk.clients.name : "—")}</strong> — ${escapeHtml(tk.title || "")}
+            <div class="sched-tech">${escapeHtml(who)}${latenessLabel(tk, v.checkin_at)} · ${geoLink(v.checkin_lat, v.checkin_lng, "σημείο άφιξης")}</div>
+          </div>
+          <div class="sched-tech" style="${stale ? "color:var(--amber);font-weight:600;" : ""}">${formatDuration(elapsed)}${stale ? " ⚠" : ""}</div>
+        </div>`;
+    }).join("");
+    box.querySelectorAll("[data-id]").forEach(el => {
+      el.addEventListener("click", () => openTicketDrawer(el.dataset.id, false));
+    });
+    return rows.length;
   }
 
   // ================= DASHBOARD (staff) =================
@@ -759,6 +896,7 @@
     const upcoming = upcomingRes.data || [];
 
     $("#dashboard-stats").innerHTML = `
+      <div class="stat-tile"><div class="num" id="stat-onsite-num">0</div><div class="lbl">Σε δουλειά τώρα</div></div>
       <div class="stat-tile"><div class="num">${clientsRes.count ?? 0}</div><div class="lbl">Πελάτες</div></div>
       <div class="stat-tile"><div class="num">${openTickets.length}</div><div class="lbl">Ανοιχτά αιτήματα</div></div>
       <div class="stat-tile ${urgentOpenCount>0?'balance-due':''}"><div class="num">${urgentOpenCount}</div><div class="lbl">Επείγοντα</div></div>
@@ -786,6 +924,8 @@
           <div class="sched-info"><strong>${escapeHtml(t.clients ? t.clients.name : "")}</strong> — ${escapeHtml(t.title)}</div>
         </div>`).join("");
     $$("#dashboard-upcoming [data-id]").forEach(el => el.addEventListener("click", () => openTicketDrawer(el.dataset.id, false)));
+
+    await loadOnsiteNow();
   }
 
   // ================= CLIENTS (staff) =================
@@ -1243,6 +1383,14 @@
     if (!portalMode && INVENTORY_CACHE.length === 0) await loadInventory();
     if (!portalMode && STAFF_USERS_CACHE.length === 0) await loadStaffUsers();
 
+    async function fetchVlogs(){
+      if (portalMode) return [];
+      const { data } = await sb.from("visit_logs").select("*, profiles(full_name, email)")
+        .eq("ticket_id", ticketId).order("checkin_at", { ascending:false });
+      return data || [];
+    }
+    let VLOGS = await fetchVlogs();
+
     function assignedOptionsHtml(selectedId){
       return `<option value="" ${!selectedId?"selected":""}>— Χωρίς ανάθεση —</option>` +
         STAFF_USERS_CACHE.map(u => `<option value="${u.id}" ${u.id===selectedId?"selected":""}>${escapeHtml(u.full_name || u.email)} (${ROLE_LABEL[u.role] || u.role})</option>`).join("");
@@ -1268,6 +1416,10 @@
     }
 
     const staffControls = portalMode ? "" : `
+      <div class="section-title">Άφιξη / Αναχώρηση</div>
+      <div id="vlog-box">${vlogBoxHtml(VLOGS, t)}</div>
+      <div id="vlog-msg"></div>
+
       <div class="form-row">
         <div class="field"><label>Κατάσταση</label>
           <select id="tk-status-sel">
@@ -1358,6 +1510,65 @@
     `);
 
     if (!portalMode) {
+      async function refreshVlogBox(){
+        VLOGS = await fetchVlogs();
+        $("#vlog-box").innerHTML = vlogBoxHtml(VLOGS, t);
+        wireVlogButtons();
+      }
+      function wireVlogButtons(){
+        const inBtn = $("#vlog-checkin");
+        if (inBtn) inBtn.addEventListener("click", async () => {
+          inBtn.disabled = true; inBtn.innerHTML = '<span class="spinner"></span>Εντοπισμός τοποθεσίας...';
+          const pos = await getGeoPosition();
+          const { error: ciErr } = await sb.from("visit_logs").insert({
+            ticket_id: ticketId,
+            tech_id: USER.id,
+            checkin_lat: pos ? pos.lat : null,
+            checkin_lng: pos ? pos.lng : null,
+            checkin_accuracy: pos ? pos.acc : null
+          });
+          if (ciErr) {
+            inBtn.disabled = false; inBtn.textContent = "📍 Άφιξη (check-in)";
+            showMsg($("#vlog-msg"), "Σφάλμα: " + ciErr.message, "error");
+            return;
+          }
+          if (pos) clearMsg($("#vlog-msg"));
+          else showMsg($("#vlog-msg"), "Η άφιξη καταγράφηκε, αλλά χωρίς τοποθεσία — δεν δόθηκε άδεια GPS στη συσκευή.", "ok");
+          // ένα αίτημα που ήταν «Νέο» περνάει αυτόματα «Σε εξέλιξη» μόλις φτάσει ο τεχνικός
+          const statusSel = $("#tk-status-sel");
+          if (statusSel && statusSel.value === "new") {
+            await sb.from("tickets").update({ status: "progress" }).eq("id", ticketId);
+            statusSel.value = "progress";
+          }
+          await refreshVlogBox();
+        });
+        const outBtn = $("#vlog-checkout");
+        if (outBtn) outBtn.addEventListener("click", async () => {
+          const open = VLOGS.find(v => !v.checkout_at);
+          if (!open) { await refreshVlogBox(); return; }
+          const mine = USER && open.tech_id === USER.id;
+          const label = outBtn.textContent;
+          outBtn.disabled = true; outBtn.innerHTML = '<span class="spinner"></span>Καταγραφή...';
+          // τοποθεσία αναχώρησης μόνο όταν κλείνει ο ίδιος ο τεχνικός την επίσκεψή του —
+          // αν την κλείνει ο διαχειριστής, το σημείο του δεν σημαίνει τίποτα
+          const pos = mine ? await getGeoPosition() : null;
+          const { error: coErr } = await sb.rpc("visit_check_out", {
+            p_visit: open.id,
+            p_lat: pos ? pos.lat : null,
+            p_lng: pos ? pos.lng : null,
+            p_acc: pos ? pos.acc : null
+          });
+          if (coErr) {
+            outBtn.disabled = false; outBtn.textContent = label;
+            showMsg($("#vlog-msg"), "Σφάλμα: " + coErr.message, "error");
+            return;
+          }
+          clearMsg($("#vlog-msg"));
+          await refreshVlogBox();
+        });
+      }
+      wireVlogButtons();
+
       function wireVisitLine(row){
         const sel = row.querySelector("[data-vline-item]");
         const descInput = row.querySelector("[data-vline-desc]");
