@@ -1081,6 +1081,27 @@
     const { data: t, error } = await sb.from("tickets_view").select("*, clients(name)").eq("id", ticketId).single();
     if (error || !t) { return; }
     const { data: notes } = await sb.from("ticket_notes").select("*").eq("ticket_id", ticketId).order("created_at");
+    if (!portalMode && INVENTORY_CACHE.length === 0) await loadInventory();
+
+    function visitItemOptionsHtml(selectedId){
+      return `<option value="" ${!selectedId?"selected":""}>— Χειροκίνητη καταχώρηση —</option>` +
+        INVENTORY_CACHE.map(it => `<option value="${it.id}" data-price="${it.price}" data-name="${escapeHtml(it.name)}" data-category="${escapeHtml(it.category||"")}" ${it.id===selectedId?"selected":""}>${escapeHtml(it.name)} (απόθεμα: ${it.stock})</option>`).join("");
+    }
+    function visitLineHtml(line){
+      return `
+      <div class="qline" data-vline-row>
+        <div class="qline-top">
+          <select data-vline-item>${visitItemOptionsHtml(line.itemId)}</select>
+          <button type="button" class="remove-x" data-vline-remove>✕</button>
+        </div>
+        <input data-vline-desc placeholder="Περιγραφή υλικού" value="${escapeHtml(line.description || "")}" style="margin-bottom:8px;">
+        <div class="qline-nums">
+          <input type="number" step="1" min="0" data-vline-qty placeholder="Ποσότητα" value="${line.qty}">
+          <input type="number" step="0.01" min="0" data-vline-price placeholder="Τιμή" value="${line.price}">
+          <div class="qline-total" data-vline-total>${(Number(line.qty)*Number(line.price)).toFixed(2)}€</div>
+        </div>
+      </div>`;
+    }
 
     const staffControls = portalMode ? "" : `
       <div class="form-row">
@@ -1105,6 +1126,43 @@
         <div class="field"><label>Ώρα έναρξης</label><input type="time" id="tk-sched-time" value="${t.scheduled_time || ""}"></div>
         <div class="field"><label>Ώρα λήξης</label><input type="time" id="tk-sched-end" value="${t.scheduled_end || ""}"></div>
       </div>
+
+      <div class="section-title">Υλικά &amp; χρέωση επίσκεψης</div>
+      <div id="visit-lines">${visitLineHtml({ itemId:"", description:"", qty:1, price:0 })}</div>
+      <button type="button" class="add-link" id="visit-add-line">+ Προσθήκη υλικού</button>
+      <div class="qtotal-row" style="font-size:13px;padding:10px 0 4px;"><span>Σύνολο υλικών</span><span id="visit-materials-total">0.00€</span></div>
+      <div class="field"><label>Επιπλέον χρέωση εργασίας (€)</label><input type="number" step="0.01" min="0" id="visit-labor" value="0"></div>
+      <div class="qtotal-row"><span>Συνολική χρέωση επίσκεψης</span><span id="visit-grand-total">0.00€</span></div>
+      <div class="form-row">
+        <div class="field"><label>Παραστατικό</label>
+          <select id="visit-doc-series">
+            <option value="TDA">ΤΔΑ</option>
+            <option value="TPY">ΤΠΥ</option>
+            <option value="">Χωρίς παραστατικό</option>
+          </select>
+        </div>
+        <div class="field"><label>Πληρωμή</label>
+          <select id="visit-paid">
+            <option value="no">Θα μείνει υπόλοιπο</option>
+            <option value="yes">Πληρώθηκε τώρα</option>
+          </select>
+        </div>
+      </div>
+      <div class="form-row hidden" id="visit-method-row">
+        <div class="field"><label>Τρόπος πληρωμής</label>
+          <select id="visit-method">
+            <option value="cash">Μετρητά</option>
+            <option value="card">Κάρτα</option>
+            <option value="bank">Τραπεζική κατάθεση</option>
+          </select>
+        </div>
+        <div class="field hidden" id="visit-bank-field"><label>Τράπεζα</label>
+          <select id="visit-bank">${BANKS.map(b => `<option>${b}</option>`).join("")}</select>
+        </div>
+      </div>
+      <div id="visit-msg"></div>
+      <button type="button" class="btn-primary btn-sm" id="visit-save" style="margin-bottom:4px;">Καταχώρηση επίσκεψης</button>
+
       ${t.status !== "cancelled" ? '<button type="button" class="add-link" id="tk-cancel-link" style="color:var(--red);">Ακύρωση αιτήματος</button><div id="tk-cancel-confirm"></div>' : ""}
     `;
 
@@ -1136,6 +1194,131 @@
     `);
 
     if (!portalMode) {
+      function wireVisitLine(row){
+        const sel = row.querySelector("[data-vline-item]");
+        const descInput = row.querySelector("[data-vline-desc]");
+        const qtyInput = row.querySelector("[data-vline-qty]");
+        const priceInput = row.querySelector("[data-vline-price]");
+        const totalEl = row.querySelector("[data-vline-total]");
+        const removeBtn = row.querySelector("[data-vline-remove]");
+        function refreshLineTotal(){
+          const lt = (parseFloat(qtyInput.value)||0) * (parseFloat(priceInput.value)||0);
+          totalEl.textContent = lt.toFixed(2) + "€";
+          refreshVisitTotals();
+        }
+        sel.addEventListener("change", () => {
+          const opt = sel.options[sel.selectedIndex];
+          if (opt.value) { descInput.value = opt.dataset.name; priceInput.value = opt.dataset.price; }
+          refreshLineTotal();
+        });
+        qtyInput.addEventListener("input", refreshLineTotal);
+        priceInput.addEventListener("input", refreshLineTotal);
+        removeBtn.addEventListener("click", () => { row.remove(); refreshVisitTotals(); });
+      }
+      function refreshVisitTotals(){
+        let materials = 0;
+        $$("[data-vline-row]").forEach(row => {
+          const q = parseFloat(row.querySelector("[data-vline-qty]").value) || 0;
+          const p = parseFloat(row.querySelector("[data-vline-price]").value) || 0;
+          materials += q * p;
+        });
+        $("#visit-materials-total").textContent = materials.toFixed(2) + "€";
+        const labor = parseFloat($("#visit-labor").value) || 0;
+        $("#visit-grand-total").textContent = (materials + labor).toFixed(2) + "€";
+      }
+      $$("[data-vline-row]").forEach(wireVisitLine);
+      refreshVisitTotals();
+      $("#visit-add-line").addEventListener("click", () => {
+        $("#visit-lines").insertAdjacentHTML("beforeend", visitLineHtml({ itemId:"", description:"", qty:1, price:0 }));
+        wireVisitLine($("#visit-lines").lastElementChild);
+        refreshVisitTotals();
+      });
+      $("#visit-labor").addEventListener("input", refreshVisitTotals);
+      $("#visit-paid").addEventListener("change", () => {
+        $("#visit-method-row").classList.toggle("hidden", $("#visit-paid").value !== "yes");
+      });
+      $("#visit-method").addEventListener("change", () => {
+        $("#visit-bank-field").classList.toggle("hidden", $("#visit-method").value !== "bank");
+      });
+      $("#visit-save").addEventListener("click", async () => {
+        const btn = $("#visit-save");
+        const lines = $$("[data-vline-row]").map(row => ({
+          itemId: row.querySelector("[data-vline-item]").value || null,
+          description: row.querySelector("[data-vline-desc]").value.trim(),
+          qty: parseFloat(row.querySelector("[data-vline-qty]").value) || 0,
+          price: parseFloat(row.querySelector("[data-vline-price]").value) || 0
+        })).filter(l => l.description && l.qty > 0);
+        const labor = parseFloat($("#visit-labor").value) || 0;
+        const materialsTotal = lines.reduce((s,l) => s + l.qty * l.price, 0);
+        const grandTotal = materialsTotal + labor;
+        if (lines.length === 0 && labor <= 0) {
+          showMsg($("#visit-msg"), "Πρόσθεσε τουλάχιστον ένα υλικό ή μια χρέωση εργασίας.", "error");
+          return;
+        }
+        for (const l of lines) {
+          if (l.itemId) {
+            const item = INVENTORY_CACHE.find(i => i.id === l.itemId);
+            if (item && l.qty > item.stock) {
+              showMsg($("#visit-msg"), `Δεν υπάρχει αρκετό απόθεμα για "${item.name}" (διαθέσιμο: ${item.stock}).`, "error");
+              return;
+            }
+          }
+        }
+        btn.disabled = true; btn.innerHTML = '<span class="spinner"></span>Καταχώρηση...';
+        try {
+          for (const l of lines) {
+            if (l.itemId) {
+              const item = INVENTORY_CACHE.find(i => i.id === l.itemId);
+              const { error: stErr } = await sb.from("inventory_items").update({ stock: item.stock - l.qty }).eq("id", l.itemId);
+              if (stErr) throw stErr;
+              item.stock -= l.qty;
+            }
+            const { error: eqErr } = await sb.from("equipment").insert({
+              client_id: t.client_id,
+              type: (l.itemId && INVENTORY_CACHE.find(i => i.id === l.itemId)?.category) || "Υλικό",
+              detail: l.description + (l.qty > 1 ? " x" + l.qty : "")
+            });
+            if (eqErr) throw eqErr;
+          }
+          if (grandTotal > 0) {
+            const series = $("#visit-doc-series").value;
+            let docNumber = null;
+            if (series) {
+              const { data, error: docErr } = await sb.rpc("next_doc_number", { p_key: series });
+              if (docErr) throw docErr;
+              docNumber = data;
+            }
+            const { error: chErr } = await sb.from("ledger_entries").insert({
+              client_id: t.client_id,
+              description: "Επίσκεψη " + t.code + (t.title ? " — " + t.title : ""),
+              charge: grandTotal, payment: 0, doc_number: docNumber
+            });
+            if (chErr) throw chErr;
+            if ($("#visit-paid").value === "yes") {
+              const { data: payDoc, error: payErr } = await sb.rpc("next_doc_number", { p_key: "APY" });
+              if (payErr) throw payErr;
+              const method = $("#visit-method").value;
+              const { error: payInsErr } = await sb.from("ledger_entries").insert({
+                client_id: t.client_id,
+                description: "Πληρωμή επίσκεψης " + t.code,
+                charge: 0, payment: grandTotal, doc_number: payDoc,
+                method, bank: method === "bank" ? $("#visit-bank").value : null,
+                settles_doc: docNumber
+              });
+              if (payInsErr) throw payInsErr;
+            }
+          }
+          showMsg($("#visit-msg"), "Καταχωρήθηκε επιτυχώς.", "ok");
+          $("#visit-lines").innerHTML = visitLineHtml({ itemId:"", description:"", qty:1, price:0 });
+          wireVisitLine($("#visit-lines").firstElementChild);
+          $("#visit-labor").value = "0";
+          refreshVisitTotals();
+        } catch (err) {
+          showMsg($("#visit-msg"), "Σφάλμα: " + err.message, "error");
+        }
+        btn.disabled = false; btn.textContent = "Καταχώρηση επίσκεψης";
+      });
+
       $("#tk-save").addEventListener("click", async () => {
         const payload = {
           status: $("#tk-status-sel").value,
