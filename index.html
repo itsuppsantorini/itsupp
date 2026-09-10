@@ -66,6 +66,7 @@
   .pill-owner{background:var(--purple-bg);color:var(--purple);}
   .pill-staff{background:var(--teal-light);color:var(--teal-dark);}
   .pill-client{background:var(--amber-bg);color:var(--amber);}
+  .pill-external{background:var(--blue-bg);color:var(--blue);}
   .nav{display:flex;gap:6px;padding:12px 24px 0;}
   .nav-item{padding:8px 14px;border-radius:8px;font-size:13.5px;font-weight:600;color:var(--ink-soft);cursor:pointer;}
   .nav-item:hover{background:#EEF3F3;}
@@ -555,11 +556,11 @@
     }
     PROFILE = profile;
 
-    const roleLabel = { owner:"Διαχειριστής", staff:"Συνεργάτης", client:"Πελάτης" }[profile.role] || profile.role;
-    const pillClass = { owner:"pill-owner", staff:"pill-staff", client:"pill-client" }[profile.role] || "";
+    const roleLabel = { owner:"Διαχειριστής", staff:"Τεχνικός", external:"Εξωτερικός συνεργάτης", client:"Πελάτης" }[profile.role] || profile.role;
+    const pillClass = { owner:"pill-owner", staff:"pill-staff", external:"pill-external", client:"pill-client" }[profile.role] || "";
     $("#who-label").innerHTML = `${escapeHtml(profile.full_name || user.email)} <span class="pill ${pillClass}">${roleLabel}</span>`;
 
-    if (profile.role === "owner" || profile.role === "staff") {
+    if (profile.role === "owner" || profile.role === "staff" || profile.role === "external") {
       $("#staff-nav").classList.remove("hidden");
       $("#nav-users").classList.toggle("hidden", profile.role !== "owner");
       $$(".nav-item").forEach(i => i.classList.remove("active"));
@@ -1923,7 +1924,7 @@
 
   // ================= USERS / ROLES (owner only) =================
   let USERS_CACHE = [];
-  const ROLE_LABEL = { owner:"Διαχειριστής", staff:"Συνεργάτης", client:"Πελάτης" };
+  const ROLE_LABEL = { owner:"Διαχειριστής", staff:"Τεχνικός", external:"Εξωτερικός συνεργάτης", client:"Πελάτης" };
 
   async function loadUsers(){
     if (CLIENTS_CACHE.length === 0) await loadClients();
@@ -1938,7 +1939,7 @@
     }
     tbody.innerHTML = USERS_CACHE.map(p => {
       const client = p.client_id ? CLIENTS_CACHE.find(c => c.id === p.client_id) : null;
-      const pillClass = { owner:"pill-owner", staff:"pill-staff", client:"pill-client" }[p.role] || "";
+      const pillClass = { owner:"pill-owner", staff:"pill-staff", external:"pill-external", client:"pill-client" }[p.role] || "";
       return `
       <tr data-id="${p.id}">
         <td><strong>${escapeHtml(p.full_name || "—")}</strong><div class="cell-sub">${escapeHtml(p.email || "")}</div></td>
@@ -1963,7 +1964,8 @@
         <div class="field"><label>Ρόλος</label>
           <select id="usr-role">
             <option value="owner" ${p.role==='owner'?'selected':''}>Διαχειριστής</option>
-            <option value="staff" ${p.role==='staff'?'selected':''}>Συνεργάτης</option>
+            <option value="staff" ${p.role==='staff'?'selected':''}>Τεχνικός</option>
+            <option value="external" ${p.role==='external'?'selected':''}>Εξωτερικός συνεργάτης</option>
             <option value="client" ${p.role==='client'?'selected':''}>Πελάτης</option>
           </select>
         </div>
