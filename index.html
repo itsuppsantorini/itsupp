@@ -218,18 +218,39 @@
   </div>
 
   <div class="nav hidden" id="staff-nav">
-    <div class="nav-item active" data-view="clients">Πελάτες</div>
+    <div class="nav-item active" data-view="dashboard">Αρχική</div>
+    <div class="nav-item" data-view="clients">Πελάτες</div>
     <div class="nav-item" data-view="tickets">Αιτήματα</div>
     <div class="nav-item" data-view="inventory">Αποθήκη</div>
     <div class="nav-item" data-view="quotes">Προσφορές</div>
     <div class="nav-item" data-view="expenses">Έξοδα</div>
     <div class="nav-item" data-view="schedule">Πρόγραμμα</div>
+    <div class="nav-item hidden" data-view="users" id="nav-users">Χρήστες</div>
   </div>
 
   <div class="main">
     <div id="no-role-msg" class="panel hidden" style="padding:26px;">
       <h1>Ο λογαριασμός σου δημιουργήθηκε</h1>
       <p class="sub">Περιμένεις να σε ενεργοποιήσει ο διαχειριστής (ρόλος + σύνδεση με πελάτη, αν είσαι πελάτης). Δοκίμασε ξανά αργότερα.</p>
+    </div>
+
+    <!-- staff: dashboard -->
+    <div id="view-dashboard" class="hidden">
+      <div class="panel" style="margin-bottom:16px;">
+        <div class="panel-head">
+          <h2>Επισκόπηση</h2>
+        </div>
+        <div id="dashboard-msg" style="padding:0 20px;"></div>
+        <div class="stat-row" id="dashboard-stats"></div>
+      </div>
+      <div class="panel" style="margin-bottom:16px;">
+        <div class="panel-head"><h2>Επείγοντα ανοιχτά αιτήματα</h2></div>
+        <div class="panel-body" id="dashboard-urgent" style="padding:4px 0;"></div>
+      </div>
+      <div class="panel">
+        <div class="panel-head"><h2>Επόμενες επισκέψεις (7 ημέρες)</h2></div>
+        <div class="panel-body" id="dashboard-upcoming" style="padding:4px 0;"></div>
+      </div>
     </div>
 
     <!-- staff: clients -->
@@ -333,6 +354,23 @@
         <div class="panel-body">
           <div id="schedule-msg" style="padding:0 20px;"></div>
           <div id="schedule-list"></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- staff (owner only): users/roles -->
+    <div id="view-users" class="hidden">
+      <div class="panel">
+        <div class="panel-head">
+          <h2>Χρήστες</h2>
+        </div>
+        <div class="panel-body">
+          <p class="sub" style="padding:0 20px;margin-top:-4px;">Οι νέοι λογαριασμοί εγγράφονται μόνοι τους (χωρίς ρόλο). Πάτα σε έναν χρήστη για να ορίσεις τον ρόλο του (και τον πελάτη, αν είναι τύπου «Πελάτης»).</p>
+          <div id="users-msg" style="padding:0 20px;"></div>
+          <table>
+            <thead><tr><th>Όνομα / Email</th><th>Ρόλος</th><th>Συνδεδεμένος πελάτης</th></tr></thead>
+            <tbody id="users-tbody"></tbody>
+          </table>
         </div>
       </div>
     </div>
@@ -469,18 +507,22 @@
     });
   });
   function showStaffView(view){
+    $("#view-dashboard").classList.toggle("hidden", view !== "dashboard");
     $("#view-clients").classList.toggle("hidden", view !== "clients");
     $("#view-tickets").classList.toggle("hidden", view !== "tickets");
     $("#view-inventory").classList.toggle("hidden", view !== "inventory");
     $("#view-quotes").classList.toggle("hidden", view !== "quotes");
     $("#view-expenses").classList.toggle("hidden", view !== "expenses");
     $("#view-schedule").classList.toggle("hidden", view !== "schedule");
+    $("#view-users").classList.toggle("hidden", view !== "users");
+    if (view === "dashboard") loadDashboard();
     if (view === "clients") loadClients();
     if (view === "tickets") loadTickets();
     if (view === "inventory") loadInventory();
     if (view === "quotes") loadQuotes();
     if (view === "expenses") loadExpenses();
     if (view === "schedule") loadSchedule();
+    if (view === "users") loadUsers();
   }
 
   // ================= BOOT / ROLE ROUTING =================
@@ -489,12 +531,14 @@
     appView.classList.remove("hidden");
     $("#no-role-msg").classList.add("hidden");
     $("#staff-nav").classList.add("hidden");
+    $("#view-dashboard").classList.add("hidden");
     $("#view-clients").classList.add("hidden");
     $("#view-tickets").classList.add("hidden");
     $("#view-inventory").classList.add("hidden");
     $("#view-quotes").classList.add("hidden");
     $("#view-expenses").classList.add("hidden");
     $("#view-schedule").classList.add("hidden");
+    $("#view-users").classList.add("hidden");
     $("#view-portal").classList.add("hidden");
 
     const { data: { user } } = await sb.auth.getUser();
@@ -517,14 +561,77 @@
 
     if (profile.role === "owner" || profile.role === "staff") {
       $("#staff-nav").classList.remove("hidden");
+      $("#nav-users").classList.toggle("hidden", profile.role !== "owner");
       $$(".nav-item").forEach(i => i.classList.remove("active"));
-      $('.nav-item[data-view="clients"]').classList.add("active");
-      showStaffView("clients");
+      $('.nav-item[data-view="dashboard"]').classList.add("active");
+      showStaffView("dashboard");
     } else if (profile.role === "client") {
       if (!profile.client_id) { $("#no-role-msg").classList.remove("hidden"); return; }
       $("#view-portal").classList.remove("hidden");
       await loadPortal(profile.client_id);
     }
+  }
+
+  // ================= DASHBOARD (staff) =================
+  async function loadDashboard(){
+    const msgEl = $("#dashboard-msg");
+    clearMsg(msgEl);
+    const today = new Date().toISOString().slice(0,10);
+    const in7 = new Date(Date.now() + 7*86400000).toISOString().slice(0,10);
+    const monthStart = today.slice(0,7) + "-01";
+
+    const [clientsRes, openTicketsRes, ledgerRes, expensesRes, inventoryRes, upcomingRes, urgentRes] = await Promise.all([
+      sb.from("clients").select("id", { count: "exact", head: true }),
+      sb.from("tickets_view").select("id, priority").neq("status","done").neq("status","cancelled"),
+      sb.from("ledger_entries").select("charge, payment"),
+      sb.from("expenses").select("amount").gte("expense_date", monthStart),
+      sb.from("inventory_items").select("stock, max_stock"),
+      sb.from("tickets_view").select("id, code, title, scheduled_date, scheduled_time, clients(name)")
+        .not("scheduled_date","is",null).gte("scheduled_date", today).lte("scheduled_date", in7)
+        .neq("status","cancelled").order("scheduled_date").order("scheduled_time").limit(8),
+      sb.from("tickets_view").select("id, code, title, clients(name)")
+        .eq("priority","urgent").neq("status","done").neq("status","cancelled")
+        .order("created_at",{ ascending:false }).limit(8)
+    ]);
+
+    const firstError = [clientsRes, openTicketsRes, ledgerRes, expensesRes, inventoryRes, upcomingRes, urgentRes].find(r => r.error);
+    if (firstError) { showMsg(msgEl, "Σφάλμα φόρτωσης: " + firstError.error.message, "error"); return; }
+
+    const openTickets = openTicketsRes.data || [];
+    const urgentOpenCount = openTickets.filter(t => t.priority === "urgent").length;
+    const balance = (ledgerRes.data || []).reduce((s,l) => s + Number(l.charge||0) - Number(l.payment||0), 0);
+    const monthExpenses = (expensesRes.data || []).reduce((s,e) => s + Number(e.amount||0), 0);
+    const lowStock = (inventoryRes.data || []).filter(i => i.max_stock > 0 && i.stock / i.max_stock < 0.25).length;
+    const upcoming = upcomingRes.data || [];
+
+    $("#dashboard-stats").innerHTML = `
+      <div class="stat-tile"><div class="num">${clientsRes.count ?? 0}</div><div class="lbl">Πελάτες</div></div>
+      <div class="stat-tile"><div class="num">${openTickets.length}</div><div class="lbl">Ανοιχτά αιτήματα</div></div>
+      <div class="stat-tile ${urgentOpenCount>0?'balance-due':''}"><div class="num">${urgentOpenCount}</div><div class="lbl">Επείγοντα</div></div>
+      <div class="stat-tile"><div class="num">${upcoming.length}</div><div class="lbl">Επισκέψεις (7 ημ.)</div></div>
+      <div class="stat-tile ${balance>0?'balance-due':''}"><div class="num">${balance.toFixed(2)}€</div><div class="lbl">Οφειλές πελατών</div></div>
+      <div class="stat-tile"><div class="num">${monthExpenses.toFixed(2)}€</div><div class="lbl">Έξοδα μήνα</div></div>
+      <div class="stat-tile ${lowStock>0?'balance-due':''}"><div class="num">${lowStock}</div><div class="lbl">Χαμηλό απόθεμα</div></div>
+    `;
+
+    const urgentList = urgentRes.data || [];
+    $("#dashboard-urgent").innerHTML = urgentList.length === 0
+      ? '<div class="empty-state">Δεν υπάρχουν επείγοντα ανοιχτά αιτήματα.</div>'
+      : urgentList.map(t => `
+        <div class="sched-visit" data-id="${t.id}">
+          <div class="sched-info"><strong>${escapeHtml(t.clients ? t.clients.name : "")}</strong> — ${escapeHtml(t.title)}</div>
+          <div class="sched-tech mono">${escapeHtml(t.code)}</div>
+        </div>`).join("");
+    $$("#dashboard-urgent [data-id]").forEach(el => el.addEventListener("click", () => openTicketDrawer(el.dataset.id, false)));
+
+    $("#dashboard-upcoming").innerHTML = upcoming.length === 0
+      ? '<div class="empty-state">Δεν υπάρχουν προγραμματισμένες επισκέψεις τις επόμενες 7 ημέρες.</div>'
+      : upcoming.map(t => `
+        <div class="sched-visit" data-id="${t.id}">
+          <div class="sched-time">${t.scheduled_date.slice(5)}${t.scheduled_time ? " · " + t.scheduled_time.slice(0,5) : ""}</div>
+          <div class="sched-info"><strong>${escapeHtml(t.clients ? t.clients.name : "")}</strong> — ${escapeHtml(t.title)}</div>
+        </div>`).join("");
+    $$("#dashboard-upcoming [data-id]").forEach(el => el.addEventListener("click", () => openTicketDrawer(el.dataset.id, false)));
   }
 
   // ================= CLIENTS (staff) =================
@@ -617,7 +724,10 @@
             </div>
             <div class="ledger-amt ${Number(l.charge)>0 ? 'ledger-row-charge' : 'ledger-row-payment'}">${Number(l.charge)>0 ? '+' + Number(l.charge).toFixed(2) : '−' + Number(l.payment).toFixed(2)}€</div>
           </div>`).join("")}
-        <button type="button" class="add-link" id="cl-new-txn">+ Κίνηση</button>
+        <div style="display:flex;gap:16px;">
+          <button type="button" class="add-link" id="cl-new-txn">+ Κίνηση</button>
+          <button type="button" class="add-link" id="cl-print">Λήψη για εκτύπωση</button>
+        </div>
 
         <div class="section-title">Εξοπλισμός</div>
         ${equipment.length === 0 ? '<div class="cell-sub" style="padding:6px 0 0;">Δεν έχει καταχωρηθεί ακόμα εξοπλισμός (γίνεται από την Αποθήκη).</div>' : equipment.map(e => `
@@ -633,6 +743,15 @@
 
     if (clientId) {
       $("#cl-new-txn").addEventListener("click", () => openLedgerEntryDrawer(clientId, client.name));
+      $("#cl-print").addEventListener("click", () => {
+        const w = window.open("", "_blank");
+        if (!w) {
+          showMsg($("#client-form-msg"), "Ο browser μπλόκαρε το άνοιγμα νέας καρτέλας. Επίτρεψε pop-ups για αυτή τη σελίδα και δοκίμασε ξανά.", "error");
+          return;
+        }
+        w.document.write(buildStatementHtml(client, ledger, totalCharge, totalPayment, balance));
+        w.document.close();
+      });
     }
 
     $("#ra-add").addEventListener("click", () => {
@@ -699,6 +818,52 @@
       closeDrawer();
       await loadClients();
     });
+  }
+
+  // ================= CLIENT STATEMENT (print/export) =================
+  function buildStatementHtml(client, ledger, totalCharge, totalPayment, balance){
+    const methodLabel = { cash:"Μετρητά", card:"Κάρτα", bank:"Τραπεζική κατάθεση" };
+    const rows = ledger.slice().sort((a,b) => (a.entry_date < b.entry_date ? -1 : 1));
+    const rowsHtml = rows.map(l => `
+      <tr>
+        <td>${l.entry_date}</td>
+        <td>${escapeHtml(l.description)}${l.doc_number ? " — " + escapeHtml(l.doc_number) : ""}${l.settles_doc ? " (εξοφλεί " + escapeHtml(l.settles_doc) + ")" : ""}${l.method ? " · " + (methodLabel[l.method] || l.method) + (l.bank ? " · " + escapeHtml(l.bank) : "") : ""}</td>
+        <td style="text-align:right;">${Number(l.charge) > 0 ? Number(l.charge).toFixed(2) + "€" : ""}</td>
+        <td style="text-align:right;">${Number(l.payment) > 0 ? Number(l.payment).toFixed(2) + "€" : ""}</td>
+      </tr>`).join("");
+    return `<!doctype html>
+<html lang="el"><head><meta charset="UTF-8">
+<title>Λογαριασμός — ${escapeHtml(client.name)}</title>
+<style>
+  body{font-family:Arial,Helvetica,sans-serif;color:#1A2426;padding:40px;max-width:760px;margin:0 auto;}
+  h1{font-size:20px;margin:0 0 2px;letter-spacing:-0.01em;}
+  h2{font-size:16px;margin:22px 0 2px;}
+  .meta{color:#555;font-size:12.5px;margin-bottom:6px;}
+  table{width:100%;border-collapse:collapse;font-size:12.5px;margin-top:16px;}
+  th{text-align:left;font-size:10.5px;text-transform:uppercase;letter-spacing:.03em;color:#555;border-bottom:2px solid #1A2426;padding:7px 8px;}
+  td{padding:8px;border-bottom:1px solid #ddd;}
+  .totals{margin-top:20px;width:280px;margin-left:auto;font-size:13px;}
+  .totals div{display:flex;justify-content:space-between;padding:4px 0;}
+  .totals .grand{font-weight:700;border-top:2px solid #1A2426;padding-top:8px;margin-top:4px;font-size:15px;}
+  .print-btn{margin-top:28px;padding:9px 16px;font-size:13px;font-weight:600;border-radius:8px;border:none;background:#0E7C86;color:#fff;cursor:pointer;}
+  @media print{ .print-btn{display:none;} body{padding:0;} }
+</style></head>
+<body>
+  <h1>Κόμβος</h1>
+  <div class="meta">Λογαριασμός πελάτη — εκτυπώθηκε ${new Date().toLocaleDateString("el-GR")}</div>
+  <h2>${escapeHtml(client.name)}</h2>
+  <div class="meta">${[client.type, client.city].filter(Boolean).map(s => escapeHtml(s)).join(" · ")}${client.contact ? " · " + escapeHtml(client.contact) : ""}${client.phone ? " · " + escapeHtml(client.phone) : ""}</div>
+  <table>
+    <thead><tr><th>Ημερομηνία</th><th>Περιγραφή</th><th style="text-align:right;">Χρέωση</th><th style="text-align:right;">Πληρωμή</th></tr></thead>
+    <tbody>${rowsHtml || '<tr><td colspan="4">Δεν υπάρχουν κινήσεις.</td></tr>'}</tbody>
+  </table>
+  <div class="totals">
+    <div><span>Σύνολο χρεώσεων</span><span>${totalCharge.toFixed(2)}€</span></div>
+    <div><span>Σύνολο πληρωμών</span><span>${totalPayment.toFixed(2)}€</span></div>
+    <div class="grand"><span>Υπόλοιπο</span><span>${balance.toFixed(2)}€</span></div>
+  </div>
+  <button class="print-btn" onclick="window.print()">Εκτύπωση / Αποθήκευση ως PDF</button>
+</body></html>`;
   }
 
   // ================= CLIENT LEDGER (+ Κίνηση) =================
@@ -1570,6 +1735,79 @@
     }).join("");
     list.querySelectorAll("[data-id]").forEach(el => {
       el.addEventListener("click", () => openTicketDrawer(el.dataset.id, false));
+    });
+  }
+
+  // ================= USERS / ROLES (owner only) =================
+  let USERS_CACHE = [];
+  const ROLE_LABEL = { owner:"Διαχειριστής", staff:"Συνεργάτης", client:"Πελάτης" };
+
+  async function loadUsers(){
+    if (CLIENTS_CACHE.length === 0) await loadClients();
+    const { data, error } = await sb.from("profiles").select("*").order("created_at");
+    const tbody = $("#users-tbody");
+    if (error) { showMsg($("#users-msg"), "Σφάλμα φόρτωσης: " + error.message, "error"); return; }
+    clearMsg($("#users-msg"));
+    USERS_CACHE = data || [];
+    if (USERS_CACHE.length === 0) {
+      tbody.innerHTML = '<tr><td colspan="3"><div class="empty-state">Δεν υπάρχουν χρήστες.</div></td></tr>';
+      return;
+    }
+    tbody.innerHTML = USERS_CACHE.map(p => {
+      const client = p.client_id ? CLIENTS_CACHE.find(c => c.id === p.client_id) : null;
+      const pillClass = { owner:"pill-owner", staff:"pill-staff", client:"pill-client" }[p.role] || "";
+      return `
+      <tr data-id="${p.id}">
+        <td><strong>${escapeHtml(p.full_name || "—")}</strong><div class="cell-sub">${escapeHtml(p.email || "")}</div></td>
+        <td><span class="pill ${pillClass}">${ROLE_LABEL[p.role] || p.role}</span></td>
+        <td>${p.role === "client" ? escapeHtml(client ? client.name : "— δεν έχει οριστεί —") : "—"}</td>
+      </tr>`;
+    }).join("");
+    tbody.querySelectorAll("tr[data-id]").forEach(tr => {
+      tr.addEventListener("click", () => openUserDrawer(tr.dataset.id));
+    });
+  }
+
+  function openUserDrawer(userId){
+    const p = USERS_CACHE.find(u => u.id === userId);
+    if (!p) return;
+    const isSelf = USER && USER.id === userId;
+    openDrawer("Χρήστης", `
+      <form id="user-form">
+        <div id="user-form-msg"></div>
+        <p class="sub" style="margin-bottom:16px;"><strong>${escapeHtml(p.full_name || "—")}</strong><br>${escapeHtml(p.email || "")}</p>
+        ${isSelf ? '<div class="msg msg-error">Προσοχή: αυτός είναι ο δικός σου λογαριασμός — αν αλλάξεις τον ρόλο σου μπορεί να χάσεις πρόσβαση στη διαχείριση.</div>' : ""}
+        <div class="field"><label>Ρόλος</label>
+          <select id="usr-role">
+            <option value="owner" ${p.role==='owner'?'selected':''}>Διαχειριστής</option>
+            <option value="staff" ${p.role==='staff'?'selected':''}>Συνεργάτης</option>
+            <option value="client" ${p.role==='client'?'selected':''}>Πελάτης</option>
+          </select>
+        </div>
+        <div class="field ${p.role==='client'?'':'hidden'}" id="usr-client-field">
+          <label>Συνδεδεμένος πελάτης</label>
+          <select id="usr-client">
+            <option value="">— Κανένας —</option>
+            ${CLIENTS_CACHE.map(c => `<option value="${c.id}" ${c.id===p.client_id?'selected':''}>${escapeHtml(c.name)}</option>`).join("")}
+          </select>
+        </div>
+        <div class="drawer-foot" style="margin:22px -22px -20px;">
+          <span></span>
+          <button type="submit" class="btn-primary">Αποθήκευση</button>
+        </div>
+      </form>
+    `);
+    $("#usr-role").addEventListener("change", () => {
+      $("#usr-client-field").classList.toggle("hidden", $("#usr-role").value !== "client");
+    });
+    $("#user-form").addEventListener("submit", async (e) => {
+      e.preventDefault();
+      const role = $("#usr-role").value;
+      const clientId = role === "client" ? ($("#usr-client").value || null) : null;
+      const { error } = await sb.from("profiles").update({ role, client_id: clientId }).eq("id", userId);
+      if (error) { showMsg($("#user-form-msg"), "Σφάλμα: " + error.message, "error"); return; }
+      closeDrawer();
+      await loadUsers();
     });
   }
 
