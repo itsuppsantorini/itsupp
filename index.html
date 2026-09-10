@@ -67,6 +67,15 @@
   .pill-staff{background:var(--teal-light);color:var(--teal-dark);}
   .pill-client{background:var(--amber-bg);color:var(--amber);}
   .pill-external{background:var(--blue-bg);color:var(--blue);}
+  .notif-wrap{position:relative;}
+  .notif-bell{font-size:16px;position:relative;}
+  .notif-badge{position:absolute;top:-3px;right:-3px;background:var(--red);color:#fff;border-radius:999px;font-size:10px;font-weight:700;min-width:16px;height:16px;line-height:16px;text-align:center;padding:0 3px;}
+  .notif-panel{position:absolute;top:38px;right:0;width:320px;max-height:360px;overflow-y:auto;background:var(--card);border:1px solid var(--line);border-radius:var(--radius);box-shadow:var(--shadow);z-index:20;}
+  .notif-panel-head{display:flex;align-items:center;justify-content:space-between;padding:12px 14px;border-bottom:1px solid var(--line);font-size:13px;}
+  .notif-item{padding:10px 14px;border-bottom:1px solid var(--line);font-size:12.5px;cursor:pointer;}
+  .notif-item:hover{background:var(--teal-light);}
+  .notif-item.unread{background:#F4FAF9;}
+  .notif-item .notif-time{color:var(--ink-soft);font-size:11px;margin-top:3px;}
   .nav{display:flex;gap:6px;padding:12px 24px 0;}
   .nav-item{padding:8px 14px;border-radius:8px;font-size:13.5px;font-weight:600;color:var(--ink-soft);cursor:pointer;}
   .nav-item:hover{background:#EEF3F3;}
@@ -230,18 +239,28 @@
       <div class="brand-name">Κόμβος</div>
     </div>
     <div class="topbar-right">
+      <div class="notif-wrap hidden" id="notif-wrap">
+        <button class="btn-ghost btn-sm notif-bell" id="notif-btn">🔔<span class="notif-badge hidden" id="notif-badge">0</span></button>
+        <div class="notif-panel hidden" id="notif-panel">
+          <div class="notif-panel-head">
+            <strong>Ειδοποιήσεις</strong>
+            <button type="button" class="add-link" id="notif-mark-all" style="padding:0;">Όλα ως διαβασμένα</button>
+          </div>
+          <div id="notif-list"></div>
+        </div>
+      </div>
       <span class="who" id="who-label"></span>
       <button class="btn-ghost btn-sm" id="signout-btn">Αποσύνδεση</button>
     </div>
   </div>
 
   <div class="nav hidden" id="staff-nav">
-    <div class="nav-item active" data-view="dashboard">Αρχική</div>
-    <div class="nav-item" data-view="clients">Πελάτες</div>
-    <div class="nav-item" data-view="tickets">Αιτήματα</div>
-    <div class="nav-item" data-view="inventory">Αποθήκη</div>
-    <div class="nav-item" data-view="quotes">Προσφορές</div>
-    <div class="nav-item" data-view="expenses">Έξοδα</div>
+    <div class="nav-item active" data-view="dashboard" id="nav-dashboard">Αρχική</div>
+    <div class="nav-item" data-view="clients" id="nav-clients">Πελάτες</div>
+    <div class="nav-item" data-view="tickets" id="nav-tickets"><span id="nav-tickets-label">Αιτήματα</span></div>
+    <div class="nav-item" data-view="inventory" id="nav-inventory">Αποθήκη</div>
+    <div class="nav-item" data-view="quotes" id="nav-quotes">Προσφορές</div>
+    <div class="nav-item" data-view="expenses" id="nav-expenses">Έξοδα</div>
     <div class="nav-item" data-view="schedule">Πρόγραμμα</div>
     <div class="nav-item hidden" data-view="users" id="nav-users">Χρήστες</div>
   </div>
@@ -443,6 +462,8 @@
   let USER = null;
   let CLIENTS_CACHE = [];        // for the ticket-creation client picker
   let TICKET_STATUS_FILTER = "all";
+  let STAFF_USERS_CACHE = [];    // owner/staff/external profiles, for the ticket "Ανάθεση σε" picker
+  let NOTIF_POLL_STARTED = false;
 
   const STATUS_LABEL = { new:"Νέο", progress:"Σε εξέλιξη", waiting:"Αναμονή ανταλλακτικού", done:"Ολοκληρώθηκε", cancelled:"Ακυρωμένο" };
   const PRIORITY_LABEL = { urgent:"Επείγον", normal:"Κανονικό", low:"Χαμηλή" };
@@ -498,6 +519,50 @@
     PROFILE = null; USER = null;
     appView.classList.add("hidden");
     authView.classList.remove("hidden");
+    $("#notif-wrap").classList.add("hidden");
+    $("#notif-panel").classList.add("hidden");
+    $("#notif-badge").classList.add("hidden");
+  });
+
+  // ================= NOTIFICATIONS (owner/staff/external) =================
+  async function loadNotifications(){
+    if (!USER) return;
+    const { data, error } = await sb.from("notifications").select("*")
+      .order("created_at", { ascending:false }).limit(30);
+    if (error) return; // silent — notifications are a convenience, not critical path
+    const rows = data || [];
+    const unread = rows.filter(n => !n.is_read).length;
+    $("#notif-badge").classList.toggle("hidden", unread === 0);
+    if (unread > 0) $("#notif-badge").textContent = unread > 9 ? "9+" : String(unread);
+    const list = $("#notif-list");
+    if (rows.length === 0) {
+      list.innerHTML = '<div class="empty-state" style="padding:20px;">Δεν υπάρχουν ειδοποιήσεις.</div>';
+      return;
+    }
+    list.innerHTML = rows.map(n => `
+      <div class="notif-item ${n.is_read ? "" : "unread"}" data-id="${n.id}" data-ticket-id="${n.ticket_id || ""}">
+        <div>${escapeHtml(n.message)}</div>
+        <div class="notif-time">${new Date(n.created_at).toLocaleString("el-GR")}</div>
+      </div>`).join("");
+    list.querySelectorAll("[data-id]").forEach(el => {
+      el.addEventListener("click", async () => {
+        await sb.from("notifications").update({ is_read: true }).eq("id", el.dataset.id);
+        $("#notif-panel").classList.add("hidden");
+        if (el.dataset.ticketId) await openTicketDrawer(el.dataset.ticketId, false);
+        await loadNotifications();
+      });
+    });
+  }
+  $("#notif-btn").addEventListener("click", () => {
+    $("#notif-panel").classList.toggle("hidden");
+  });
+  document.addEventListener("click", (e) => {
+    if (!$("#notif-wrap").contains(e.target)) $("#notif-panel").classList.add("hidden");
+  });
+  $("#notif-mark-all").addEventListener("click", async (e) => {
+    e.stopPropagation();
+    await sb.from("notifications").update({ is_read: true }).eq("user_id", USER.id).eq("is_read", false);
+    await loadNotifications();
   });
 
   // ================= FORGOT / RESET PASSWORD =================
@@ -633,11 +698,24 @@
     $("#who-label").innerHTML = `${escapeHtml(profile.full_name || user.email)} <span class="pill ${pillClass}">${roleLabel}</span>`;
 
     if (profile.role === "owner" || profile.role === "staff" || profile.role === "external") {
+      const isOwnerRole = profile.role === "owner";
       $("#staff-nav").classList.remove("hidden");
-      $("#nav-users").classList.toggle("hidden", profile.role !== "owner");
+      $("#nav-users").classList.toggle("hidden", !isOwnerRole);
+      // simplified "Technician" nav for staff/external: only their own jobs + schedule.
+      // Full admin tabs (Αρχική/Πελάτες/Αποθήκη/Προσφορές/Έξοδα) stay owner-only for now.
+      $("#nav-dashboard").classList.toggle("hidden", !isOwnerRole);
+      $("#nav-clients").classList.toggle("hidden", !isOwnerRole);
+      $("#nav-inventory").classList.toggle("hidden", !isOwnerRole);
+      $("#nav-quotes").classList.toggle("hidden", !isOwnerRole);
+      $("#nav-expenses").classList.toggle("hidden", !isOwnerRole);
+      $("#nav-tickets-label").textContent = isOwnerRole ? "Αιτήματα" : "Οι εργασίες μου";
+      $("#notif-wrap").classList.remove("hidden");
+      await loadNotifications();
+      if (!NOTIF_POLL_STARTED) { NOTIF_POLL_STARTED = true; setInterval(loadNotifications, 60000); }
+      const defaultView = isOwnerRole ? "dashboard" : "tickets";
       $$(".nav-item").forEach(i => i.classList.remove("active"));
-      $('.nav-item[data-view="dashboard"]').classList.add("active");
-      showStaffView("dashboard");
+      $(`.nav-item[data-view="${defaultView}"]`).classList.add("active");
+      showStaffView(defaultView);
     } else if (profile.role === "client") {
       if (!profile.client_id) { $("#no-role-msg").classList.remove("hidden"); return; }
       $("#view-portal").classList.remove("hidden");
@@ -1066,12 +1144,13 @@
   async function loadTickets(){
     let q = sb.from("tickets_view").select("id, code, title, status, priority, client_id, clients(name)").order("created_at", { ascending:false });
     if (TICKET_STATUS_FILTER !== "all") q = q.eq("status", TICKET_STATUS_FILTER);
+    if (PROFILE && PROFILE.role !== "owner") q = q.eq("assigned_to", USER.id);
     const { data, error } = await q;
     const tbody = $("#tickets-tbody");
     if (error) { showMsg($("#tickets-msg"), "Σφάλμα φόρτωσης: " + error.message, "error"); return; }
     clearMsg($("#tickets-msg"));
     if (!data || data.length === 0) {
-      tbody.innerHTML = '<tr><td colspan="4"><div class="empty-state">Δεν υπάρχουν αιτήματα σε αυτή την κατηγορία.</div></td></tr>';
+      tbody.innerHTML = `<tr><td colspan="4"><div class="empty-state">${PROFILE && PROFILE.role !== "owner" ? "Δεν έχεις ανατεθειμένες εργασίες σε αυτή την κατηγορία." : "Δεν υπάρχουν αιτήματα σε αυτή την κατηγορία."}</div></td></tr>`;
       return;
     }
     tbody.innerHTML = data.map(t => `
@@ -1140,7 +1219,11 @@
         description: $("#tk-desc").value.trim() || null,
         priority: $("#tk-priority").value,
         preferred_date: $("#tk-pref-date").value || null,
-        status: "new"
+        status: "new",
+        // a Τεχνικός/Εξωτερικός συνεργάτης who creates a ticket gets it auto-assigned to
+        // themselves, so it shows up right away in their own filtered ticket list —
+        // otherwise it would be invisible to them until someone assigns it.
+        assigned_to: (!portalMode && PROFILE && PROFILE.role !== "owner") ? USER.id : null
       };
       const { error } = await sb.from("tickets").insert(payload);
       btn.disabled = false; btn.textContent = "Δημιουργία";
@@ -1155,7 +1238,12 @@
     if (error || !t) { return; }
     const { data: notes } = await sb.from("ticket_notes").select("*").eq("ticket_id", ticketId).order("created_at");
     if (!portalMode && INVENTORY_CACHE.length === 0) await loadInventory();
+    if (!portalMode && STAFF_USERS_CACHE.length === 0) await loadStaffUsers();
 
+    function assignedOptionsHtml(selectedId){
+      return `<option value="" ${!selectedId?"selected":""}>— Χωρίς ανάθεση —</option>` +
+        STAFF_USERS_CACHE.map(u => `<option value="${u.id}" ${u.id===selectedId?"selected":""}>${escapeHtml(u.full_name || u.email)} (${ROLE_LABEL[u.role] || u.role})</option>`).join("");
+    }
     function visitItemOptionsHtml(selectedId){
       return `<option value="" ${!selectedId?"selected":""}>— Χειροκίνητη καταχώρηση —</option>` +
         INVENTORY_CACHE.map(it => `<option value="${it.id}" data-price="${it.price}" data-name="${escapeHtml(it.name)}" data-category="${escapeHtml(it.category||"")}" ${it.id===selectedId?"selected":""}>${escapeHtml(it.name)} (απόθεμα: ${it.stock})</option>`).join("");
@@ -1193,7 +1281,7 @@
       <div class="section-title">Προγραμματισμός επίσκεψης</div>
       <div class="form-row">
         <div class="field"><label>Ημερομηνία</label><input type="date" id="tk-sched-date" value="${t.scheduled_date || ""}"></div>
-        <div class="field"><label>Τεχνικός</label><input id="tk-tech" value="${escapeHtml(t.tech || "")}" placeholder="Όνομα τεχνικού"></div>
+        <div class="field"><label>Ανάθεση σε</label><select id="tk-assigned">${assignedOptionsHtml(t.assigned_to)}</select></div>
       </div>
       <div class="form-row">
         <div class="field"><label>Ώρα έναρξης</label><input type="time" id="tk-sched-time" value="${t.scheduled_time || ""}"></div>
@@ -1393,14 +1481,18 @@
       });
 
       $("#tk-save").addEventListener("click", async () => {
+        const assignedId = $("#tk-assigned").value || null;
+        const assignedUser = assignedId ? STAFF_USERS_CACHE.find(u => u.id === assignedId) : null;
+        const assignedName = assignedUser ? (assignedUser.full_name || assignedUser.email) : null;
         const payload = {
           status: $("#tk-status-sel").value,
           priority: $("#tk-prio-sel").value,
-          tech: $("#tk-tech").value.trim() || null,
+          assigned_to: assignedId,
+          tech: assignedName,
           scheduled_date: $("#tk-sched-date").value || null,
           scheduled_time: $("#tk-sched-time").value || null,
           scheduled_end: $("#tk-sched-end").value || null,
-          scheduled_tech: $("#tk-tech").value.trim() || null
+          scheduled_tech: assignedName
         };
         const { error } = await sb.from("tickets").update(payload).eq("id", ticketId);
         if (error) { showMsg($("#tk-msg"), "Σφάλμα: " + error.message, "error"); return; }
@@ -1958,13 +2050,15 @@
 
   // ================= SCHEDULE (staff) =================
   async function loadSchedule(){
-    const { data, error } = await sb
+    let q = sb
       .from("tickets_view")
       .select("id, code, title, scheduled_date, scheduled_time, scheduled_end, tech, clients(name)")
       .not("scheduled_date", "is", null)
       .neq("status", "cancelled")
       .order("scheduled_date")
       .order("scheduled_time");
+    if (PROFILE && PROFILE.role !== "owner") q = q.eq("assigned_to", USER.id);
+    const { data, error } = await q;
     const list = $("#schedule-list");
     if (error) { showMsg($("#schedule-msg"), "Σφάλμα φόρτωσης: " + error.message, "error"); return; }
     clearMsg($("#schedule-msg"));
@@ -1992,6 +2086,13 @@
     list.querySelectorAll("[data-id]").forEach(el => {
       el.addEventListener("click", () => openTicketDrawer(el.dataset.id, false));
     });
+  }
+
+  // ================= STAFF USERS (for the ticket "Ανάθεση σε" picker — everyone) =================
+  async function loadStaffUsers(){
+    const { data, error } = await sb.from("profiles").select("id, full_name, email, role")
+      .in("role", ["owner","staff","external"]).order("full_name");
+    if (!error) STAFF_USERS_CACHE = data || [];
   }
 
   // ================= USERS / ROLES (owner only) =================
