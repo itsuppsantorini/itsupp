@@ -1250,6 +1250,7 @@
     let remoteAccess = [];
     let equipment = [];
     let ledger = [];
+    let ticketCount = 0;
     if (clientId) {
       const { data } = await sb.from("clients").select("*").eq("id", clientId).single();
       if (data) client = data;
@@ -1259,6 +1260,8 @@
       equipment = eq || [];
       const { data: led } = await sb.from("ledger_entries").select("*").eq("client_id", clientId).order("entry_date", { ascending:false }).order("created_at", { ascending:false });
       ledger = led || [];
+      const { count: tc } = await sb.from("tickets").select("id", { count:"exact", head:true }).eq("client_id", clientId);
+      ticketCount = tc || 0;
     }
     const totalCharge = ledger.reduce((s,l) => s + Number(l.charge||0), 0);
     const totalPayment = ledger.reduce((s,l) => s + Number(l.payment||0), 0);
@@ -1329,6 +1332,12 @@
           <div class="field"><label>Σύμβαση συντήρησης έως</label><input type="date" id="cl-contract" value="${client.contract_until || ""}"></div>
         </div>
 
+        ${clientId ? `
+        <div class="section-title">Διαγραφή πελάτη</div>
+        <p class="cell-sub" style="margin:-4px 0 8px;">Διαγράφει οριστικά την καρτέλα μαζί με ό,τι κρέμεται από αυτήν.</p>
+        <button type="button" class="add-link" id="cl-delete" style="color:var(--red);">Διαγραφή αυτού του πελάτη</button>
+        <div id="cl-delete-confirm"></div>` : ""}
+
         <div class="section-title">Απομακρυσμένη πρόσβαση</div>
         <div id="ra-list">${raRowsHtml(remoteAccess)}</div>
         <button type="button" class="add-link" id="ra-add">+ Προσθήκη στοιχείου</button>
@@ -1390,6 +1399,36 @@
     if (approveBtn) approveBtn.addEventListener("click", () => setClientStatus("active"));
     const rejectBtn = $("#cl-reject");
     if (rejectBtn) rejectBtn.addEventListener("click", () => setClientStatus("rejected"));
+
+    const clDelBtn = $("#cl-delete");
+    if (clDelBtn) clDelBtn.addEventListener("click", () => {
+      const parts = [];
+      if (ticketCount) parts.push(ticketCount + (ticketCount === 1 ? " αίτημα" : " αιτήματα"));
+      if (ledger.length) parts.push(ledger.length + (ledger.length === 1 ? " κίνηση λογαριασμού" : " κινήσεις λογαριασμού"));
+      if (equipment.length) parts.push(equipment.length + (equipment.length === 1 ? " εγγραφή εξοπλισμού" : " εγγραφές εξοπλισμού"));
+      const what = parts.length
+        ? `Θα διαγραφούν ΚΑΙ: ${parts.join(", ")}.`
+        : "Δεν έχει αιτήματα ή κινήσεις.";
+      $("#cl-delete-confirm").innerHTML = `<div class="msg msg-error" style="margin-top:8px;">
+        Οριστική διαγραφή του πελάτη <strong>${escapeHtml(client.name)}</strong>. ${what} Δεν αναιρείται.<br>
+        <span style="display:inline-block;margin-top:8px;">
+          <button type="button" class="btn-sm btn-ghost" id="cl-del-no">Άκυρο</button>
+          <button type="button" class="btn-sm btn-danger" id="cl-del-yes">Ναι, διαγραφή</button>
+        </span></div>`;
+      $("#cl-del-no").addEventListener("click", () => { $("#cl-delete-confirm").innerHTML = ""; });
+      $("#cl-del-yes").addEventListener("click", async () => {
+        const b = $("#cl-del-yes");
+        b.disabled = true; b.innerHTML = '<span class="spinner"></span>Διαγραφή...';
+        const { error } = await sb.from("clients").delete().eq("id", clientId);
+        if (error) {
+          b.disabled = false; b.textContent = "Ναι, διαγραφή";
+          showMsg($("#client-form-msg"), "Σφάλμα: " + error.message, "error");
+          return;
+        }
+        closeDrawer();
+        await loadClients();
+      });
+    });
 
     wireVatHint("#cl-vat", "#cl-vat-note");
     $("#cl-entity").addEventListener("change", () => {
@@ -2744,12 +2783,34 @@
             ${CLIENTS_CACHE.map(c => `<option value="${c.id}" ${c.id===p.client_id?'selected':''}>${escapeHtml(c.name)}</option>`).join("")}
           </select>
         </div>
+        ${isSelf ? "" : `
+          <div class="section-title">Διαγραφή λογαριασμού</div>
+          <p class="cell-sub" style="margin:-4px 0 8px;">Φεύγει μόνο η δυνατότητα σύνδεσης. Η καρτέλα πελάτη, τα αιτήματα και οι κινήσεις του παραμένουν.</p>
+          <button type="button" class="add-link" id="usr-delete" style="color:var(--red);">Διαγραφή αυτού του λογαριασμού</button>
+          <div id="usr-delete-confirm"></div>`}
         <div class="drawer-foot" style="margin:22px -22px -20px;">
           <span></span>
           <button type="submit" class="btn-primary">Αποθήκευση</button>
         </div>
       </form>
     `);
+    const delBtn = $("#usr-delete");
+    if (delBtn) delBtn.addEventListener("click", () => {
+      $("#usr-delete-confirm").innerHTML = `<span style="font-size:13px;">Οριστική διαγραφή του λογαριασμού <strong>${escapeHtml(p.email || "")}</strong>; <button type="button" class="btn-sm btn-ghost" id="usr-del-no">Όχι</button> <button type="button" class="btn-sm btn-danger" id="usr-del-yes">Ναι, διαγραφή</button></span>`;
+      $("#usr-del-no").addEventListener("click", () => { $("#usr-delete-confirm").innerHTML = ""; });
+      $("#usr-del-yes").addEventListener("click", async () => {
+        const btn = $("#usr-del-yes");
+        btn.disabled = true; btn.innerHTML = '<span class="spinner"></span>Διαγραφή...';
+        const { error } = await sb.rpc("delete_user_account", { p_user: userId });
+        if (error) {
+          btn.disabled = false; btn.textContent = "Ναι, διαγραφή";
+          showMsg($("#user-form-msg"), "Σφάλμα: " + error.message, "error");
+          return;
+        }
+        closeDrawer();
+        await loadUsers();
+      });
+    });
     $("#usr-role").addEventListener("change", () => {
       $("#usr-client-field").classList.toggle("hidden", $("#usr-role").value !== "client");
     });
