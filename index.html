@@ -363,6 +363,12 @@
       <p class="sub">Περιμένεις να σε ενεργοποιήσει ο διαχειριστής (ρόλος + σύνδεση με πελάτη, αν είσαι πελάτης). Δοκίμασε ξανά αργότερα.</p>
     </div>
 
+    <div id="pending-msg" class="panel hidden" style="padding:26px;">
+      <h1 id="pending-title">Η εγγραφή σου καταχωρήθηκε</h1>
+      <p class="sub" id="pending-text">Τα στοιχεία σου στάλθηκαν στο κατάστημα για έλεγχο. Μόλις εγκριθεί ο λογαριασμός σου θα μπορείς να καταχωρείς αιτήματα και να βλέπεις την πορεία τους.</p>
+      <div id="pending-details" class="cell-sub"></div>
+    </div>
+
     <!-- staff: dashboard -->
     <div id="view-dashboard" class="hidden">
       <div class="panel" style="margin-bottom:16px;">
@@ -393,6 +399,7 @@
           <h2>Πελάτες</h2>
           <button class="btn-primary btn-sm" id="new-client-btn">+ Νέος πελάτης</button>
         </div>
+        <div class="filterbar" id="client-filters"></div>
         <div class="panel-body">
           <div id="clients-msg" style="padding:0 20px;"></div>
           <table>
@@ -726,7 +733,7 @@
       return;
     }
     list.innerHTML = rows.map(n => `
-      <div class="notif-item ${n.is_read ? "" : "unread"}" data-id="${n.id}" data-ticket-id="${n.ticket_id || ""}">
+      <div class="notif-item ${n.is_read ? "" : "unread"}" data-id="${n.id}" data-ticket-id="${n.ticket_id || ""}" data-client-id="${n.client_id || ""}">
         <div>${escapeHtml(n.message)}</div>
         <div class="notif-time">${new Date(n.created_at).toLocaleString("el-GR")}</div>
       </div>`).join("");
@@ -735,6 +742,7 @@
         await sb.from("notifications").update({ is_read: true }).eq("id", el.dataset.id);
         $("#notif-panel").classList.add("hidden");
         if (el.dataset.ticketId) await openTicketDrawer(el.dataset.ticketId, false);
+        else if (el.dataset.clientId) { if (CLIENTS_CACHE.length === 0) await loadClients(); await openClientDrawer(el.dataset.clientId); }
         await loadNotifications();
       });
     });
@@ -875,6 +883,7 @@
     authView.classList.add("hidden");
     appView.classList.remove("hidden");
     $("#no-role-msg").classList.add("hidden");
+    $("#pending-msg").classList.add("hidden");
     $("#staff-nav").classList.add("hidden");
     $("#view-dashboard").classList.add("hidden");
     $("#view-clients").classList.add("hidden");
@@ -934,6 +943,18 @@
       showStaffView(defaultView);
     } else if (profile.role === "client") {
       if (!profile.client_id) { $("#no-role-msg").classList.remove("hidden"); return; }
+      // ο πελάτης μπαίνει μόνο αφού τον εγκρίνει ο διαχειριστής
+      const { data: myClient } = await sb.from("clients").select("id, name, status").eq("id", profile.client_id).single();
+      const status = myClient ? myClient.status : null;
+      if (status !== "active") {
+        if (status === "rejected") {
+          $("#pending-title").textContent = "Ο λογαριασμός σου δεν εγκρίθηκε";
+          $("#pending-text").textContent = "Επικοινώνησε μαζί μας για να δούμε τι συνέβη.";
+        }
+        $("#pending-details").textContent = myClient ? myClient.name : "";
+        $("#pending-msg").classList.remove("hidden");
+        return;
+      }
       $("#view-portal").classList.remove("hidden");
       await loadPortal(profile.client_id);
     }
@@ -1124,19 +1145,43 @@
   }
 
   // ================= CLIENTS (staff) =================
+  function clientStatusPill(status){
+    if (status === "pending") return ' <span class="pill" style="background:var(--amber-bg);color:var(--amber);">Σε αναμονή έγκρισης</span>';
+    if (status === "rejected") return ' <span class="pill" style="background:var(--red-bg);color:var(--red);">Απορρίφθηκε</span>';
+    return "";
+  }
+  const CLIENT_FILTERS = [["all","Όλοι"],["pending","Σε αναμονή έγκρισης"],["active","Ενεργοί"],["rejected","Απορρίφθηκαν"]];
+  let CLIENT_STATUS_FILTER = "all";
+  $("#client-filters").innerHTML = CLIENT_FILTERS.map(([k,l]) => `<div class="chip ${k==='all'?'active':''}" data-f="${k}">${l}</div>`).join("");
+  $("#client-filters").addEventListener("click", (e) => {
+    const chip = e.target.closest("[data-f]");
+    if (!chip) return;
+    $$("#client-filters .chip").forEach(c => c.classList.remove("active"));
+    chip.classList.add("active");
+    CLIENT_STATUS_FILTER = chip.dataset.f;
+    loadClients();
+  });
+
   async function loadClients(){
+    // φέρνουμε ΠΑΝΤΑ όλους τους πελάτες — το CLIENTS_CACHE το χρησιμοποιούν και άλλες
+    // οθόνες (επιλογή πελάτη σε νέο αίτημα, Χρήστες), οπότε δεν πρέπει να φιλτράρεται
     const { data, error } = await sb.from("clients").select("*").order("name");
     const tbody = $("#clients-tbody");
     if (error) { showMsg($("#clients-msg"), "Σφάλμα φόρτωσης: " + error.message, "error"); return; }
     clearMsg($("#clients-msg"));
     CLIENTS_CACHE = data || [];
-    if (CLIENTS_CACHE.length === 0) {
-      tbody.innerHTML = '<tr><td colspan="3"><div class="empty-state">Δεν υπάρχουν ακόμα πελάτες. Πάτα "+ Νέος πελάτης" για να προσθέσεις τον πρώτο.</div></td></tr>';
+    const rows = CLIENT_STATUS_FILTER === "all"
+      ? CLIENTS_CACHE
+      : CLIENTS_CACHE.filter(c => (c.status || "active") === CLIENT_STATUS_FILTER);
+    if (rows.length === 0) {
+      tbody.innerHTML = `<tr><td colspan="3"><div class="empty-state">${CLIENT_STATUS_FILTER === "all"
+        ? 'Δεν υπάρχουν ακόμα πελάτες. Πάτα "+ Νέος πελάτης" για να προσθέσεις τον πρώτο.'
+        : "Κανένας πελάτης σε αυτή την κατηγορία."}</div></td></tr>`;
       return;
     }
-    tbody.innerHTML = CLIENTS_CACHE.map(c => `
+    tbody.innerHTML = rows.map(c => `
       <tr data-id="${c.id}">
-        <td><strong>${escapeHtml(c.name)}</strong>${c.email ? `<div class="cell-sub">${escapeHtml(c.email)}</div>` : ""}</td>
+        <td><strong>${escapeHtml(c.name)}</strong>${clientStatusPill(c.status)}${c.email ? `<div class="cell-sub">${escapeHtml(c.email)}</div>` : ""}</td>
         <td>${escapeHtml(c.type || "—")}${c.city ? ` · ${escapeHtml(c.city)}` : ""}${c.vat_number ? `<div class="cell-sub">ΑΦΜ ${escapeHtml(c.vat_number)}</div>` : ""}</td>
         <td>${escapeHtml(c.contact || "—")}${c.phone ? `<div class="cell-sub">${escapeHtml(c.phone)}</div>` : ""}</td>
       </tr>`).join("");
@@ -1176,6 +1221,20 @@
     openDrawer(clientId ? "Στοιχεία πελάτη" : "Νέος πελάτης", `
       <form id="client-form">
         <div id="client-form-msg"></div>
+        ${clientId && client.status === "pending" ? `
+          <div class="vlog-open stale" style="margin-bottom:14px;">
+            <strong>Νέα εγγραφή — περιμένει έγκριση.</strong><br>
+            Ο πελάτης δεν βλέπει τίποτα και δεν μπορεί να καταχωρήσει αίτημα μέχρι να τον εγκρίνεις.
+          </div>
+          <div class="form-row" style="margin-bottom:6px;">
+            <button type="button" class="btn-primary" id="cl-approve">✓ Έγκριση πελάτη</button>
+            <button type="button" class="btn-danger" id="cl-reject">Απόρριψη</button>
+          </div>` : ""}
+        ${clientId && client.status === "rejected" ? `
+          <div class="msg msg-error" style="margin-bottom:12px;">
+            Απορριμμένος πελάτης — δεν έχει πρόσβαση.
+            <button type="button" class="add-link" id="cl-approve" style="color:inherit;text-decoration:underline;">Έγκριση τώρα</button>
+          </div>` : ""}
         <div class="field"><label>Επωνυμία *</label><input id="cl-name" required value="${escapeHtml(client.name)}"></div>
         <div class="form-row">
           <div class="field"><label>Μορφή</label>
@@ -1265,6 +1324,19 @@
         w.document.close();
       });
     }
+
+    async function setClientStatus(newStatus){
+      const { error } = await sb.from("clients")
+        .update({ status: newStatus, approved_at: newStatus === "active" ? new Date().toISOString() : null })
+        .eq("id", clientId);
+      if (error) { showMsg($("#client-form-msg"), "Σφάλμα: " + error.message, "error"); return; }
+      await loadClients();
+      await openClientDrawer(clientId);
+    }
+    const approveBtn = $("#cl-approve");
+    if (approveBtn) approveBtn.addEventListener("click", () => setClientStatus("active"));
+    const rejectBtn = $("#cl-reject");
+    if (rejectBtn) rejectBtn.addEventListener("click", () => setClientStatus("rejected"));
 
     wireVatHint("#cl-vat", "#cl-vat-note");
     $("#cl-entity").addEventListener("change", () => {
