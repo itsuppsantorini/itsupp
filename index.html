@@ -529,7 +529,40 @@
 
     <!-- staff: expenses -->
     <div id="view-expenses" class="hidden">
+      <!-- ΤΑΜΕΙΟ: έσοδα − έξοδα της περιόδου -->
       <div class="panel" style="margin-bottom:16px;">
+        <div class="cal-head">
+          <div class="cal-nav">
+            <button type="button" class="btn-ghost btn-sm" id="cash-prev" aria-label="Προηγούμενη περίοδος">‹</button>
+            <input type="date" id="cash-from" style="width:auto;min-width:145px;">
+            <span class="cell-sub">έως</span>
+            <input type="date" id="cash-to" style="width:auto;min-width:145px;">
+            <button type="button" class="btn-ghost btn-sm" id="cash-next" aria-label="Επόμενη περίοδος">›</button>
+          </div>
+          <div class="filterbar" id="cash-quick" style="padding:0;">
+            <div class="chip active" data-range="today">Σήμερα</div>
+            <div class="chip" data-range="yesterday">Χθες</div>
+            <div class="chip" data-range="week">7 ημέρες</div>
+            <div class="chip" data-range="month">Μήνας</div>
+          </div>
+        </div>
+        <div class="cal-title" id="cash-title" style="text-align:left;padding:0 20px 4px;min-width:0;"></div>
+        <div id="cashbook-msg" style="padding:0 20px 8px;"></div>
+        <div class="stat-row" id="cashbook-stats"></div>
+        <div class="panel-body" style="padding:12px 20px 18px;">
+          <table>
+            <thead><tr><th>Τρόπος</th><th style="text-align:right;">Εισπράξεις</th><th style="text-align:right;">Έξοδα</th><th style="text-align:right;">Καθαρό</th></tr></thead>
+            <tbody id="cashbook-methods"></tbody>
+          </table>
+        </div>
+      </div>
+
+      <div class="panel" style="margin-bottom:16px;">
+        <div class="panel-head"><h2>Εισπράξεις</h2></div>
+        <div class="panel-body" id="cashbook-income" style="padding:6px 0;"></div>
+      </div>
+
+      <div class="panel">
         <div class="panel-head">
           <h2>Έξοδα</h2>
           <button class="btn-primary btn-sm" id="new-expense-btn">+ Νέο έξοδο</button>
@@ -2662,19 +2695,27 @@
 
   async function loadExpenses(){
     await loadSuppliers();
-    let q = sb.from("expenses").select("*, suppliers(name)").order("expense_date", { ascending:false });
-    if (EXPENSE_CATEGORY_FILTER !== "all") q = q.eq("category", EXPENSE_CATEGORY_FILTER);
-    const { data, error } = await q;
+    // Η περίοδος του ταμείου κυβερνάει και τη λίστα εξόδων. Τα έξοδα ΟΛΗΣ της
+    // περιόδου (χωρίς φίλτρο κατηγορίας) πάνε στο ταμείο, ώστε το σύνολο να μη
+    // χαλάει όταν κοιτάς μία κατηγορία.
+    const { data: allInRange, error: rangeErr } = await sb.from("expenses").select("*, suppliers(name)")
+      .gte("expense_date", CASH_FROM).lte("expense_date", CASH_TO)
+      .order("expense_date", { ascending:false }).order("created_at", { ascending:false });
+    if (rangeErr) { showMsg($("#expenses-msg"), "Σφάλμα φόρτωσης: " + rangeErr.message, "error"); return; }
+    const inRange = allInRange || [];
+    await renderCashbook(inRange);
+
     const tbody = $("#expenses-tbody");
-    if (error) { showMsg($("#expenses-msg"), "Σφάλμα φόρτωσης: " + error.message, "error"); return; }
     clearMsg($("#expenses-msg"));
-    const rows = data || [];
+    const rows = EXPENSE_CATEGORY_FILTER === "all"
+      ? inRange
+      : inRange.filter(x => x.category === EXPENSE_CATEGORY_FILTER);
     const total = rows.reduce((s,r) => s + Number(r.amount||0), 0);
     $("#expense-stats").innerHTML = `
       <div class="stat-tile"><div class="num">${rows.length}</div><div class="lbl">Καταχωρήσεις</div></div>
       <div class="stat-tile"><div class="num">${total.toFixed(2)}€</div><div class="lbl">Σύνολο</div></div>`;
     if (rows.length === 0) {
-      tbody.innerHTML = '<tr><td colspan="4"><div class="empty-state">Δεν υπάρχουν ακόμα έξοδα σε αυτή την κατηγορία.</div></td></tr>';
+      tbody.innerHTML = '<tr><td colspan="4"><div class="empty-state">Δεν υπάρχουν έξοδα σε αυτή την περίοδο.</div></td></tr>';
       return;
     }
     const methodLabel = { cash:"Μετρητά", card:"Κάρτα", bank:"Τραπεζική κατάθεση" };
@@ -2815,6 +2856,121 @@
       await loadExpenses();
     });
   }
+
+  // ================= ΤΑΜΕΙΟ (μέσα στα Έξοδα) =================
+  // Δεν χρειάστηκε τίποτα καινούργιο στη βάση: έσοδα = οι ΕΙΣΠΡΑΞΕΙΣ των πελατών
+  // (ledger_entries.payment), έξοδα = ο πίνακας expenses. Οι χρεώσεις (τιμολόγηση)
+  // δείχνονται ξεχωριστά, γιατί δεν είναι κίνηση χρημάτων.
+  // Η ίδια περίοδος κυβερνάει ΚΑΙ τη λίστα εξόδων από κάτω.
+  let CASH_FROM = isoDay(new Date());
+  let CASH_TO = isoDay(new Date());
+  const METHOD_LABEL = { cash:"Μετρητά", card:"Κάρτα", bank:"Τράπεζα" };
+
+  function shiftDays(iso, n){ const d = new Date(iso + "T00:00:00"); d.setDate(d.getDate() + n); return isoDay(d); }
+  function daysBetween(a, b){
+    return Math.round((new Date(b + "T00:00:00") - new Date(a + "T00:00:00")) / 86400000) + 1;
+  }
+  function setCashRange(from, to, quick){
+    CASH_FROM = from; CASH_TO = to;
+    $$("#cash-quick .chip").forEach(c => c.classList.toggle("active", c.dataset.range === quick));
+    loadExpenses();
+  }
+  function applyQuickRange(kind){
+    const today = isoDay(new Date());
+    if (kind === "today") return setCashRange(today, today, "today");
+    if (kind === "yesterday") { const y = shiftDays(today, -1); return setCashRange(y, y, "yesterday"); }
+    if (kind === "week") return setCashRange(shiftDays(today, -6), today, "week");
+    if (kind === "month") {
+      const d = new Date();
+      return setCashRange(isoDay(new Date(d.getFullYear(), d.getMonth(), 1)), today, "month");
+    }
+  }
+
+  async function renderCashbook(expenses){
+    $("#cash-from").value = CASH_FROM;
+    $("#cash-to").value = CASH_TO;
+    const single = CASH_FROM === CASH_TO;
+    $("#cash-title").textContent = single
+      ? new Date(CASH_FROM + "T00:00:00").toLocaleDateString("el-GR", { weekday:"long", day:"numeric", month:"long", year:"numeric" })
+      : `${new Date(CASH_FROM + "T00:00:00").toLocaleDateString("el-GR", { day:"numeric", month:"long" })} – ${new Date(CASH_TO + "T00:00:00").toLocaleDateString("el-GR", { day:"numeric", month:"long", year:"numeric" })} · ${daysBetween(CASH_FROM, CASH_TO)} ημέρες`;
+
+    const { data: ledger, error } = await sb.from("ledger_entries").select("*, clients(name)")
+      .gte("entry_date", CASH_FROM).lte("entry_date", CASH_TO)
+      .order("entry_date").order("created_at");
+    if (error) { showMsg($("#cashbook-msg"), "Σφάλμα φόρτωσης: " + error.message, "error"); return; }
+    clearMsg($("#cashbook-msg"));
+
+    const payments = (ledger || []).filter(l => Number(l.payment || 0) > 0);
+    const income = payments.reduce((s,l) => s + Number(l.payment || 0), 0);
+    const billed = (ledger || []).reduce((s,l) => s + Number(l.charge || 0), 0);
+    const outgo = expenses.reduce((s,e) => s + Number(e.amount || 0), 0);
+
+    // ανά τρόπο πληρωμής — τα «μετρητά» λένε τι πρέπει να υπάρχει στο συρτάρι
+    const per = { cash:{in:0,out:0}, card:{in:0,out:0}, bank:{in:0,out:0} };
+    payments.forEach(l => { per[per[l.method] ? l.method : "cash"].in += Number(l.payment || 0); });
+    expenses.forEach(e => { per[per[e.method] ? e.method : "cash"].out += Number(e.amount || 0); });
+    const cashNet = per.cash.in - per.cash.out;
+
+    $("#cashbook-stats").innerHTML = `
+      <div class="stat-tile"><div class="num">${income.toFixed(2)}€</div><div class="lbl">Εισπράξεις</div></div>
+      <div class="stat-tile ${outgo>0?'balance-due':''}"><div class="num">${outgo.toFixed(2)}€</div><div class="lbl">Έξοδα</div></div>
+      <div class="stat-tile ${income-outgo<0?'balance-due':''}"><div class="num">${(income-outgo).toFixed(2)}€</div><div class="lbl">${single ? "Διαφορά ημέρας" : "Διαφορά περιόδου"}</div></div>
+      <div class="stat-tile ${cashNet<0?'balance-due':''}"><div class="num">${cashNet.toFixed(2)}€</div><div class="lbl">Μετρητά στο ταμείο</div></div>
+      <div class="stat-tile"><div class="num">${billed.toFixed(2)}€</div><div class="lbl">Χρεώσεις (τιμολόγηση)</div></div>`;
+
+    $("#cashbook-methods").innerHTML = ["cash","card","bank"].map(m => `
+      <tr>
+        <td><strong>${METHOD_LABEL[m]}</strong></td>
+        <td class="ledger-amt" style="color:var(--green);">${per[m].in.toFixed(2)}€</td>
+        <td class="ledger-amt" style="color:var(--red);">${per[m].out.toFixed(2)}€</td>
+        <td class="ledger-amt"><strong>${(per[m].in - per[m].out).toFixed(2)}€</strong></td>
+      </tr>`).join("") + `
+      <tr>
+        <td><strong>Σύνολο</strong></td>
+        <td class="ledger-amt" style="color:var(--green);"><strong>${income.toFixed(2)}€</strong></td>
+        <td class="ledger-amt" style="color:var(--red);"><strong>${outgo.toFixed(2)}€</strong></td>
+        <td class="ledger-amt"><strong>${(income-outgo).toFixed(2)}€</strong></td>
+      </tr>`;
+
+    $("#cashbook-income").innerHTML = payments.length === 0
+      ? '<div class="empty-state">Καμία είσπραξη σε αυτή την περίοδο.</div>'
+      : `<div style="padding:0 20px;">${payments.map(l => `
+          <div class="sched-visit" ${l.client_id ? `data-client="${l.client_id}"` : ""}>
+            ${single ? "" : `<div class="sched-time">${l.entry_date.split("-").reverse().slice(0,2).join("/")}</div>`}
+            <div class="sched-info">
+              <strong>${escapeHtml(l.clients ? l.clients.name : "—")}</strong>
+              <div class="sched-tech">${escapeHtml(l.description || "")}${l.doc_number ? " · " + escapeHtml(l.doc_number) : ""} · ${METHOD_LABEL[l.method] || "Μετρητά"}${l.bank ? " · " + escapeHtml(l.bank) : ""}</div>
+            </div>
+            <div class="ledger-amt" style="color:var(--green);font-weight:700;">+${Number(l.payment).toFixed(2)}€</div>
+          </div>`).join("")}</div>`;
+    $$("#cashbook-income [data-client]").forEach(el => {
+      el.addEventListener("click", async () => {
+        if (CLIENTS_CACHE.length === 0) await loadClients();
+        await openClientDrawer(el.dataset.client);
+      });
+    });
+  }
+
+  $("#cash-prev").addEventListener("click", () => {
+    const n = daysBetween(CASH_FROM, CASH_TO);
+    setCashRange(shiftDays(CASH_FROM, -n), shiftDays(CASH_TO, -n), null);
+  });
+  $("#cash-next").addEventListener("click", () => {
+    const n = daysBetween(CASH_FROM, CASH_TO);
+    setCashRange(shiftDays(CASH_FROM, n), shiftDays(CASH_TO, n), null);
+  });
+  $("#cash-quick").addEventListener("click", (e) => {
+    const chip = e.target.closest("[data-range]");
+    if (chip) applyQuickRange(chip.dataset.range);
+  });
+  ["#cash-from", "#cash-to"].forEach(sel => {
+    $(sel).addEventListener("change", () => {
+      let from = $("#cash-from").value || CASH_FROM;
+      let to = $("#cash-to").value || CASH_TO;
+      if (to < from) { if (sel === "#cash-from") to = from; else from = to; }
+      setCashRange(from, to, null);
+    });
+  });
 
   // ================= SCHEDULE (staff) =================
   let SCHEDULE_MODE = "calendar";
