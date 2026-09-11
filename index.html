@@ -248,10 +248,55 @@
 
     <form id="signup-form" class="hidden">
       <h1>Νέος λογαριασμός</h1>
-      <p class="sub">Μετά την εγγραφή, ο διαχειριστής θα ενεργοποιήσει τον ρόλο σου.</p>
-      <div class="field"><label>Όνομα</label><input type="text" id="signup-name" required autocomplete="name"></div>
-      <div class="field"><label>Email</label><input type="email" id="signup-email" required autocomplete="email"></div>
-      <div class="field"><label>Κωδικός</label><input type="password" id="signup-password" required minlength="6" autocomplete="new-password"></div>
+      <p class="sub">Διάλεξε τι είσαι, για να σου ζητήσουμε τα σωστά στοιχεία.</p>
+
+      <div class="filterbar" id="signup-kind" style="margin-bottom:18px;">
+        <div class="chip active" data-kind="individual">Ιδιώτης</div>
+        <div class="chip" data-kind="company">Επιχείρηση</div>
+        <div class="chip" data-kind="staff">Προσωπικό</div>
+      </div>
+
+      <div id="su-individual">
+        <div class="form-row">
+          <div class="field"><label>Όνομα *</label><input id="su-first-name" autocomplete="given-name"></div>
+          <div class="field"><label>Επώνυμο *</label><input id="su-last-name" autocomplete="family-name"></div>
+        </div>
+      </div>
+
+      <div id="su-company" class="hidden">
+        <div class="field"><label>Επωνυμία *</label><input id="su-legal-name" autocomplete="organization"></div>
+        <div class="form-row">
+          <div class="field"><label>Διακριτικός τίτλος</label><input id="su-trade-name"></div>
+          <div class="field"><label>Τύπος επιχείρησης</label>
+            <select id="su-business-type">
+              <option>Ξενοδοχείο</option><option>Εστιατόριο</option><option>Επιχείρηση</option><option>Άλλο</option>
+            </select>
+          </div>
+        </div>
+      </div>
+
+      <div id="su-staff" class="hidden">
+        <div class="field"><label>Ονοματεπώνυμο *</label><input id="su-staff-name" autocomplete="name"></div>
+      </div>
+
+      <div id="su-client-fields">
+        <div class="form-row">
+          <div class="field">
+            <label>ΑΦΜ<span id="su-vat-star"></span></label>
+            <input id="su-vat" inputmode="numeric" maxlength="12">
+            <div id="su-vat-note" style="margin-top:4px;"></div>
+          </div>
+          <div class="field"><label>ΔΟΥ</label><input id="su-tax-office"></div>
+        </div>
+        <div class="form-row">
+          <div class="field"><label>Διεύθυνση</label><input id="su-address" autocomplete="street-address"></div>
+          <div class="field"><label>Πόλη</label><input id="su-city" autocomplete="address-level2"></div>
+        </div>
+        <div class="field"><label>Τηλέφωνο *</label><input id="su-phone" inputmode="tel" autocomplete="tel"></div>
+      </div>
+
+      <div class="field"><label>Email *</label><input type="email" id="signup-email" required autocomplete="email"></div>
+      <div class="field"><label>Κωδικός *</label><input type="password" id="signup-password" required minlength="6" autocomplete="new-password"></div>
       <button type="submit" class="btn-primary btn-full" id="signup-btn">Εγγραφή</button>
     </form>
 
@@ -526,6 +571,34 @@
   function showMsg(el, text, type){ el.innerHTML = `<div class="msg ${type === 'error' ? 'msg-error' : 'msg-ok'}">${text}</div>`; }
   function clearMsg(el){ el.innerHTML = ""; }
 
+  // ---- ΑΦΜ ----
+  // Το ΑΦΜ έχει 9 ψηφία και ελεγκτικό ψηφίο. Ο έλεγχος του ελεγκτικού ψηφίου
+  // χρησιμοποιείται ΜΟΝΟ ως προειδοποίηση, ποτέ για να μπλοκάρει καταχώρηση —
+  // δεν θέλουμε ένα λάθος μου να εμποδίσει πελάτη να γραφτεί.
+  function normalizeVat(v){ return String(v == null ? "" : v).replace(/\D/g, ""); }
+  function vatChecksumOk(v){
+    const d = normalizeVat(v);
+    if (d.length !== 9) return false;
+    if (/^(\d)\1{8}$/.test(d)) return false;
+    let sum = 0;
+    for (let i = 0; i < 8; i++) sum += Number(d[i]) * Math.pow(2, 8 - i);
+    return (sum % 11) % 10 === Number(d[8]);
+  }
+  function wireVatHint(inputSel, noteSel){
+    const input = $(inputSel), note = $(noteSel);
+    if (!input || !note) return;
+    const check = () => {
+      const d = normalizeVat(input.value);
+      if (d.length === 0) { note.innerHTML = ""; return; }
+      if (d.length !== 9) { note.innerHTML = '<span style="color:var(--amber);font-size:11.5px;">Το ΑΦΜ έχει 9 ψηφία.</span>'; return; }
+      note.innerHTML = vatChecksumOk(d)
+        ? '<span style="color:var(--green);font-size:11.5px;">✓ Έγκυρο ΑΦΜ</span>'
+        : '<span style="color:var(--amber);font-size:11.5px;">Προσοχή: το ΑΦΜ δεν περνάει τον έλεγχο — τσέκαρέ το.</span>';
+    };
+    input.addEventListener("input", check);
+    check();
+  }
+
   // ================= AUTH SCREEN =================
   $$(".tab").forEach(tab => {
     tab.addEventListener("click", () => {
@@ -551,19 +624,78 @@
     await boot();
   });
 
+  // ---- είδος εγγραφής: ιδιώτης / επιχείρηση / προσωπικό ----
+  let SIGNUP_KIND = "individual";
+  function applySignupKind(kind){
+    SIGNUP_KIND = kind;
+    $$("#signup-kind .chip").forEach(c => c.classList.toggle("active", c.dataset.kind === kind));
+    $("#su-individual").classList.toggle("hidden", kind !== "individual");
+    $("#su-company").classList.toggle("hidden", kind !== "company");
+    $("#su-staff").classList.toggle("hidden", kind !== "staff");
+    $("#su-client-fields").classList.toggle("hidden", kind === "staff");
+    // το ΑΦΜ είναι υποχρεωτικό μόνο για επιχείρηση
+    $("#su-vat-star").textContent = kind === "company" ? " *" : "";
+    clearMsg($("#auth-msg"));
+  }
+  $("#signup-kind").addEventListener("click", (e) => {
+    const chip = e.target.closest("[data-kind]");
+    if (chip) applySignupKind(chip.dataset.kind);
+  });
+  wireVatHint("#su-vat", "#su-vat-note");
+
   $("#signup-form").addEventListener("submit", async (e) => {
     e.preventDefault();
+    const kind = SIGNUP_KIND;
+    const isClient = kind !== "staff";
+    const val = (sel) => $(sel).value.trim();
+    const fail = (msg) => { showMsg($("#auth-msg"), msg, "error"); return false; };
+
+    // έλεγχοι — τα πεδία δεν έχουν required στο HTML γιατί άλλα κρύβονται
+    // ανάλογα με την επιλογή, και ο browser μπλοκάρει σε κρυφά required πεδία
+    const meta = { signup_kind: isClient ? "client" : "staff" };
+    if (kind === "individual") {
+      if (!val("#su-first-name") || !val("#su-last-name")) return void fail("Συμπλήρωσε όνομα και επώνυμο.");
+      meta.entity_type = "individual";
+      meta.first_name = val("#su-first-name");
+      meta.last_name = val("#su-last-name");
+      meta.full_name = meta.first_name + " " + meta.last_name;
+    } else if (kind === "company") {
+      if (!val("#su-legal-name")) return void fail("Συμπλήρωσε την επωνυμία της επιχείρησης.");
+      meta.entity_type = "company";
+      meta.legal_name = val("#su-legal-name");
+      meta.trade_name = val("#su-trade-name");
+      meta.business_type = val("#su-business-type");
+      meta.full_name = meta.legal_name;
+    } else {
+      if (!val("#su-staff-name")) return void fail("Συμπλήρωσε το ονοματεπώνυμό σου.");
+      meta.full_name = val("#su-staff-name");
+    }
+
+    if (isClient) {
+      const vat = normalizeVat(val("#su-vat"));
+      if (kind === "company" && !vat) return void fail("Για επιχείρηση χρειάζεται ΑΦΜ.");
+      if (vat && vat.length !== 9) return void fail("Το ΑΦΜ πρέπει να έχει 9 ψηφία.");
+      if (!val("#su-phone")) return void fail("Συμπλήρωσε τηλέφωνο επικοινωνίας.");
+      meta.vat_number = vat;
+      meta.tax_office = val("#su-tax-office");
+      meta.address = val("#su-address");
+      meta.city = val("#su-city");
+      meta.phone = val("#su-phone");
+    }
+
     const btn = $("#signup-btn");
     btn.disabled = true; btn.innerHTML = '<span class="spinner"></span>Εγγραφή...';
     const { data, error } = await sb.auth.signUp({
-      email: $("#signup-email").value.trim(),
+      email: val("#signup-email"),
       password: $("#signup-password").value,
-      options: { data: { full_name: $("#signup-name").value.trim() } }
+      options: { data: meta }
     });
     btn.disabled = false; btn.textContent = "Εγγραφή";
     if (error) { showMsg($("#auth-msg"), "Σφάλμα εγγραφής: " + error.message, "error"); return; }
     if (data.session) { await boot(); return; }
-    showMsg($("#auth-msg"), "Ο λογαριασμός δημιουργήθηκε. Αν ζητηθεί επιβεβαίωση email, έλεγξε τα εισερχόμενά σου (και τα spam) και μετά συνδέσου.", "ok");
+    showMsg($("#auth-msg"), isClient
+      ? "Ο λογαριασμός και η καρτέλα σου δημιουργήθηκαν. Αν ζητηθεί επιβεβαίωση email, έλεγξε τα εισερχόμενά σου (και τα spam) και μετά συνδέσου."
+      : "Ο λογαριασμός δημιουργήθηκε. Ο διαχειριστής θα ενεργοποιήσει τον ρόλο σου. Αν ζητηθεί επιβεβαίωση email, έλεγξε τα εισερχόμενά σου (και τα spam).", "ok");
   });
 
   $("#signout-btn").addEventListener("click", async () => {
@@ -1005,7 +1137,7 @@
     tbody.innerHTML = CLIENTS_CACHE.map(c => `
       <tr data-id="${c.id}">
         <td><strong>${escapeHtml(c.name)}</strong>${c.email ? `<div class="cell-sub">${escapeHtml(c.email)}</div>` : ""}</td>
-        <td>${escapeHtml(c.type || "—")}${c.city ? ` · ${escapeHtml(c.city)}` : ""}</td>
+        <td>${escapeHtml(c.type || "—")}${c.city ? ` · ${escapeHtml(c.city)}` : ""}${c.vat_number ? `<div class="cell-sub">ΑΦΜ ${escapeHtml(c.vat_number)}</div>` : ""}</td>
         <td>${escapeHtml(c.contact || "—")}${c.phone ? `<div class="cell-sub">${escapeHtml(c.phone)}</div>` : ""}</td>
       </tr>`).join("");
     tbody.querySelectorAll("tr[data-id]").forEach(tr => {
@@ -1046,11 +1178,34 @@
         <div id="client-form-msg"></div>
         <div class="field"><label>Επωνυμία *</label><input id="cl-name" required value="${escapeHtml(client.name)}"></div>
         <div class="form-row">
+          <div class="field"><label>Μορφή</label>
+            <select id="cl-entity">
+              <option value="individual" ${client.entity_type !== "company" ? "selected" : ""}>Ιδιώτης</option>
+              <option value="company" ${client.entity_type === "company" ? "selected" : ""}>Επιχείρηση</option>
+            </select>
+          </div>
           <div class="field"><label>Τύπος</label>
             <select id="cl-type">
               ${["Ξενοδοχείο","Εστιατόριο","Επιχείρηση","Άλλο"].map(t => `<option ${client.type===t?"selected":""}>${t}</option>`).join("")}
             </select>
           </div>
+        </div>
+        <div class="form-row ${client.entity_type === "company" ? "hidden" : ""}" id="cl-person-row">
+          <div class="field"><label>Όνομα</label><input id="cl-first-name" value="${escapeHtml(client.first_name || "")}"></div>
+          <div class="field"><label>Επώνυμο</label><input id="cl-last-name" value="${escapeHtml(client.last_name || "")}"></div>
+        </div>
+        <div class="field ${client.entity_type === "company" ? "" : "hidden"}" id="cl-trade-field">
+          <label>Διακριτικός τίτλος</label><input id="cl-trade-name" value="${escapeHtml(client.trade_name || "")}">
+        </div>
+        <div class="form-row">
+          <div class="field">
+            <label>ΑΦΜ</label><input id="cl-vat" inputmode="numeric" maxlength="12" value="${escapeHtml(client.vat_number || "")}">
+            <div id="cl-vat-note" style="margin-top:4px;"></div>
+          </div>
+          <div class="field"><label>ΔΟΥ</label><input id="cl-tax-office" value="${escapeHtml(client.tax_office || "")}"></div>
+        </div>
+        <div class="form-row">
+          <div class="field"><label>Διεύθυνση</label><input id="cl-address" value="${escapeHtml(client.address || "")}"></div>
           <div class="field"><label>Πόλη</label><input id="cl-city" value="${escapeHtml(client.city || "")}"></div>
         </div>
         <div class="form-row">
@@ -1111,6 +1266,13 @@
       });
     }
 
+    wireVatHint("#cl-vat", "#cl-vat-note");
+    $("#cl-entity").addEventListener("change", () => {
+      const isCompany = $("#cl-entity").value === "company";
+      $("#cl-person-row").classList.toggle("hidden", isCompany);
+      $("#cl-trade-field").classList.toggle("hidden", !isCompany);
+    });
+
     $("#ra-add").addEventListener("click", () => {
       $("#ra-list").insertAdjacentHTML("beforeend", raRowsHtml([{ label:"", value:"" }]));
       wireRaRemove();
@@ -1143,6 +1305,13 @@
       const payload = {
         name: $("#cl-name").value.trim(),
         type: $("#cl-type").value,
+        entity_type: $("#cl-entity").value,
+        first_name: $("#cl-first-name").value.trim() || null,
+        last_name: $("#cl-last-name").value.trim() || null,
+        trade_name: $("#cl-trade-name").value.trim() || null,
+        vat_number: normalizeVat($("#cl-vat").value) || null,
+        tax_office: $("#cl-tax-office").value.trim() || null,
+        address: $("#cl-address").value.trim() || null,
         city: $("#cl-city").value.trim() || null,
         contact: $("#cl-contact").value.trim() || null,
         phone: $("#cl-phone").value.trim() || null,
@@ -1209,7 +1378,8 @@
   <h1>ITSUPP</h1>
   <div class="meta">Λογαριασμός πελάτη — εκτυπώθηκε ${new Date().toLocaleDateString("el-GR")}</div>
   <h2>${escapeHtml(client.name)}</h2>
-  <div class="meta">${[client.type, client.city].filter(Boolean).map(s => escapeHtml(s)).join(" · ")}${client.contact ? " · " + escapeHtml(client.contact) : ""}${client.phone ? " · " + escapeHtml(client.phone) : ""}</div>
+  <div class="meta">${[client.type, client.address, client.city].filter(Boolean).map(s => escapeHtml(s)).join(" · ")}${client.contact ? " · " + escapeHtml(client.contact) : ""}${client.phone ? " · " + escapeHtml(client.phone) : ""}</div>
+  ${client.vat_number ? `<div class="meta">ΑΦΜ ${escapeHtml(client.vat_number)}${client.tax_office ? " · ΔΟΥ " + escapeHtml(client.tax_office) : ""}</div>` : ""}
   <table>
     <thead><tr><th>Ημερομηνία</th><th>Περιγραφή</th><th style="text-align:right;">Χρέωση</th><th style="text-align:right;">Πληρωμή</th></tr></thead>
     <tbody>${rowsHtml || '<tr><td colspan="4">Δεν υπάρχουν κινήσεις.</td></tr>'}</tbody>
@@ -1825,22 +1995,45 @@
       SUPPLIERS_CACHE.map(s => `<option value="${s.id}" ${s.id===selectedId?"selected":""}>${escapeHtml(s.name)}</option>`).join("");
   }
   $("#new-supplier-btn").addEventListener("click", () => openSupplierDrawer());
-  function openSupplierDrawer(){
-    openDrawer("Νέος προμηθευτής", `
+  function openSupplierDrawer(supplierId){
+    const s = supplierId ? SUPPLIERS_CACHE.find(x => x.id === supplierId) : null;
+    const listHtml = SUPPLIERS_CACHE.length === 0
+      ? '<div class="cell-sub" style="padding:8px 2px;">Δεν υπάρχουν ακόμα προμηθευτές.</div>'
+      : SUPPLIERS_CACHE.map(x => `
+          <div class="vlog-row" data-sup-id="${x.id}" style="cursor:pointer;">
+            <strong>${escapeHtml(x.name)}</strong>
+            <div class="vlog-who">${x.vat_number ? "ΑΦΜ " + escapeHtml(x.vat_number) : "— χωρίς ΑΦΜ —"}</div>
+          </div>`).join("");
+
+    openDrawer(s ? "Προμηθευτής" : "Νέος προμηθευτής", `
       <form id="supplier-form">
         <div id="sup-msg"></div>
-        <div class="field"><label>Επωνυμία *</label><input id="sup-name" required></div>
+        <div class="field"><label>Επωνυμία *</label><input id="sup-name" required value="${s ? escapeHtml(s.name) : ""}"></div>
+        <div class="field">
+          <label>ΑΦΜ</label><input id="sup-vat" inputmode="numeric" maxlength="12" value="${s ? escapeHtml(s.vat_number || "") : ""}">
+          <div id="sup-vat-note" style="margin-top:4px;"></div>
+        </div>
         <div class="drawer-foot" style="margin:22px -22px -20px;">
           <span></span>
           <button type="submit" class="btn-primary">Αποθήκευση</button>
         </div>
       </form>
+      ${s ? "" : `<div class="section-title">Υπάρχοντες προμηθευτές</div>
+        <p class="cell-sub" style="margin:-4px 0 6px;">Πάτα σε έναν για να συμπληρώσεις ή να αλλάξεις το ΑΦΜ του.</p>
+        <div id="sup-list">${listHtml}</div>`}
     `);
+    wireVatHint("#sup-vat", "#sup-vat-note");
+    $$("#sup-list [data-sup-id]").forEach(el => {
+      el.addEventListener("click", () => openSupplierDrawer(el.dataset.supId));
+    });
     $("#supplier-form").addEventListener("submit", async (e) => {
       e.preventDefault();
       const name = $("#sup-name").value.trim();
       if (!name) return;
-      const { error } = await sb.from("suppliers").insert({ name });
+      const payload = { name, vat_number: normalizeVat($("#sup-vat").value) || null };
+      const { error } = supplierId
+        ? await sb.from("suppliers").update(payload).eq("id", supplierId)
+        : await sb.from("suppliers").insert(payload);
       if (error) { showMsg($("#sup-msg"), "Σφάλμα: " + error.message, "error"); return; }
       await loadSuppliers();
       closeDrawer();
