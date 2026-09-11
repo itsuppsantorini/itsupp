@@ -15,6 +15,7 @@
     --teal:#0E7C86; --teal-dark:#0A5F67; --teal-light:#E4F3F2; --topbar-h:59px;
     --ink:#1A2426; --ink-soft:#4B5B5E; --line:#DDE6E6; --bg:#F5F8F8; --card:#FFFFFF;
     --surface:#FFFFFF; --surface-2:#EEF3F3; --input-bg:#FFFFFF; --on-teal:#FFFFFF; --badge-bg:#C24545;
+    --tile-bg:#EAF6F5; --tile-line:#CFE6E4; --tile-hover:#DCF0EE; --tile-num:#0A5F67;
     --muted-bg:#EEEEEE; --muted-fg:#777777; --waiting-bg:#F1E7DC; --waiting-fg:#8A5A2B;
     --unread-bg:#F4FAF9; --danger-hover:#F8DADA;
     --red:#C24545; --red-bg:#FCEBEB; --green:#1E8E5A; --green-bg:#E7F5EC; --amber:#8A6308; --amber-bg:#FDF1DC;
@@ -31,6 +32,7 @@
     --teal:#2FA9B3; --teal-dark:#8FDDE4; --teal-light:#15302F;
     --ink:#E7EEED; --ink-soft:#9CACAB; --line:#273635; --bg:#0E1516; --card:#16201F;
     --surface:#16201F; --surface-2:#1F2C2B; --input-bg:#111A19; --on-teal:#04211F; --badge-bg:#C24545;
+    --tile-bg:#23403E; --tile-line:#2F5350; --tile-hover:#2C4F4C; --tile-num:#A8E6EB;
     --muted-bg:#242F2E; --muted-fg:#94A3A2; --waiting-bg:#33281A; --waiting-fg:#DCA968;
     --unread-bg:#13302F; --danger-hover:#4A2424;
     --red:#F08A8A; --red-bg:#3A1F1F; --green:#6FD69B; --green-bg:#173020; --amber:#E6B94F; --amber-bg:#332714;
@@ -209,11 +211,14 @@
 
   /* ---- stat tiles ---- */
   .stat-row{display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:10px;padding:16px 20px 4px;}
-  .stat-tile{background:var(--teal-light);border-radius:8px;padding:12px 14px;}
-  .stat-tile .num{font-size:19px;font-weight:700;color:var(--teal-dark);}
-  .stat-tile .lbl{font-size:11.5px;color:var(--ink-soft);margin-top:2px;}
+  .stat-tile{background:var(--tile-bg);border:1px solid var(--tile-line);border-radius:10px;padding:13px 15px;transition:background .12s,border-color .12s,transform .12s;}
+  .stat-tile .num{font-size:20px;font-weight:700;color:var(--tile-num);}
+  .stat-tile .lbl{font-size:11.5px;color:var(--ink-soft);margin-top:3px;}
   .stat-tile.balance-due .num{color:var(--red);}
-  .stat-tile.balance-due{background:var(--red-bg);}
+  .stat-tile.balance-due{background:var(--red-bg);border-color:var(--red-bg);}
+  .stat-tile[data-goto]{cursor:pointer;}
+  .stat-tile[data-goto]:hover{background:var(--tile-hover);border-color:var(--teal);transform:translateY(-1px);}
+  .stat-tile[data-goto]:active{transform:none;}
 
   /* ---- stock bar ---- */
   .stock-bar{width:100%;height:6px;border-radius:99px;background:var(--surface-2);overflow:hidden;margin-top:4px;}
@@ -242,6 +247,8 @@
   .sched-time{font-family:'IBM Plex Mono',monospace;font-size:12.5px;color:var(--ink-soft);min-width:78px;}
   .sched-info{flex:1;font-size:13.5px;}
   .sched-tech{font-size:12px;color:var(--ink-soft);}
+  .sched-leave{background:var(--amber-bg);border-radius:8px;}
+  .sched-leave .sched-info strong{color:var(--amber);}
 </style>
 </head>
 <body>
@@ -377,6 +384,7 @@
     <div class="nav-item" data-view="quotes" id="nav-quotes">Προσφορές</div>
     <div class="nav-item" data-view="expenses" id="nav-expenses">Έξοδα</div>
     <div class="nav-item" data-view="schedule">Πρόγραμμα</div>
+    <div class="nav-item hidden" data-view="technicians" id="nav-technicians"><span id="nav-technicians-label">Τεχνικοί</span></div>
     <div class="nav-item hidden" data-view="users" id="nav-users">Χρήστες</div>
   </div>
   <div class="nav-backdrop" id="nav-backdrop"></div>
@@ -520,6 +528,12 @@
           <div id="schedule-list"></div>
         </div>
       </div>
+    </div>
+
+    <!-- τεχνικοί / άδειες -->
+    <div id="view-technicians" class="hidden">
+      <div id="technicians-msg" style="margin-bottom:12px;"></div>
+      <div id="technicians-body"></div>
     </div>
 
     <!-- staff (owner only): users/roles -->
@@ -912,6 +926,15 @@
     setNavCollapsed(!document.body.classList.contains("nav-collapsed"), !isNarrow());
   });
   $("#nav-backdrop").addEventListener("click", () => setNavCollapsed(true, false));
+  // πηγαίνει σε κατηγορία ΚΑΙ ενημερώνει το πλαϊνό μενού (το χρησιμοποιούν τα πλακίδια)
+  function goToView(view){
+    const item = $(`.nav-item[data-view="${view}"]`);
+    if (!item || item.classList.contains("hidden")) return;
+    $$(".nav-item").forEach(i => i.classList.remove("active"));
+    item.classList.add("active");
+    showStaffView(view);
+    window.scrollTo({ top: 0, behavior: "smooth" });
+  }
   function showStaffView(view){
     $("#view-dashboard").classList.toggle("hidden", view !== "dashboard");
     $("#view-clients").classList.toggle("hidden", view !== "clients");
@@ -920,6 +943,7 @@
     $("#view-quotes").classList.toggle("hidden", view !== "quotes");
     $("#view-expenses").classList.toggle("hidden", view !== "expenses");
     $("#view-schedule").classList.toggle("hidden", view !== "schedule");
+    $("#view-technicians").classList.toggle("hidden", view !== "technicians");
     $("#view-users").classList.toggle("hidden", view !== "users");
     if (view === "dashboard") loadDashboard();
     if (view === "clients") loadClients();
@@ -928,6 +952,7 @@
     if (view === "quotes") loadQuotes();
     if (view === "expenses") loadExpenses();
     if (view === "schedule") loadSchedule();
+    if (view === "technicians") loadTechnicians();
     if (view === "users") loadUsers();
   }
 
@@ -945,6 +970,7 @@
     $("#view-quotes").classList.add("hidden");
     $("#view-expenses").classList.add("hidden");
     $("#view-schedule").classList.add("hidden");
+    $("#view-technicians").classList.add("hidden");
     $("#view-users").classList.add("hidden");
     $("#view-portal").classList.add("hidden");
 
@@ -953,7 +979,7 @@
     USER = user;
 
     const { data: profile, error } = await sb
-      .from("profiles").select("role, client_id, full_name, email").eq("id", user.id).single();
+      .from("profiles").select("role, client_id, full_name, email, leave_days_per_year").eq("id", user.id).single();
 
     if (error || !profile) {
       $("#who-label").textContent = user.email;
@@ -980,6 +1006,8 @@
       $("#nav-quotes").classList.toggle("hidden", !isOwnerRole);
       $("#nav-expenses").classList.toggle("hidden", !isOwnerRole);
       $("#nav-tickets-label").textContent = isOwnerRole ? "Αιτήματα" : "Οι εργασίες μου";
+      $("#nav-technicians").classList.remove("hidden");
+      $("#nav-technicians-label").textContent = isOwnerRole ? "Τεχνικοί" : "Οι άδειές μου";
       $("#notif-wrap").classList.remove("hidden");
       await loadNotifications();
       if (!NOTIF_POLL_STARTED) {
@@ -1164,16 +1192,20 @@
     const lowStock = (inventoryRes.data || []).filter(i => i.max_stock > 0 && i.stock / i.max_stock < 0.25).length;
     const upcoming = upcomingRes.data || [];
 
+    // κάθε πλακίδιο οδηγεί στην αντίστοιχη κατηγορία
     $("#dashboard-stats").innerHTML = `
-      <div class="stat-tile"><div class="num" id="stat-onsite-num">0</div><div class="lbl">Σε δουλειά τώρα</div></div>
-      <div class="stat-tile"><div class="num">${clientsRes.count ?? 0}</div><div class="lbl">Πελάτες</div></div>
-      <div class="stat-tile"><div class="num">${openTickets.length}</div><div class="lbl">Ανοιχτά αιτήματα</div></div>
-      <div class="stat-tile ${urgentOpenCount>0?'balance-due':''}"><div class="num">${urgentOpenCount}</div><div class="lbl">Επείγοντα</div></div>
-      <div class="stat-tile"><div class="num">${upcoming.length}</div><div class="lbl">Επισκέψεις (7 ημ.)</div></div>
-      <div class="stat-tile ${balance>0?'balance-due':''}"><div class="num">${balance.toFixed(2)}€</div><div class="lbl">Οφειλές πελατών</div></div>
-      <div class="stat-tile"><div class="num">${monthExpenses.toFixed(2)}€</div><div class="lbl">Έξοδα μήνα</div></div>
-      <div class="stat-tile ${lowStock>0?'balance-due':''}"><div class="num">${lowStock}</div><div class="lbl">Χαμηλό απόθεμα</div></div>
+      <div class="stat-tile" data-goto="technicians"><div class="num" id="stat-onsite-num">0</div><div class="lbl">Σε δουλειά τώρα</div></div>
+      <div class="stat-tile" data-goto="clients"><div class="num">${clientsRes.count ?? 0}</div><div class="lbl">Πελάτες</div></div>
+      <div class="stat-tile" data-goto="tickets"><div class="num">${openTickets.length}</div><div class="lbl">Ανοιχτά αιτήματα</div></div>
+      <div class="stat-tile ${urgentOpenCount>0?'balance-due':''}" data-goto="tickets"><div class="num">${urgentOpenCount}</div><div class="lbl">Επείγοντα</div></div>
+      <div class="stat-tile" data-goto="schedule"><div class="num">${upcoming.length}</div><div class="lbl">Επισκέψεις (7 ημ.)</div></div>
+      <div class="stat-tile ${balance>0?'balance-due':''}" data-goto="clients"><div class="num">${balance.toFixed(2)}€</div><div class="lbl">Οφειλές πελατών</div></div>
+      <div class="stat-tile" data-goto="expenses"><div class="num">${monthExpenses.toFixed(2)}€</div><div class="lbl">Έξοδα μήνα</div></div>
+      <div class="stat-tile ${lowStock>0?'balance-due':''}" data-goto="inventory"><div class="num">${lowStock}</div><div class="lbl">Χαμηλό απόθεμα</div></div>
     `;
+    $$("#dashboard-stats [data-goto]").forEach(tile => {
+      tile.addEventListener("click", () => goToView(tile.dataset.goto));
+    });
 
     const urgentList = urgentRes.data || [];
     $("#dashboard-urgent").innerHTML = urgentList.length === 0
@@ -2570,7 +2602,7 @@
   }
 
   // ================= EXPENSES (staff) =================
-  const EXPENSE_CATEGORIES = ["Προμήθεια εξοπλισμού","Ενοίκιο","ΔΕΗ/Ρεύμα","Νερό","Τηλέφωνο/Internet","Καύσιμα","Συντήρηση οχήματος","Μισθοδοσία","Λογιστής/Φόρος","Διαφήμιση","Διάφορα"];
+  const EXPENSE_CATEGORIES = ["Προμήθεια εξοπλισμού","Ενοίκιο","ΔΕΗ/Ρεύμα","Νερό","Τηλέφωνο/Internet","Καύσιμα","Συντήρηση οχήματος","Μισθοδοσία","Πληρωμή υπαλλήλου","Λογιστής/Φόρος","Διαφήμιση","Διάφορα"];
   let EXPENSE_CATEGORY_FILTER = "all";
   $("#expense-filters").innerHTML = ["all", ...EXPENSE_CATEGORIES].map(c => `<div class="chip ${c==='all'?'active':''}" data-f="${escapeHtml(c)}">${c==='all'?'Όλα':c}</div>`).join("");
   $("#expense-filters").addEventListener("click", (e) => {
@@ -2600,11 +2632,19 @@
       return;
     }
     const methodLabel = { cash:"Μετρητά", card:"Κάρτα", bank:"Τραπεζική κατάθεση" };
+    if (STAFF_USERS_CACHE.length === 0) await loadStaffUsers();
+    const staffName = (id) => { const u = STAFF_USERS_CACHE.find(s => s.id === id); return u ? (u.full_name || u.email) : "—"; };
+    const payerLabel = (x) => {
+      if (x.payer === "employee") return "πλήρωσε: " + escapeHtml(staffName(x.payer_id));
+      if (x.payer === "other") return "πλήρωσε: " + escapeHtml(x.payer_note || "άλλο");
+      if (x.payer === "shop") return "πλήρωσε: το μαγαζί";
+      return "";
+    };
     tbody.innerHTML = rows.map(x => `
       <tr data-id="${x.id}">
         <td>${x.expense_date}</td>
-        <td><strong>${escapeHtml(x.category)}</strong><div class="cell-sub">${escapeHtml(x.suppliers ? x.suppliers.name : "—")}</div></td>
-        <td>${escapeHtml(x.note || "—")}${x.method ? `<div class="cell-sub">${methodLabel[x.method]||x.method}${x.bank ? " · " + escapeHtml(x.bank) : ""}${x.txn_ref ? " · αρ. " + escapeHtml(x.txn_ref) : ""}</div>` : ""}</td>
+        <td><strong>${escapeHtml(x.category)}</strong><div class="cell-sub">${x.employee_id ? "προς " + escapeHtml(staffName(x.employee_id)) : escapeHtml(x.suppliers ? x.suppliers.name : "—")}</div></td>
+        <td>${escapeHtml(x.note || "—")}<div class="cell-sub">${x.method ? `${methodLabel[x.method]||x.method}${x.bank ? " · " + escapeHtml(x.bank) : ""}${x.txn_ref ? " · αρ. " + escapeHtml(x.txn_ref) : ""}` : ""}${payerLabel(x) ? (x.method ? " · " : "") + payerLabel(x) : ""}</div></td>
         <td class="ledger-amt">${Number(x.amount).toFixed(2)}€</td>
       </tr>`).join("");
     tbody.querySelectorAll("tr[data-id]").forEach(tr => {
@@ -2615,7 +2655,8 @@
   $("#new-expense-btn").addEventListener("click", async () => { await loadSuppliers(); openExpenseDrawer(null); });
 
   async function openExpenseDrawer(expenseId){
-    let ex = { expense_date: new Date().toISOString().slice(0,10), category: EXPENSE_CATEGORIES[0], supplier_id:null, amount:0, note:"", method:"cash", bank:null, txn_ref:"" };
+    if (STAFF_USERS_CACHE.length === 0) await loadStaffUsers();
+    let ex = { expense_date: new Date().toISOString().slice(0,10), category: EXPENSE_CATEGORIES[0], supplier_id:null, amount:0, note:"", method:"cash", bank:null, txn_ref:"", payer:"shop", payer_id:null, payer_note:"", employee_id:null };
     if (expenseId) {
       const { data } = await sb.from("expenses").select("*").eq("id", expenseId).single();
       if (data) ex = data;
@@ -2631,6 +2672,33 @@
           <select id="ex-category">${EXPENSE_CATEGORIES.map(c => `<option ${ex.category===c?"selected":""}>${c}</option>`).join("")}</select>
         </div>
         <div class="field"><label>Προμηθευτής</label><select id="ex-supplier">${supplierOptionsHtml(ex.supplier_id)}</select></div>
+
+        <div class="field ${["Μισθοδοσία","Πληρωμή υπαλλήλου"].includes(ex.category) ? "" : "hidden"}" id="ex-employee-field">
+          <label>Πληρωμή σε</label>
+          <select id="ex-employee">
+            <option value="">— Επίλεξε υπάλληλο —</option>
+            ${STAFF_USERS_CACHE.map(u => `<option value="${u.id}" ${u.id===ex.employee_id?"selected":""}>${escapeHtml(u.full_name || u.email)}</option>`).join("")}
+          </select>
+        </div>
+
+        <div class="field"><label>Ποιος έκανε το έξοδο</label>
+          <select id="ex-payer">
+            <option value="shop" ${(ex.payer||"shop")==='shop'?'selected':''}>Το μαγαζί</option>
+            <option value="employee" ${ex.payer==='employee'?'selected':''}>Υπάλληλος</option>
+            <option value="other" ${ex.payer==='other'?'selected':''}>Άλλο</option>
+          </select>
+        </div>
+        <div class="field ${ex.payer==='employee'?'':'hidden'}" id="ex-payer-who-field">
+          <label>Ποιος υπάλληλος</label>
+          <select id="ex-payer-who">
+            <option value="">— Επίλεξε —</option>
+            ${STAFF_USERS_CACHE.map(u => `<option value="${u.id}" ${u.id===ex.payer_id?"selected":""}>${escapeHtml(u.full_name || u.email)}</option>`).join("")}
+          </select>
+        </div>
+        <div class="field ${ex.payer==='other'?'':'hidden'}" id="ex-payer-note-field">
+          <label>Διευκρίνιση *</label>
+          <input id="ex-payer-note" value="${escapeHtml(ex.payer_note || "")}" placeholder="π.χ. πληρώθηκε από τον λογιστή">
+        </div>
         <div class="field"><label>Σημείωση</label><input id="ex-note" value="${escapeHtml(ex.note || "")}"></div>
         <div class="field"><label>Τρόπος πληρωμής</label>
           <select id="ex-method">
@@ -2652,6 +2720,15 @@
     $("#ex-method").addEventListener("change", () => {
       $("#ex-bank-row").classList.toggle("hidden", $("#ex-method").value !== "bank");
     });
+    $("#ex-payer").addEventListener("change", () => {
+      const v = $("#ex-payer").value;
+      $("#ex-payer-who-field").classList.toggle("hidden", v !== "employee");
+      $("#ex-payer-note-field").classList.toggle("hidden", v !== "other");
+    });
+    $("#ex-category").addEventListener("change", () => {
+      const isSalary = ["Μισθοδοσία","Πληρωμή υπαλλήλου"].includes($("#ex-category").value);
+      $("#ex-employee-field").classList.toggle("hidden", !isSalary);
+    });
     if (expenseId) {
       $("#ex-delete").addEventListener("click", async () => {
         const { error } = await sb.from("expenses").delete().eq("id", expenseId);
@@ -2663,15 +2740,26 @@
     $("#expense-form").addEventListener("submit", async (e) => {
       e.preventDefault();
       const method = $("#ex-method").value;
+      const payer = $("#ex-payer").value;
+      const category = $("#ex-category").value;
+      const isSalary = ["Μισθοδοσία","Πληρωμή υπαλλήλου"].includes(category);
+      if (payer === "other" && !$("#ex-payer-note").value.trim()) {
+        showMsg($("#ex-msg"), "Γράψε ποιος έκανε το έξοδο στη διευκρίνιση.", "error");
+        return;
+      }
       const payload = {
         expense_date: $("#ex-date").value,
         amount: parseFloat($("#ex-amount").value || "0"),
-        category: $("#ex-category").value,
+        category,
         supplier_id: $("#ex-supplier").value || null,
         note: $("#ex-note").value.trim() || null,
         method,
         bank: method === "bank" ? $("#ex-bank").value : null,
-        txn_ref: method === "bank" ? $("#ex-txn").value.trim() || null : null
+        txn_ref: method === "bank" ? $("#ex-txn").value.trim() || null : null,
+        payer,
+        payer_id: payer === "employee" ? ($("#ex-payer-who").value || null) : null,
+        payer_note: payer === "other" ? $("#ex-payer-note").value.trim() : null,
+        employee_id: isSalary ? ($("#ex-employee").value || null) : null
       };
       const { error } = expenseId
         ? await sb.from("expenses").update(payload).eq("id", expenseId)
@@ -2692,24 +2780,47 @@
       .order("scheduled_date")
       .order("scheduled_time");
     if (PROFILE && PROFILE.role !== "owner") q = q.eq("assigned_to", USER.id);
-    const { data, error } = await q;
+    const from = new Date(Date.now() - 7*86400000).toISOString().slice(0,10);
+    let lq = sb.from("leave_requests").select("*").eq("status","approved").gte("end_date", from);
+    if (PROFILE && PROFILE.role !== "owner") lq = lq.eq("tech_id", USER.id);
+    const [{ data, error }, leaveRes] = await Promise.all([q, lq]);
     const list = $("#schedule-list");
     if (error) { showMsg($("#schedule-msg"), "Σφάλμα φόρτωσης: " + error.message, "error"); return; }
     clearMsg($("#schedule-msg"));
     const rows = data || [];
-    if (rows.length === 0) {
+    const byDay = {};
+    rows.forEach(r => { (byDay[r.scheduled_date] = byDay[r.scheduled_date] || []).push(r); });
+
+    // οι εγκεκριμένες άδειες μπαίνουν στο ημερολόγιο, μία εγγραφή για κάθε μέρα τους
+    if (STAFF_USERS_CACHE.length === 0) await loadStaffUsers();
+    const nameOf = (id) => { const u = STAFF_USERS_CACHE.find(x => x.id === id); return u ? (u.full_name || u.email) : "Τεχνικός"; };
+    (leaveRes.data || []).forEach(l => {
+      let d = new Date(l.start_date + "T00:00:00");
+      const last = new Date(l.end_date + "T00:00:00");
+      let guard = 0;
+      while (d <= last && guard++ < 400) {
+        const key = `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}-${String(d.getDate()).padStart(2,"0")}`;
+        (byDay[key] = byDay[key] || []).push({ __leave:true, who: nameOf(l.tech_id), kind: l.kind });
+        d.setDate(d.getDate() + 1);
+      }
+    });
+
+    if (Object.keys(byDay).length === 0) {
       list.innerHTML = '<div class="empty-state">Δεν υπάρχουν προγραμματισμένες επισκέψεις.</div>';
       return;
     }
-    const byDay = {};
-    rows.forEach(r => { (byDay[r.scheduled_date] = byDay[r.scheduled_date] || []).push(r); });
     const days = Object.keys(byDay).sort();
     list.innerHTML = days.map(day => {
       const dayLabel = new Date(day + "T00:00:00").toLocaleDateString("el-GR", { weekday:"long", day:"numeric", month:"long" });
       return `
       <div class="sched-day">
         <div class="sched-day-title">${dayLabel}</div>
-        ${byDay[day].map(r => `
+        ${byDay[day].map(r => r.__leave ? `
+          <div class="sched-visit sched-leave">
+            <div class="sched-time">🌴</div>
+            <div class="sched-info"><strong>${escapeHtml(r.who)}</strong> — ${escapeHtml(LEAVE_KIND[r.kind] || "Άδεια")}</div>
+            <div class="sched-tech">εκτός</div>
+          </div>` : `
           <div class="sched-visit" data-id="${r.id}">
             <div class="sched-time">${r.scheduled_time ? r.scheduled_time.slice(0,5) : "—"}${r.scheduled_end ? "–" + r.scheduled_end.slice(0,5) : ""}</div>
             <div class="sched-info"><strong>${escapeHtml(r.clients ? r.clients.name : "")}</strong> — ${escapeHtml(r.title)}</div>
@@ -2724,9 +2835,291 @@
 
   // ================= STAFF USERS (for the ticket "Ανάθεση σε" picker — everyone) =================
   async function loadStaffUsers(){
-    const { data, error } = await sb.from("profiles").select("id, full_name, email, role")
+    const { data, error } = await sb.from("profiles").select("id, full_name, email, role, leave_days_per_year")
       .in("role", ["owner","staff","external"]).order("full_name");
     if (!error) STAFF_USERS_CACHE = data || [];
+  }
+
+  // ================= ΤΕΧΝΙΚΟΙ & ΑΔΕΙΕΣ =================
+  const LEAVE_KIND = { annual:"Κανονική άδεια", sick:"Ασθένεια", unpaid:"Άνευ αποδοχών", other:"Άλλο" };
+  const LEAVE_STATUS = { pending:"Σε αναμονή", approved:"Εγκρίθηκε", rejected:"Απορρίφθηκε" };
+
+  function leaveStatusPill(status){
+    const cls = status === "approved" ? "st-done" : status === "rejected" ? "st-cancelled" : "st-progress";
+    return `<span class="status-pill ${cls}">${LEAVE_STATUS[status] || status}</span>`;
+  }
+  // Οι μέρες μετράνε Δευτέρα–Σάββατο (η Κυριακή δεν πιάνεται) — ίδιος κανόνας με τη βάση.
+  function leaveDaysCount(start, end){
+    if (!start || !end) return 0;
+    let d = new Date(start + "T00:00:00"), last = new Date(end + "T00:00:00"), n = 0;
+    if (last < d) return 0;
+    while (d <= last) { if (d.getDay() !== 0) n++; d.setDate(d.getDate() + 1); }
+    return n;
+  }
+  function leaveUsedDays(rows, year){
+    return (rows || [])
+      .filter(l => l.status === "approved" && l.kind === "annual" && Number(String(l.start_date).slice(0,4)) === year)
+      .reduce((s, l) => s + Number(l.days || 0), 0);
+  }
+
+  async function loadTechnicians(){
+    const msg = $("#technicians-msg");
+    clearMsg(msg);
+    const isOwner = PROFILE && PROFILE.role === "owner";
+    if (isOwner) await renderTechniciansList(); else await renderMyLeave();
+  }
+
+  // ---- όψη διαχειριστή: λίστα τεχνικών ----
+  async function renderTechniciansList(){
+    if (STAFF_USERS_CACHE.length === 0) await loadStaffUsers();
+    const year = new Date().getFullYear();
+    const [leaveRes, ticketsRes] = await Promise.all([
+      sb.from("leave_requests").select("*"),
+      sb.from("tickets_view").select("assigned_to").neq("status","done").neq("status","cancelled")
+    ]);
+    if (leaveRes.error) { showMsg($("#technicians-msg"), "Σφάλμα φόρτωσης: " + leaveRes.error.message, "error"); return; }
+    const leaves = leaveRes.data || [];
+    const openByTech = {};
+    (ticketsRes.data || []).forEach(t => { if (t.assigned_to) openByTech[t.assigned_to] = (openByTech[t.assigned_to] || 0) + 1; });
+    const pendingCount = leaves.filter(l => l.status === "pending").length;
+
+    const rows = STAFF_USERS_CACHE.map(u => {
+      const mine = leaves.filter(l => l.tech_id === u.id);
+      const used = leaveUsedDays(mine, year);
+      const total = Number(u.leave_days_per_year || 0);
+      const left = total - used;
+      const pend = mine.filter(l => l.status === "pending").length;
+      return `
+        <tr data-id="${u.id}">
+          <td><strong>${escapeHtml(u.full_name || u.email)}</strong><div class="cell-sub">${escapeHtml(u.email || "")}</div></td>
+          <td><span class="pill ${({owner:"pill-owner",staff:"pill-staff",external:"pill-external"})[u.role] || ""}">${ROLE_LABEL[u.role] || u.role}</span></td>
+          <td>${openByTech[u.id] || 0}</td>
+          <td>${total > 0 ? `<strong>${left}</strong> από ${total}` : '<span class="cell-sub">δεν έχει οριστεί</span>'}
+              ${pend ? ` <span class="pill" style="background:var(--amber-bg);color:var(--amber);">${pend} σε αναμονή</span>` : ""}</td>
+        </tr>`;
+    }).join("");
+
+    $("#technicians-body").innerHTML = `
+      <div class="panel">
+        <div class="panel-head"><h2>Τεχνικοί &amp; συνεργάτες</h2>
+          ${pendingCount ? `<span class="pill" style="background:var(--amber-bg);color:var(--amber);">${pendingCount} αιτήματα άδειας</span>` : ""}
+        </div>
+        <div class="panel-body">
+          <p class="sub" style="padding:0 20px;margin-top:-4px;">Πάτα σε κάποιον για να δεις τι του έχεις αναθέσει, να ορίσεις τις μέρες άδειας που δικαιούται και να εγκρίνεις αιτήματα.</p>
+          <table>
+            <thead><tr><th>Όνομα</th><th>Ρόλος</th><th>Ανοιχτές εργασίες</th><th>Υπόλοιπο άδειας ${year}</th></tr></thead>
+            <tbody>${rows || '<tr><td colspan="4"><div class="empty-state">Δεν υπάρχουν τεχνικοί.</div></td></tr>'}</tbody>
+          </table>
+        </div>
+      </div>`;
+    $$("#technicians-body tr[data-id]").forEach(tr => {
+      tr.addEventListener("click", () => openTechnicianDrawer(tr.dataset.id));
+    });
+  }
+
+  // ---- καρτέλα τεχνικού (διαχειριστής) ----
+  async function openTechnicianDrawer(techId){
+    if (STAFF_USERS_CACHE.length === 0) await loadStaffUsers();
+    const u = STAFF_USERS_CACHE.find(x => x.id === techId);
+    if (!u) return;
+    const year = new Date().getFullYear();
+    const [leaveRes, ticketsRes] = await Promise.all([
+      sb.from("leave_requests").select("*").eq("tech_id", techId).order("start_date", { ascending:false }),
+      sb.from("tickets_view").select("id, code, title, status, scheduled_date, clients(name)")
+        .eq("assigned_to", techId).neq("status","done").neq("status","cancelled").order("created_at", { ascending:false })
+    ]);
+    const leaves = leaveRes.data || [];
+    const jobs = ticketsRes.data || [];
+    const total = Number(u.leave_days_per_year || 0);
+    const used = leaveUsedDays(leaves, year);
+
+    openDrawer(u.full_name || u.email, `
+      <div id="tech-msg"></div>
+      <p class="sub" style="margin-bottom:14px;">${escapeHtml(u.email || "")} · ${ROLE_LABEL[u.role] || u.role}</p>
+
+      <div class="section-title">Άδεια ${year}</div>
+      <div class="stat-row" style="padding:0 0 10px;">
+        <div class="stat-tile"><div class="num">${total - used}</div><div class="lbl">Υπόλοιπο ημερών</div></div>
+        <div class="stat-tile"><div class="num">${used}</div><div class="lbl">Έχει πάρει</div></div>
+        <div class="stat-tile"><div class="num">${total}</div><div class="lbl">Δικαιούται</div></div>
+      </div>
+      <div class="form-row">
+        <div class="field"><label>Μέρες άδειας που δικαιούται τον χρόνο</label>
+          <input type="number" min="0" max="365" id="tech-entitlement" value="${total}"></div>
+        <div class="field" style="display:flex;align-items:flex-end;">
+          <button type="button" class="btn-primary btn-sm" id="tech-save-entitlement" style="width:100%;">Αποθήκευση</button></div>
+      </div>
+
+      <div class="section-title">Καταχώρηση άδειας</div>
+      <div class="form-row">
+        <div class="field"><label>Από</label><input type="date" id="tech-leave-from"></div>
+        <div class="field"><label>Έως</label><input type="date" id="tech-leave-to"></div>
+      </div>
+      <div class="form-row">
+        <div class="field"><label>Είδος</label>
+          <select id="tech-leave-kind">${Object.entries(LEAVE_KIND).map(([k,l]) => `<option value="${k}">${l}</option>`).join("")}</select>
+        </div>
+        <div class="field"><label>Σημείωση</label><input id="tech-leave-note"></div>
+      </div>
+      <div class="cell-sub" id="tech-leave-calc" style="margin-bottom:8px;"></div>
+      <button type="button" class="btn-primary btn-sm" id="tech-leave-add">Καταχώρηση (εγκεκριμένη)</button>
+
+      <div class="section-title">Ιστορικό αδειών</div>
+      <div id="tech-leave-list">${leaves.length === 0
+        ? '<div class="cell-sub" style="padding:8px 2px;">Καμία άδεια.</div>'
+        : leaves.map(l => `
+          <div class="vlog-row">
+            <strong>${l.start_date.split("-").reverse().slice(0,2).join("/")} → ${l.end_date.split("-").reverse().slice(0,2).join("/")}</strong>
+            · ${l.days} ${l.days === 1 ? "μέρα" : "μέρες"} · ${LEAVE_KIND[l.kind] || l.kind} ${leaveStatusPill(l.status)}
+            ${l.note ? `<div class="vlog-who">${escapeHtml(l.note)}</div>` : ""}
+            <div style="margin-top:6px;display:flex;gap:6px;flex-wrap:wrap;">
+              ${l.status === "pending" ? `
+                <button type="button" class="btn-sm btn-primary" data-leave-ok="${l.id}">Έγκριση</button>
+                <button type="button" class="btn-sm btn-danger" data-leave-no="${l.id}">Απόρριψη</button>` : ""}
+              <button type="button" class="add-link" data-leave-del="${l.id}" style="color:var(--red);">Διαγραφή</button>
+            </div>
+          </div>`).join("")}</div>
+
+      <div class="section-title">Ανοιχτές εργασίες (${jobs.length})</div>
+      <div>${jobs.length === 0
+        ? '<div class="cell-sub" style="padding:8px 2px;">Δεν του έχει ανατεθεί τίποτα ανοιχτό.</div>'
+        : jobs.map(t => `
+          <div class="vlog-row" data-job="${t.id}" style="cursor:pointer;">
+            <strong>${escapeHtml(t.clients ? t.clients.name : "—")}</strong> — ${escapeHtml(t.title)}
+            <div class="vlog-who">${escapeHtml(t.code)} · ${STATUS_LABEL[t.status] || t.status}${t.scheduled_date ? " · επίσκεψη " + t.scheduled_date.split("-").reverse().slice(0,2).join("/") : ""}</div>
+          </div>`).join("")}</div>
+    `);
+
+    const refreshCalc = () => {
+      const n = leaveDaysCount($("#tech-leave-from").value, $("#tech-leave-to").value);
+      $("#tech-leave-calc").textContent = n ? `Μετράνε ${n} ${n === 1 ? "μέρα" : "μέρες"} (η Κυριακή δεν προσμετράται).` : "";
+    };
+    $("#tech-leave-from").addEventListener("change", refreshCalc);
+    $("#tech-leave-to").addEventListener("change", refreshCalc);
+
+    $("#tech-save-entitlement").addEventListener("click", async () => {
+      const days = parseInt($("#tech-entitlement").value, 10) || 0;
+      const { error } = await sb.from("profiles").update({ leave_days_per_year: days }).eq("id", techId);
+      if (error) { showMsg($("#tech-msg"), "Σφάλμα: " + error.message, "error"); return; }
+      await loadStaffUsers();
+      await openTechnicianDrawer(techId);
+      await loadTechnicians();
+    });
+
+    $("#tech-leave-add").addEventListener("click", async () => {
+      const from = $("#tech-leave-from").value, to = $("#tech-leave-to").value;
+      if (!from || !to) { showMsg($("#tech-msg"), "Συμπλήρωσε ημερομηνίες.", "error"); return; }
+      if (to < from) { showMsg($("#tech-msg"), "Η ημερομηνία λήξης είναι πριν την έναρξη.", "error"); return; }
+      const { error } = await sb.from("leave_requests").insert({
+        tech_id: techId, start_date: from, end_date: to,
+        kind: $("#tech-leave-kind").value, note: $("#tech-leave-note").value.trim() || null,
+        status: "approved", decided_at: new Date().toISOString()
+      });
+      if (error) { showMsg($("#tech-msg"), "Σφάλμα: " + error.message, "error"); return; }
+      await openTechnicianDrawer(techId);
+      await loadTechnicians();
+    });
+
+    const decide = async (id, status) => {
+      const { error } = await sb.from("leave_requests")
+        .update({ status, decided_at: new Date().toISOString() }).eq("id", id);
+      if (error) { showMsg($("#tech-msg"), "Σφάλμα: " + error.message, "error"); return; }
+      await openTechnicianDrawer(techId);
+      await loadTechnicians();
+    };
+    $$("[data-leave-ok]").forEach(b => b.addEventListener("click", () => decide(b.dataset.leaveOk, "approved")));
+    $$("[data-leave-no]").forEach(b => b.addEventListener("click", () => decide(b.dataset.leaveNo, "rejected")));
+    $$("[data-leave-del]").forEach(b => b.addEventListener("click", async () => {
+      const { error } = await sb.from("leave_requests").delete().eq("id", b.dataset.leaveDel);
+      if (error) { showMsg($("#tech-msg"), "Σφάλμα: " + error.message, "error"); return; }
+      await openTechnicianDrawer(techId);
+      await loadTechnicians();
+    }));
+    $$("[data-job]").forEach(el => el.addEventListener("click", () => openTicketDrawer(el.dataset.job, false)));
+  }
+
+  // ---- όψη τεχνικού: οι δικές του άδειες ----
+  async function renderMyLeave(){
+    const year = new Date().getFullYear();
+    const { data, error } = await sb.from("leave_requests").select("*")
+      .eq("tech_id", USER.id).order("start_date", { ascending:false });
+    if (error) { showMsg($("#technicians-msg"), "Σφάλμα φόρτωσης: " + error.message, "error"); return; }
+    const mine = data || [];
+    const total = Number((PROFILE && PROFILE.leave_days_per_year) || 0);
+    const used = leaveUsedDays(mine, year);
+
+    $("#technicians-body").innerHTML = `
+      <div class="panel" style="margin-bottom:16px;">
+        <div class="panel-head"><h2>Οι άδειές μου ${year}</h2></div>
+        <div class="stat-row">
+          <div class="stat-tile"><div class="num">${total - used}</div><div class="lbl">Υπόλοιπο ημερών</div></div>
+          <div class="stat-tile"><div class="num">${used}</div><div class="lbl">Έχω πάρει</div></div>
+          <div class="stat-tile"><div class="num">${total}</div><div class="lbl">Δικαιούμαι</div></div>
+        </div>
+        <div class="panel-body">
+          ${total === 0 ? '<p class="sub" style="padding:0 20px;">Δεν έχουν οριστεί ακόμα μέρες άδειας — ρώτα τον διαχειριστή.</p>' : ""}
+        </div>
+      </div>
+
+      <div class="panel" style="margin-bottom:16px;">
+        <div class="panel-head"><h2>Αίτημα άδειας</h2></div>
+        <div class="panel-body" style="padding:16px 20px;">
+          <div id="my-leave-msg"></div>
+          <div class="form-row">
+            <div class="field"><label>Από</label><input type="date" id="my-leave-from"></div>
+            <div class="field"><label>Έως</label><input type="date" id="my-leave-to"></div>
+          </div>
+          <div class="form-row">
+            <div class="field"><label>Είδος</label>
+              <select id="my-leave-kind">${Object.entries(LEAVE_KIND).map(([k,l]) => `<option value="${k}">${l}</option>`).join("")}</select>
+            </div>
+            <div class="field"><label>Σημείωση</label><input id="my-leave-note" placeholder="προαιρετικά"></div>
+          </div>
+          <div class="cell-sub" id="my-leave-calc" style="margin-bottom:8px;"></div>
+          <button type="button" class="btn-primary btn-sm" id="my-leave-send">Αποστολή αιτήματος</button>
+        </div>
+      </div>
+
+      <div class="panel">
+        <div class="panel-head"><h2>Ιστορικό</h2></div>
+        <div class="panel-body" style="padding:6px 20px 14px;">
+          ${mine.length === 0 ? '<div class="empty-state">Δεν έχεις καταχωρημένες άδειες.</div>' : mine.map(l => `
+            <div class="vlog-row">
+              <strong>${l.start_date.split("-").reverse().slice(0,2).join("/")} → ${l.end_date.split("-").reverse().slice(0,2).join("/")}</strong>
+              · ${l.days} ${l.days === 1 ? "μέρα" : "μέρες"} · ${LEAVE_KIND[l.kind] || l.kind} ${leaveStatusPill(l.status)}
+              ${l.note ? `<div class="vlog-who">${escapeHtml(l.note)}</div>` : ""}
+              ${l.status === "pending" ? `<div style="margin-top:6px;"><button type="button" class="add-link" data-my-leave-del="${l.id}" style="color:var(--red);">Ακύρωση αιτήματος</button></div>` : ""}
+            </div>`).join("")}
+        </div>
+      </div>`;
+
+    const refresh = () => {
+      const n = leaveDaysCount($("#my-leave-from").value, $("#my-leave-to").value);
+      $("#my-leave-calc").textContent = n ? `Θα μετρήσουν ${n} ${n === 1 ? "μέρα" : "μέρες"} (η Κυριακή δεν προσμετράται).` : "";
+    };
+    $("#my-leave-from").addEventListener("change", refresh);
+    $("#my-leave-to").addEventListener("change", refresh);
+
+    $("#my-leave-send").addEventListener("click", async () => {
+      const from = $("#my-leave-from").value, to = $("#my-leave-to").value;
+      if (!from || !to) { showMsg($("#my-leave-msg"), "Συμπλήρωσε ημερομηνίες.", "error"); return; }
+      if (to < from) { showMsg($("#my-leave-msg"), "Η ημερομηνία λήξης είναι πριν την έναρξη.", "error"); return; }
+      const btn = $("#my-leave-send");
+      btn.disabled = true; btn.innerHTML = '<span class="spinner"></span>Αποστολή...';
+      const { error } = await sb.from("leave_requests").insert({
+        tech_id: USER.id, start_date: from, end_date: to,
+        kind: $("#my-leave-kind").value, note: $("#my-leave-note").value.trim() || null, status: "pending"
+      });
+      btn.disabled = false; btn.textContent = "Αποστολή αιτήματος";
+      if (error) { showMsg($("#my-leave-msg"), "Σφάλμα: " + error.message, "error"); return; }
+      await renderMyLeave();
+    });
+
+    $$("[data-my-leave-del]").forEach(b => b.addEventListener("click", async () => {
+      const { error } = await sb.from("leave_requests").delete().eq("id", b.dataset.myLeaveDel);
+      if (error) { showMsg($("#technicians-msg"), "Σφάλμα: " + error.message, "error"); return; }
+      await renderMyLeave();
+    }));
   }
 
   // ================= USERS / ROLES (owner only) =================
