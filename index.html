@@ -238,6 +238,35 @@
   .banner-cancel{background:var(--muted-bg);color:var(--muted-fg);border-radius:8px;padding:10px 12px;font-size:13px;margin-bottom:14px;display:flex;align-items:center;justify-content:space-between;gap:10px;}
 
   /* ---- schedule ---- */
+  .cal-head{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:14px 20px;flex-wrap:wrap;}
+  .cal-nav{display:flex;align-items:center;gap:4px;}
+  .cal-title{font-size:15px;font-weight:700;min-width:160px;text-align:center;text-transform:capitalize;}
+  .cal-grid{display:grid;grid-template-columns:repeat(7,1fr);gap:1px;background:var(--line);
+            border-top:1px solid var(--line);border-bottom:1px solid var(--line);}
+  .cal-dow{background:var(--surface);padding:7px 4px;font-size:10.5px;font-weight:700;color:var(--ink-soft);
+           text-align:center;text-transform:uppercase;letter-spacing:.04em;}
+  .cal-cell{background:var(--card);min-height:106px;padding:6px 7px;cursor:pointer;display:flex;flex-direction:column;gap:3px;}
+  .cal-cell:hover{background:var(--surface-2);}
+  .cal-cell.other{opacity:.4;}
+  .cal-cell.selected{outline:2px solid var(--teal);outline-offset:-2px;}
+  .cal-daynum{font-size:12px;font-weight:700;width:22px;height:22px;flex:none;
+              display:flex;align-items:center;justify-content:center;}
+  .cal-cell.today .cal-daynum{background:var(--teal);color:var(--on-teal);border-radius:999px;}
+  .cal-ev{font-size:11px;line-height:1.35;padding:2px 5px;border-radius:4px;background:var(--teal-light);
+          color:var(--teal-dark);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+  .cal-ev.leave{background:var(--amber-bg);color:var(--amber);}
+  .cal-more{font-size:10.5px;color:var(--ink-soft);padding-left:3px;}
+  .cal-dots{display:none;gap:3px;flex-wrap:wrap;justify-content:center;}
+  .cal-dot{width:6px;height:6px;border-radius:50%;background:var(--teal);}
+  .cal-dot.leave{background:var(--amber);}
+  @media (max-width:760px){
+    /* σε κινητό τα κελιά δεν χωράνε κείμενο — δείχνουν τελείες και ανοίγεις τη μέρα από κάτω */
+    .cal-cell{min-height:54px;align-items:center;gap:5px;padding:5px 2px;}
+    .cal-ev, .cal-more{display:none;}
+    .cal-dots{display:flex;}
+    .cal-title{min-width:120px;font-size:14px;}
+    .cal-head{padding:12px 14px;}
+  }
   .sched-day{padding:14px 20px;border-bottom:1px solid var(--line);}
   .sched-day:last-child{border-bottom:none;}
   .sched-day-title{font-size:13px;font-weight:700;color:var(--teal-dark);margin-bottom:10px;text-transform:capitalize;}
@@ -519,14 +548,31 @@
 
     <!-- staff: schedule -->
     <div id="view-schedule" class="hidden">
-      <div class="panel">
-        <div class="panel-head">
-          <h2>Πρόγραμμα επισκέψεων</h2>
+      <div class="panel" style="margin-bottom:16px;">
+        <div class="cal-head">
+          <div class="cal-nav">
+            <button type="button" class="btn-ghost btn-sm" id="cal-prev" aria-label="Προηγούμενος μήνας">‹</button>
+            <div class="cal-title" id="cal-title">—</div>
+            <button type="button" class="btn-ghost btn-sm" id="cal-next" aria-label="Επόμενος μήνας">›</button>
+            <button type="button" class="btn-ghost btn-sm" id="cal-today">Σήμερα</button>
+          </div>
+          <div class="filterbar" id="schedule-mode" style="padding:0;">
+            <div class="chip active" data-mode="calendar">Ημερολόγιο</div>
+            <div class="chip" data-mode="list">Λίστα</div>
+          </div>
         </div>
-        <div class="panel-body">
-          <div id="schedule-msg" style="padding:0 20px;"></div>
-          <div id="schedule-list"></div>
-        </div>
+        <div id="schedule-msg" style="padding:0 20px 10px;"></div>
+        <div id="schedule-calendar"></div>
+      </div>
+
+      <div class="panel" id="schedule-day-panel">
+        <div class="panel-head"><h2 id="schedule-day-title">—</h2></div>
+        <div class="panel-body" id="schedule-day-body" style="padding:6px 0;"></div>
+      </div>
+
+      <div class="panel hidden" id="schedule-list-panel">
+        <div class="panel-head"><h2>Όλες οι επισκέψεις</h2></div>
+        <div class="panel-body"><div id="schedule-list"></div></div>
       </div>
     </div>
 
@@ -2771,67 +2817,167 @@
   }
 
   // ================= SCHEDULE (staff) =================
-  async function loadSchedule(){
-    let q = sb
-      .from("tickets_view")
-      .select("id, code, title, scheduled_date, scheduled_time, scheduled_end, tech, clients(name)")
-      .not("scheduled_date", "is", null)
-      .neq("status", "cancelled")
-      .order("scheduled_date")
-      .order("scheduled_time");
-    if (PROFILE && PROFILE.role !== "owner") q = q.eq("assigned_to", USER.id);
-    const from = new Date(Date.now() - 7*86400000).toISOString().slice(0,10);
-    let lq = sb.from("leave_requests").select("*").eq("status","approved").gte("end_date", from);
-    if (PROFILE && PROFILE.role !== "owner") lq = lq.eq("tech_id", USER.id);
-    const [{ data, error }, leaveRes] = await Promise.all([q, lq]);
-    const list = $("#schedule-list");
-    if (error) { showMsg($("#schedule-msg"), "Σφάλμα φόρτωσης: " + error.message, "error"); return; }
-    clearMsg($("#schedule-msg"));
-    const rows = data || [];
-    const byDay = {};
-    rows.forEach(r => { (byDay[r.scheduled_date] = byDay[r.scheduled_date] || []).push(r); });
+  let SCHEDULE_MODE = "calendar";
+  let SCHEDULE_CURSOR = new Date();            // οποιαδήποτε μέρα του μήνα που δείχνουμε
+  let SCHEDULE_SELECTED = isoDay(new Date());  // η επιλεγμένη μέρα
 
-    // οι εγκεκριμένες άδειες μπαίνουν στο ημερολόγιο, μία εγγραφή για κάθε μέρα τους
+  function isoDay(d){
+    return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}-${String(d.getDate()).padStart(2,"0")}`;
+  }
+
+  // Φέρνει επισκέψεις + εγκεκριμένες άδειες για ένα διάστημα και τις ομαδοποιεί ανά μέρα.
+  // Η άδεια σπάει σε μία εγγραφή για κάθε μέρα της, ώστε να φαίνεται σε όλο το διάστημα.
+  async function fetchScheduleDays(fromISO, toISO){
+    let q = sb.from("tickets_view")
+      .select("id, code, title, scheduled_date, scheduled_time, scheduled_end, tech, clients(name)")
+      .not("scheduled_date", "is", null).neq("status", "cancelled")
+      .order("scheduled_date").order("scheduled_time");
+    let lq = sb.from("leave_requests").select("*").eq("status", "approved");
+    if (fromISO) { q = q.gte("scheduled_date", fromISO); lq = lq.gte("end_date", fromISO); }
+    if (toISO)   { q = q.lte("scheduled_date", toISO);   lq = lq.lte("start_date", toISO); }
+    if (PROFILE && PROFILE.role !== "owner") { q = q.eq("assigned_to", USER.id); lq = lq.eq("tech_id", USER.id); }
+
+    const [visitsRes, leaveRes] = await Promise.all([q, lq]);
+    if (visitsRes.error) return { error: visitsRes.error };
     if (STAFF_USERS_CACHE.length === 0) await loadStaffUsers();
     const nameOf = (id) => { const u = STAFF_USERS_CACHE.find(x => x.id === id); return u ? (u.full_name || u.email) : "Τεχνικός"; };
+
+    const byDay = {};
+    (visitsRes.data || []).forEach(r => { (byDay[r.scheduled_date] = byDay[r.scheduled_date] || []).push(r); });
     (leaveRes.data || []).forEach(l => {
       let d = new Date(l.start_date + "T00:00:00");
       const last = new Date(l.end_date + "T00:00:00");
       let guard = 0;
       while (d <= last && guard++ < 400) {
-        const key = `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}-${String(d.getDate()).padStart(2,"0")}`;
-        (byDay[key] = byDay[key] || []).push({ __leave:true, who: nameOf(l.tech_id), kind: l.kind });
+        const key = isoDay(d);
+        if (!fromISO || key >= fromISO) {
+          if (!toISO || key <= toISO) (byDay[key] = byDay[key] || []).push({ __leave:true, who: nameOf(l.tech_id), kind: l.kind });
+        }
         d.setDate(d.getDate() + 1);
       }
     });
+    return { byDay };
+  }
 
-    if (Object.keys(byDay).length === 0) {
+  function scheduleEntryHtml(r){
+    return r.__leave ? `
+      <div class="sched-visit sched-leave">
+        <div class="sched-time">🌴</div>
+        <div class="sched-info"><strong>${escapeHtml(r.who)}</strong> — ${escapeHtml(LEAVE_KIND[r.kind] || "Άδεια")}</div>
+        <div class="sched-tech">εκτός</div>
+      </div>` : `
+      <div class="sched-visit" data-id="${r.id}">
+        <div class="sched-time">${r.scheduled_time ? r.scheduled_time.slice(0,5) : "—"}${r.scheduled_end ? "–" + r.scheduled_end.slice(0,5) : ""}</div>
+        <div class="sched-info"><strong>${escapeHtml(r.clients ? r.clients.name : "")}</strong> — ${escapeHtml(r.title)}</div>
+        <div class="sched-tech">${escapeHtml(r.tech || "—")}</div>
+      </div>`;
+  }
+
+  async function loadSchedule(){
+    clearMsg($("#schedule-msg"));
+    const isCal = SCHEDULE_MODE === "calendar";
+    $("#schedule-calendar").classList.toggle("hidden", !isCal);
+    $("#schedule-day-panel").classList.toggle("hidden", !isCal);
+    $("#schedule-list-panel").classList.toggle("hidden", isCal);
+    $$("#schedule-mode .chip").forEach(c => c.classList.toggle("active", c.dataset.mode === SCHEDULE_MODE));
+    $$(".cal-nav button").forEach(b => b.classList.toggle("hidden", !isCal));
+    if (isCal) await renderScheduleCalendar(); else await renderScheduleList();
+  }
+
+  async function renderScheduleCalendar(){
+    const cur = SCHEDULE_CURSOR;
+    const first = new Date(cur.getFullYear(), cur.getMonth(), 1);
+    const last = new Date(cur.getFullYear(), cur.getMonth() + 1, 0);
+    // η εβδομάδα ξεκινάει Δευτέρα
+    const startOffset = (first.getDay() + 6) % 7;
+    const gridStart = new Date(first); gridStart.setDate(first.getDate() - startOffset);
+    const endOffset = (7 - ((last.getDay() + 6) % 7) - 1);
+    const gridEnd = new Date(last); gridEnd.setDate(last.getDate() + endOffset);
+
+    $("#cal-title").textContent = first.toLocaleDateString("el-GR", { month:"long", year:"numeric" });
+
+    const { byDay, error } = await fetchScheduleDays(isoDay(gridStart), isoDay(gridEnd));
+    if (error) { showMsg($("#schedule-msg"), "Σφάλμα φόρτωσης: " + error.message, "error"); return; }
+
+    const today = isoDay(new Date());
+    const dows = ["Δε","Τρ","Τε","Πε","Πα","Σα","Κυ"];
+    let cells = "";
+    for (let d = new Date(gridStart); d <= gridEnd; d.setDate(d.getDate() + 1)) {
+      const key = isoDay(d);
+      const items = byDay[key] || [];
+      const visits = items.filter(i => !i.__leave), leaves = items.filter(i => i.__leave);
+      const shown = items.slice(0, 3).map(i => i.__leave
+        ? `<div class="cal-ev leave">🌴 ${escapeHtml(i.who)}</div>`
+        : `<div class="cal-ev">${i.scheduled_time ? i.scheduled_time.slice(0,5) + " " : ""}${escapeHtml(i.clients ? i.clients.name : i.title)}</div>`).join("");
+      const dots = [...visits.slice(0,4).map(() => '<span class="cal-dot"></span>'),
+                    ...leaves.slice(0,2).map(() => '<span class="cal-dot leave"></span>')].join("");
+      cells += `
+        <div class="cal-cell ${d.getMonth() === cur.getMonth() ? "" : "other"} ${key === today ? "today" : ""} ${key === SCHEDULE_SELECTED ? "selected" : ""}" data-day="${key}">
+          <div class="cal-daynum">${d.getDate()}</div>
+          ${shown}
+          ${items.length > 3 ? `<div class="cal-more">+${items.length - 3} ακόμα</div>` : ""}
+          <div class="cal-dots">${dots}</div>
+        </div>`;
+    }
+    $("#schedule-calendar").innerHTML =
+      `<div class="cal-grid">${dows.map(d => `<div class="cal-dow">${d}</div>`).join("")}${cells}</div>`;
+    $$("#schedule-calendar [data-day]").forEach(el => {
+      el.addEventListener("click", () => { SCHEDULE_SELECTED = el.dataset.day; renderScheduleCalendar(); });
+    });
+    renderScheduleDay(byDay[SCHEDULE_SELECTED] || []);
+  }
+
+  function renderScheduleDay(items){
+    const d = new Date(SCHEDULE_SELECTED + "T00:00:00");
+    $("#schedule-day-title").textContent = d.toLocaleDateString("el-GR", { weekday:"long", day:"numeric", month:"long" });
+    const body = $("#schedule-day-body");
+    body.innerHTML = items.length === 0
+      ? '<div class="empty-state">Καμία επίσκεψη αυτή τη μέρα.</div>'
+      : `<div style="padding:0 20px;">${items.map(scheduleEntryHtml).join("")}</div>`;
+    body.querySelectorAll("[data-id]").forEach(el => {
+      el.addEventListener("click", () => openTicketDrawer(el.dataset.id, false));
+    });
+  }
+
+  async function renderScheduleList(){
+    const from = isoDay(new Date(Date.now() - 7*86400000));
+    const { byDay, error } = await fetchScheduleDays(from, null);
+    const list = $("#schedule-list");
+    if (error) { showMsg($("#schedule-msg"), "Σφάλμα φόρτωσης: " + error.message, "error"); return; }
+    const days = Object.keys(byDay).sort();
+    if (days.length === 0) {
       list.innerHTML = '<div class="empty-state">Δεν υπάρχουν προγραμματισμένες επισκέψεις.</div>';
       return;
     }
-    const days = Object.keys(byDay).sort();
-    list.innerHTML = days.map(day => {
-      const dayLabel = new Date(day + "T00:00:00").toLocaleDateString("el-GR", { weekday:"long", day:"numeric", month:"long" });
-      return `
+    list.innerHTML = days.map(day => `
       <div class="sched-day">
-        <div class="sched-day-title">${dayLabel}</div>
-        ${byDay[day].map(r => r.__leave ? `
-          <div class="sched-visit sched-leave">
-            <div class="sched-time">🌴</div>
-            <div class="sched-info"><strong>${escapeHtml(r.who)}</strong> — ${escapeHtml(LEAVE_KIND[r.kind] || "Άδεια")}</div>
-            <div class="sched-tech">εκτός</div>
-          </div>` : `
-          <div class="sched-visit" data-id="${r.id}">
-            <div class="sched-time">${r.scheduled_time ? r.scheduled_time.slice(0,5) : "—"}${r.scheduled_end ? "–" + r.scheduled_end.slice(0,5) : ""}</div>
-            <div class="sched-info"><strong>${escapeHtml(r.clients ? r.clients.name : "")}</strong> — ${escapeHtml(r.title)}</div>
-            <div class="sched-tech">${escapeHtml(r.tech || "—")}</div>
-          </div>`).join("")}
-      </div>`;
-    }).join("");
+        <div class="sched-day-title">${new Date(day + "T00:00:00").toLocaleDateString("el-GR", { weekday:"long", day:"numeric", month:"long" })}</div>
+        ${byDay[day].map(scheduleEntryHtml).join("")}
+      </div>`).join("");
     list.querySelectorAll("[data-id]").forEach(el => {
       el.addEventListener("click", () => openTicketDrawer(el.dataset.id, false));
     });
   }
+
+  $("#cal-prev").addEventListener("click", () => {
+    SCHEDULE_CURSOR = new Date(SCHEDULE_CURSOR.getFullYear(), SCHEDULE_CURSOR.getMonth() - 1, 1);
+    renderScheduleCalendar();
+  });
+  $("#cal-next").addEventListener("click", () => {
+    SCHEDULE_CURSOR = new Date(SCHEDULE_CURSOR.getFullYear(), SCHEDULE_CURSOR.getMonth() + 1, 1);
+    renderScheduleCalendar();
+  });
+  $("#cal-today").addEventListener("click", () => {
+    SCHEDULE_CURSOR = new Date();
+    SCHEDULE_SELECTED = isoDay(new Date());
+    renderScheduleCalendar();
+  });
+  $("#schedule-mode").addEventListener("click", (e) => {
+    const chip = e.target.closest("[data-mode]");
+    if (!chip) return;
+    SCHEDULE_MODE = chip.dataset.mode;
+    loadSchedule();
+  });
 
   // ================= STAFF USERS (for the ticket "Ανάθεση σε" picker — everyone) =================
   async function loadStaffUsers(){
