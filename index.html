@@ -248,11 +248,11 @@
   .cal-head{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:14px 20px;flex-wrap:wrap;}
   .cal-nav{display:flex;align-items:center;gap:4px;}
   .cal-title{font-size:15px;font-weight:700;min-width:160px;text-align:center;text-transform:capitalize;}
-  .cal-grid{display:grid;grid-template-columns:repeat(7,1fr);gap:1px;background:var(--line);
+  .cal-grid{display:grid;grid-template-columns:repeat(7,minmax(0,1fr));gap:1px;background:var(--line);
             border-top:1px solid var(--line);border-bottom:1px solid var(--line);}
   .cal-dow{background:var(--surface);padding:7px 4px;font-size:10.5px;font-weight:700;color:var(--ink-soft);
            text-align:center;text-transform:uppercase;letter-spacing:.04em;}
-  .cal-cell{background:var(--card);min-height:106px;padding:6px 7px;cursor:pointer;display:flex;flex-direction:column;gap:3px;}
+  .cal-cell{min-width:0;background:var(--card);min-height:106px;padding:6px 7px;cursor:pointer;display:flex;flex-direction:column;gap:3px;}
   .cal-cell:hover{background:var(--surface-2);}
   .cal-cell.other{opacity:.4;}
   .cal-cell.selected{outline:2px solid var(--teal);outline-offset:-2px;}
@@ -355,6 +355,10 @@
     #view-expenses .cal-nav input[type=date]{min-width:0 !important;flex:1 1 120px;}
     #view-expenses .panel-body{overflow-x:auto;}
   }
+
+  /* ---- επίδειξη ---- */
+  .demo-pill{background:var(--amber-bg);color:var(--amber);border:1px dashed var(--amber);cursor:pointer;font:inherit;font-size:11px;font-weight:700;}
+  body.demo-mode .topbar{box-shadow:inset 0 -3px 0 var(--amber);}
 
   /* ---- ιδιωτικό: δάνεια & χρέη ---- */
   .vault-btn{opacity:.55;font-size:13px;}
@@ -850,7 +854,414 @@
   // ==== Supabase connection (public values — safe to expose in the browser) ====
   const SUPABASE_URL = "https://edoktsxtqxapnxhsyuqs.supabase.co";
   const SUPABASE_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImVkb2t0c3h0cXhhcG54aHN5dXFzIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODkwMjE4NzUsImV4cCI6MjEwNDU5Nzg3NX0.D2DyljoKiCXAYOOq7i5wFM-Sxw7DJgbFIX55LP-HDgg";
-  const sb = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+  let sb = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);   // «let»: στην επίδειξη αντικαθίσταται
+  // ================= ΛΕΙΤΟΥΡΓΙΑ ΕΠΙΔΕΙΞΗΣ (DEMO) =================
+  // Με τον λογαριασμό επίδειξης η εφαρμογή ΔΕΝ μιλάει καθόλου με τη βάση: το «sb»
+  // αντικαθίσταται από μια ψεύτικη βάση στη μνήμη του browser, γεμάτη εικονικά
+  // στοιχεία. Άρα όποιος μπει εκεί δεν μπορεί να δει — ούτε κατά λάθος — τίποτα
+  // πραγματικό, και ό,τι αλλάξει μένει μόνο σε εκείνη τη συσκευή.
+  const DEMO_EMAIL = "demo@itsupp.gr";
+  const DEMO_PASSWORD = "demo";
+  const DEMO_STORE = "itsupp.demo.db";
+  const DEMO_PIN = "1234";
+  const REAL_SB = sb;
+  let DEMO = false;
+
+  function buildDemoData(){
+    const day = (n) => { const d = new Date(); d.setDate(d.getDate() + n); return isoDay(d); };
+    const ts = (n, hh = 10, mm = 0) => { const d = new Date(); d.setDate(d.getDate() + n); d.setHours(hh, mm, 0, 0); return d.toISOString(); };
+    const OWNER = "demo-owner", NIKOS = "demo-tech-1", MARIA = "demo-tech-2", STELIOS = "demo-ext-1";
+    // η επίσκεψη «σε εξέλιξη»: ραντεβού πριν από 45′, άφιξη πριν από 40′ — σε όποια ώρα κι αν γίνει η επίδειξη
+    const apptAt = new Date(Date.now() - 45 * 60000), apptEnd = new Date(Date.now() + 45 * 60000);
+    const hhmm = (d) => String(d.getHours()).padStart(2, "0") + ":" + String(d.getMinutes()).padStart(2, "0") + ":00";
+    const C = ["demo-c1","demo-c2","demo-c3","demo-c4","demo-c5","demo-c6"];
+    const S = ["demo-s1","demo-s2","demo-s3"];
+    const db = {
+      profiles: [
+        { id: OWNER, role:"owner", full_name:"Γιάννης Παπαδόπουλος", email: DEMO_EMAIL, client_id:null, leave_days_per_year:0, created_at: ts(-200) },
+        { id: NIKOS, role:"staff", full_name:"Νίκος Αντωνίου", email:"nikos@demo.example", client_id:null, leave_days_per_year:22, created_at: ts(-180) },
+        { id: MARIA, role:"staff", full_name:"Μαρία Κωνσταντίνου", email:"maria@demo.example", client_id:null, leave_days_per_year:20, created_at: ts(-150) },
+        { id: STELIOS, role:"external", full_name:"Στέλιος Δημητρίου", email:"stelios@demo.example", client_id:null, leave_days_per_year:0, created_at: ts(-90) },
+        { id:"demo-cu1", role:"client", full_name:"Ελένη Μαρκάκη", email:"eleni@demo.example", client_id: C[0], leave_days_per_year:0, created_at: ts(-60) }
+      ],
+      clients: [
+        { id:C[0], name:"Ξενοδοχείο Γαλάζιο Κύμα", type:"Ξενοδοχείο", city:"Φηρά", contact:"Ελένη Μαρκάκη", phone:"210 000 0101", email:"info@galazio.demo.example", entity_type:"company", status:"active", address:"Παραλιακή 12", created_at: ts(-120) },
+        { id:C[1], name:"Ταβέρνα Το Λιμανάκι", type:"Εστιατόριο", city:"Οία", contact:"Κώστας Ρούσσος", phone:"210 000 0102", email:"limanaki@demo.example", entity_type:"individual", status:"active", created_at: ts(-110) },
+        { id:C[2], name:"Καφέ Αστέρι", type:"Επιχείρηση", city:"Καμάρι", contact:"Δήμητρα Λάμπρου", phone:"210 000 0103", status:"active", created_at: ts(-95) },
+        { id:C[3], name:"Βίλες Ηλιοβασίλεμα", type:"Ξενοδοχείο", city:"Ημεροβίγλι", contact:"Αλέξης Νομικός", phone:"210 000 0104", status:"active", created_at: ts(-80) },
+        { id:C[4], name:"Mini Market Κεντρικό", type:"Επιχείρηση", city:"Πύργος", contact:"Σοφία Βλάχου", phone:"210 000 0105", status:"active", created_at: ts(-40) },
+        { id:C[5], name:"Εστιατόριο Θαλασσινό", type:"Εστιατόριο", city:"Περίσσα", contact:"Πέτρος Ζαχαρίου", phone:"210 000 0106", status:"pending", entity_type:"company", created_at: ts(-1) }
+      ],
+      suppliers: [
+        { id:S[0], name:"TechnoNet Διανομή (demo)", vat_number:null },
+        { id:S[1], name:"Ασφάλεια Plus (demo)", vat_number:null },
+        { id:S[2], name:"Telecom Parts (demo)", vat_number:null }
+      ],
+      inventory_items: [
+        { id:"demo-i1", sku:"CAM-4MP-D", name:"IP κάμερα dome 4MP", category:"Κάμερες", stock:14, max_stock:20, price:89, supplier_id:S[1] },
+        { id:"demo-i2", sku:"CAM-8MP-B", name:"IP κάμερα bullet 8MP", category:"Κάμερες", stock:3, max_stock:15, price:149, supplier_id:S[1] },
+        { id:"demo-i3", sku:"NVR-16", name:"NVR 16 καναλιών", category:"Καταγραφικά", stock:4, max_stock:6, price:320, supplier_id:S[1] },
+        { id:"demo-i4", sku:"HDD-4T", name:"Σκληρός δίσκος 4TB surveillance", category:"Καταγραφικά", stock:7, max_stock:10, price:115, supplier_id:S[0] },
+        { id:"demo-i5", sku:"SW-POE-8", name:"Switch PoE 8 θυρών", category:"Δίκτυα", stock:6, max_stock:10, price:95, supplier_id:S[0] },
+        { id:"demo-i6", sku:"CAT6-305", name:"Καλώδιο Cat6 305m", category:"Δίκτυα", stock:2, max_stock:8, price:120, supplier_id:S[0] },
+        { id:"demo-i7", sku:"AP-WIFI6", name:"Access point Wi-Fi 6", category:"Δίκτυα", stock:9, max_stock:12, price:135, supplier_id:S[0] },
+        { id:"demo-i8", sku:"PBX-IP-32", name:"Τηλεφωνικό κέντρο IP 32 εσωτ.", category:"Τηλεφωνία", stock:1, max_stock:3, price:690, supplier_id:S[2] },
+        { id:"demo-i9", sku:"TEL-IP-STD", name:"Τηλέφωνο IP γραφείου", category:"Τηλεφωνία", stock:18, max_stock:25, price:65, supplier_id:S[2] },
+        { id:"demo-i10", sku:"POS-TAB", name:"Tablet παραγγελιοληψίας", category:"POS", stock:5, max_stock:8, price:240, supplier_id:S[0] }
+      ],
+      tickets: [
+        { id:"demo-t1", ticket_no:1, client_id:C[0], category:"Κάμερες", title:"Δεν γράφει η κάμερα της πισίνας", description:"Από χθες το βράδυ η κάμερα 6 δείχνει μαύρη εικόνα.", status:"progress", priority:"urgent", assigned_to:NIKOS, tech:"Νίκος Αντωνίου", scheduled_date:isoDay(apptAt), scheduled_time:hhmm(apptAt), scheduled_end:hhmm(apptEnd), created_at:ts(-1,20,15) },
+        { id:"demo-t2", ticket_no:2, client_id:C[1], category:"POS", title:"Νέο tablet παραγγελιοληψίας για τη βεράντα", status:"new", priority:"normal", assigned_to:MARIA, tech:"Μαρία Κωνσταντίνου", scheduled_date:day(1), scheduled_time:"12:00:00", scheduled_end:"13:00:00", created_at:ts(-3) },
+        { id:"demo-t3", ticket_no:3, client_id:C[3], category:"Δίκτυα", title:"Αδύναμο Wi-Fi στις βίλες 3 και 4", status:"waiting", priority:"normal", assigned_to:NIKOS, tech:"Νίκος Αντωνίου", scheduled_date:day(2), scheduled_time:"10:00:00", created_at:ts(-5) },
+        { id:"demo-t4", ticket_no:4, client_id:C[2], category:"PBX", title:"Εσωτερικό 12 δεν χτυπάει", status:"new", priority:"normal", assigned_to:null, created_at:ts(0,8,40) },
+        { id:"demo-t5", ticket_no:5, client_id:C[4], category:"Κάμερες", title:"Εγκατάσταση 4 καμερών ταμείου", status:"progress", priority:"normal", assigned_to:STELIOS, tech:"Στέλιος Δημητρίου", scheduled_date:day(3), scheduled_time:"08:30:00", scheduled_end:"14:00:00", created_at:ts(-7) },
+        { id:"demo-t6", ticket_no:6, client_id:C[0], category:"Δίκτυα", title:"Αντικατάσταση switch στο λόμπι", status:"done", priority:"normal", assigned_to:MARIA, tech:"Μαρία Κωνσταντίνου", scheduled_date:day(-6), scheduled_time:"11:00:00", created_at:ts(-9) },
+        { id:"demo-t7", ticket_no:7, client_id:C[1], category:"PBX", title:"Ρύθμιση τηλεφωνητή εκτός ωραρίου", status:"done", priority:"low", assigned_to:NIKOS, tech:"Νίκος Αντωνίου", scheduled_date:day(-12), scheduled_time:"16:00:00", created_at:ts(-14) },
+        { id:"demo-t8", ticket_no:8, client_id:C[3], category:"Κάμερες", title:"Συντήρηση καμερών πριν τη σεζόν", status:"new", priority:"low", assigned_to:MARIA, tech:"Μαρία Κωνσταντίνου", scheduled_date:day(8), scheduled_time:"09:00:00", created_at:ts(-2) }
+      ],
+      ticket_notes: [
+        { id:"demo-n1", ticket_id:"demo-t1", author_name:"Ξενοδοχείο Γαλάζιο Κύμα", role:"client", body:"Η κάμερα της πισίνας δεν δείχνει εικόνα από χθες. Μπορείτε να έρθετε σήμερα;", created_at:ts(-1,20,15) },
+        { id:"demo-n2", ticket_id:"demo-t1", author_name:"Γιάννης Παπαδόπουλος", role:"staff", body:"Ναι, ο Νίκος θα περάσει σήμερα.", created_at:ts(-1,20,40) },
+        { id:"demo-n3", ticket_id:"demo-t3", author_name:"Νίκος Αντωνίου", role:"staff", body:"Περιμένουμε το νέο access point από τον προμηθευτή.", created_at:ts(-3,13,5) }
+      ],
+      visit_logs: [
+        { id:"demo-v1", ticket_id:"demo-t1", tech_id:NIKOS, checkin_at: new Date(Date.now() - 40*60000).toISOString(), checkin_lat:36.4167, checkin_lng:25.4318, checkin_accuracy:12, checkout_at:null, created_at: new Date(Date.now() - 40*60000).toISOString() },
+        { id:"demo-v2", ticket_id:"demo-t6", tech_id:MARIA, checkin_at:ts(-6,11,5), checkin_lat:36.4167, checkin_lng:25.4318, checkin_accuracy:9, checkout_at:ts(-6,12,35), checkout_lat:36.4168, checkout_lng:25.4317, checkout_accuracy:10, created_at:ts(-6,11,5) },
+        { id:"demo-v3", ticket_id:"demo-t7", tech_id:NIKOS, checkin_at:ts(-12,16,20), checkin_lat:36.4618, checkin_lng:25.3753, checkin_accuracy:15, checkout_at:ts(-12,17,10), checkout_lat:36.4618, checkout_lng:25.3753, checkout_accuracy:15, created_at:ts(-12,16,20) }
+      ],
+      equipment: [
+        { id:"demo-e1", client_id:C[0], type:"Κάμερες", detail:"12 IP κάμερες 4MP + NVR 16 καναλιών", created_at:ts(-100) },
+        { id:"demo-e2", client_id:C[0], type:"Δίκτυο", detail:"Switch PoE 8 θυρών (λόμπι) — αντικαταστάθηκε " + day(-6), created_at:ts(-6) },
+        { id:"demo-e3", client_id:C[1], type:"POS", detail:"2 tablet παραγγελιοληψίας + εκτυπωτής κουζίνας", created_at:ts(-90) },
+        { id:"demo-e4", client_id:C[1], type:"PBX", detail:"Τηλεφωνικό κέντρο IP, 6 εσωτερικά", created_at:ts(-90) },
+        { id:"demo-e5", client_id:C[3], type:"Δίκτυο", detail:"6 access points Wi-Fi 6", created_at:ts(-70) }
+      ],
+      remote_access: [
+        { id:"demo-r1", client_id:C[0], label:"NVR (τοπικά)", value:"192.168.1.20 · χρήστης: admin" },
+        { id:"demo-r2", client_id:C[1], label:"PBX web", value:"192.168.0.5:8088" }
+      ],
+      ledger_entries: [
+        { id:"demo-l1", client_id:C[0], entry_date:day(-6), description:"Αντικατάσταση switch λόμπι", charge:245, payment:0, doc_number:"ΤΔΑ-1", created_at:ts(-6,13) },
+        { id:"demo-l2", client_id:C[0], entry_date:day(-4), description:"Εξόφληση ΤΔΑ-1", charge:0, payment:245, doc_number:"ΑΠΥ-1", method:"bank", bank:"Τράπεζα Πειραιώς", settles_doc:"ΤΔΑ-1", created_at:ts(-4,10) },
+        { id:"demo-l3", client_id:C[1], entry_date:day(-12), description:"Ρύθμιση τηλεφωνητή", charge:80, payment:0, doc_number:"ΤΠΥ-1", created_at:ts(-12,18) },
+        { id:"demo-l4", client_id:C[1], entry_date:day(-12), description:"Πληρωμή ΤΠΥ-1", charge:0, payment:80, doc_number:"ΑΠΥ-2", method:"cash", settles_doc:"ΤΠΥ-1", created_at:ts(-12,18,5) },
+        { id:"demo-l5", client_id:C[3], entry_date:day(-20), description:"Εγκατάσταση access points", charge:1180, payment:0, doc_number:"ΤΔΑ-2", created_at:ts(-20,15) },
+        { id:"demo-l6", client_id:C[3], entry_date:day(-15), description:"Προκαταβολή ΤΔΑ-2", charge:0, payment:600, doc_number:"ΑΠΥ-3", method:"card", settles_doc:"ΤΔΑ-2", created_at:ts(-15,11) },
+        { id:"demo-l7", client_id:C[2], entry_date:day(0), description:"Πληρωμή μηνιαίας συντήρησης", charge:0, payment:60, doc_number:"ΑΠΥ-4", method:"cash", created_at:ts(0,9,10) },
+        { id:"demo-l8", client_id:C[2], entry_date:day(-30), description:"Μηνιαία συντήρηση", charge:60, payment:0, doc_number:"ΤΠΥ-2", created_at:ts(-30,9) }
+      ],
+      doc_counters: [ { key:"TDA", label:"ΤΔΑ", next_number:3 }, { key:"TPY", label:"ΤΠΥ", next_number:3 }, { key:"APY", label:"ΑΠΥ", next_number:5 } ],
+      quotes: [
+        { id:"demo-q1", quote_no:1, client_id:C[4], quote_date:day(-8), status:"accepted", note:"Κάμερες ταμείου και αποθήκης", created_at:ts(-8) },
+        { id:"demo-q2", quote_no:2, client_id:C[5], quote_date:day(-1), status:"sent", note:"Πλήρες σύστημα παραγγελιοληψίας", created_at:ts(-1) }
+      ],
+      quote_items: [
+        { id:"demo-qi1", quote_id:"demo-q1", sku:"CAM-4MP-D", description:"IP κάμερα dome 4MP", qty:4, unit_price:89 },
+        { id:"demo-qi2", quote_id:"demo-q1", sku:"NVR-16", description:"NVR 16 καναλιών", qty:1, unit_price:320 },
+        { id:"demo-qi3", quote_id:"demo-q1", sku:null, description:"Εργασία εγκατάστασης", qty:1, unit_price:250 },
+        { id:"demo-qi4", quote_id:"demo-q2", sku:"POS-TAB", description:"Tablet παραγγελιοληψίας", qty:4, unit_price:240 },
+        { id:"demo-qi5", quote_id:"demo-q2", sku:null, description:"Άδεια λογισμικού (1 έτος)", qty:1, unit_price:390 }
+      ],
+      expenses: [
+        { id:"demo-x1", expense_date:day(0), category:"Καύσιμα", amount:45, method:"cash", payer:"shop", note:"Βαν", created_at:ts(0,8) },
+        { id:"demo-x2", expense_date:day(-2), category:"Προμήθεια εξοπλισμού", supplier_id:S[1], amount:612, method:"bank", bank:"Τράπεζα Πειραιώς", payer:"shop", note:"8 κάμερες dome", created_at:ts(-2,11) },
+        { id:"demo-x3", expense_date:day(-3), category:"Τηλέφωνο/Internet", amount:58, method:"card", payer:"shop", created_at:ts(-3,12) },
+        { id:"demo-x4", expense_date:day(-5), category:"ΔΕΗ/Ρεύμα", amount:134, method:"bank", bank:"Εθνική Τράπεζα", payer:"shop", created_at:ts(-5,9) },
+        { id:"demo-x5", expense_date:day(-6), category:"Καύσιμα", amount:38, method:"cash", payer:"employee", payer_id:NIKOS, created_at:ts(-6,17) },
+        { id:"demo-x6", expense_date:day(-10), category:"Πληρωμή υπαλλήλου", amount:450, method:"bank", bank:"Τράπεζα Πειραιώς", payer:"shop", employee_id:STELIOS, note:"Εγκατάσταση Mini Market", created_at:ts(-10,14) },
+        { id:"demo-x7", expense_date:day(-14), category:"Ενοίκιο", amount:650, method:"bank", bank:"Τράπεζα Πειραιώς", payer:"shop", created_at:ts(-14,10) },
+        { id:"demo-x8", expense_date:day(-18), category:"Συντήρηση οχήματος", amount:210, method:"card", payer:"shop", note:"Service βαν", created_at:ts(-18,16) }
+      ],
+      calendar_notes: [
+        { id:"demo-cn1", note_date:day(0), note_time:"13:30:00", title:"Ραντεβού με λογιστή", kind:"appointment", alert_before_min:30, remind_before:0, repeat:"none", done:false, created_by:OWNER, created_at:ts(-4) },
+        { id:"demo-cn2", note_date:day(1), note_time:"10:00:00", title:"Μελέτη κάμερες — Εστιατόριο Θαλασσινό", kind:"study", client_id:C[5], assigned_to:MARIA, alert_before_min:60, remind_before:0, repeat:"none", done:false, created_by:OWNER, created_at:ts(-2) },
+        { id:"demo-cn3", note_date:day(5), note_time:null, title:"Ενοίκιο αποθήκης", kind:"payment", amount:300, remind_before:3, repeat:"monthly", done:false, created_by:OWNER, created_at:ts(-25) },
+        { id:"demo-cn4", note_date:day(-2), note_time:null, title:"Ανανέωση άδειας λογισμικού POS", kind:"reminder", remind_before:0, repeat:"yearly", done:false, created_by:OWNER, created_at:ts(-30) },
+        { id:"demo-cn5", note_date:day(0), note_time:null, title:"Παραγγελία καλωδίων Cat6", kind:"task", remind_before:0, repeat:"none", done:true, done_at:ts(0,9), created_by:OWNER, created_at:ts(-1) }
+      ],
+      leave_requests: [
+        { id:"demo-lv1", tech_id:MARIA, start_date:day(9), end_date:day(11), kind:"annual", status:"approved", created_at:ts(-10), decided_at:ts(-9) },
+        { id:"demo-lv2", tech_id:NIKOS, start_date:day(20), end_date:day(24), kind:"annual", status:"pending", note:"Οικογενειακό ταξίδι", created_at:ts(-1) },
+        { id:"demo-lv3", tech_id:NIKOS, start_date:day(-40), end_date:day(-38), kind:"annual", status:"approved", created_at:ts(-50), decided_at:ts(-49) }
+      ],
+      notifications: [
+        { id:"demo-nt1", user_id:OWNER, ticket_id:"demo-t4", message:"Νέο αίτημα από Καφέ Αστέρι: Εσωτερικό 12 δεν χτυπάει", is_read:false, created_at:ts(0,8,40) },
+        { id:"demo-nt2", user_id:OWNER, client_id:C[5], message:"Νέα εγγραφή πελάτη: Εστιατόριο Θαλασσινό — χρειάζεται έγκριση", is_read:false, created_at:ts(-1,19) },
+        { id:"demo-nt3", user_id:OWNER, profile_id:NIKOS, message:"Αίτημα άδειας: Νίκος Αντωνίου — 5 ημ.", is_read:true, created_at:ts(-1,12) }
+      ],
+      money_accounts: [
+        { id:"demo-m1", name:"Μετρητά", kind:"cash", bank_name:null, opening_balance:850, opening_date:day(-30), card_account:false, active:true, sort_order:0, created_at:ts(-30) },
+        { id:"demo-m2", name:"Τράπεζα Πειραιώς", kind:"bank", bank_name:"Τράπεζα Πειραιώς", iban:"GR00 0000 0000 0000 0000 0000 001", opening_balance:12400, opening_date:day(-30), card_account:true, active:true, sort_order:1, created_at:ts(-30) },
+        { id:"demo-m3", name:"Εθνική Τράπεζα", kind:"bank", bank_name:"Εθνική Τράπεζα", opening_balance:3200, opening_date:day(-30), card_account:false, active:true, sort_order:2, created_at:ts(-30) }
+      ],
+      money_movements: [
+        { id:"demo-mm1", account_id:"demo-m1", to_account_id:"demo-m2", move_date:day(-7), kind:"transfer", amount:500, note:"κατάθεση εισπράξεων", created_at:ts(-7,13) }
+      ],
+      push_subscriptions: []
+    };
+    // ιδιωτικό τμήμα (PIN 1234)
+    db.__vault = {
+      pin: DEMO_PIN, failed: 0,
+      debts: [
+        { id:"demo-d1", title:"Επαγγελματικό δάνειο", creditor:"Τράπεζα Πειραιώς", kind:"loan", original_amount:18000, start_date:day(-240), installment:420, due_day:5, note:null, created_at:ts(-240) },
+        { id:"demo-d2", title:"Leasing βαν", creditor:"Leasing εταιρεία (demo)", kind:"loan", original_amount:9600, start_date:day(-150), installment:265, due_day:20, created_at:ts(-150) },
+        { id:"demo-d3", title:"Χρέος σε προμηθευτή", creditor:"Telecom Parts (demo)", kind:"debt", original_amount:1200, start_date:day(-20), created_at:ts(-20) }
+      ],
+      entries: []
+    };
+    for (let m = 7; m >= 1; m--) db.__vault.entries.push({ id:"demo-de-a" + m, debt_id:"demo-d1", entry_date:day(-30 * m + 5), kind:"payment", amount:420, note:null, created_at:ts(-30 * m + 5) });
+    for (let m = 4; m >= 1; m--) db.__vault.entries.push({ id:"demo-de-b" + m, debt_id:"demo-d2", entry_date:day(-30 * m + 10), kind:"payment", amount:265, note:null, created_at:ts(-30 * m + 10) });
+    db.__vault.entries.push({ id:"demo-de-c1", debt_id:"demo-d3", entry_date:day(-6), kind:"payment", amount:400, note:"πρώτη δόση", created_at:ts(-6) });
+    return db;
+  }
+
+  function createDemoClient(DB){
+    const newId = () => "demo-" + Math.random().toString(36).slice(2, 10) + Date.now().toString(36);
+    const nowIso = () => new Date().toISOString();
+    const tbl = (n) => (DB[n] = DB[n] || []);
+    const save = () => { try { sessionStorage.setItem(DEMO_STORE, JSON.stringify(DB)); } catch (e) {} };
+    const USER_ROW = DB.profiles.find(p => p.role === "owner");
+    const user = { id: USER_ROW.id, email: USER_ROW.email };
+    const maxOf = (t, col) => tbl(t).reduce((m, r) => Math.max(m, Number(r[col] || 0)), 0);
+    const leaveDays = (a, b) => { let n = 0; for (let d = new Date(a + "T00:00:00"); d <= new Date(b + "T00:00:00"); d.setDate(d.getDate() + 1)) if (d.getDay() !== 0) n++; return n; };
+
+    const DEFAULTS = {
+      tickets:   () => ({ status:"new", priority:"normal", ticket_no: maxOf("tickets", "ticket_no") + 1, created_at: nowIso(), updated_at: nowIso() }),
+      quotes:    () => ({ status:"draft", quote_no: maxOf("quotes", "quote_no") + 1, quote_date: isoDay(new Date()), created_at: nowIso() }),
+      clients:   () => ({ type:"Άλλο", status:"active", created_at: nowIso() }),
+      calendar_notes: () => ({ kind:"reminder", remind_before:0, repeat:"none", done:false, alert_before_min:0, created_by: user.id, created_at: nowIso() }),
+      money_accounts: () => ({ kind:"bank", opening_balance:0, opening_date: isoDay(new Date()), card_account:false, active:true, sort_order:0, created_at: nowIso() }),
+      money_movements: () => ({ move_date: isoDay(new Date()), created_by: user.id, created_at: nowIso() }),
+      leave_requests: () => ({ kind:"annual", status:"pending", created_at: nowIso() }),
+      notifications: () => ({ is_read:false, created_at: nowIso() }),
+      expenses: () => ({ expense_date: isoDay(new Date()), amount:0, created_at: nowIso() }),
+      ledger_entries: () => ({ entry_date: isoDay(new Date()), charge:0, payment:0, created_at: nowIso() }),
+      visit_logs: () => ({ checkin_at: nowIso(), created_at: nowIso() }),
+      inventory_items: () => ({ stock:0, max_stock:0, price:0 }),
+      quote_items: () => ({ qty:1, unit_price:0 })
+    };
+    const afterWrite = (t, r) => {
+      if (t === "leave_requests" && r.start_date && r.end_date) r.days = leaveDays(r.start_date, r.end_date);
+      if (t === "calendar_notes") r.done_at = r.done ? (r.done_at || nowIso()) : null;
+      if (t === "tickets") r.updated_at = nowIso();
+    };
+
+    // ---- «views», ίδια λογική με τη βάση ----
+    const accFor = (m, b) => {
+      const c = tbl("money_accounts").filter(a => (m === "cash" && a.kind === "cash")
+        || (m === "bank" && a.kind === "bank" && a.bank_name && a.bank_name.trim().toLowerCase() === (b || "").trim().toLowerCase())
+        || (m === "card" && a.card_account));
+      c.sort((x, y) => (y.active ? 1 : 0) - (x.active ? 1 : 0) || (x.sort_order || 0) - (y.sort_order || 0));
+      return c[0] ? c[0].id : null;
+    };
+    const VIEWS = {
+      tickets_view: () => tbl("tickets").map(t => ({ ...t, code: "ΤΚ-" + t.ticket_no })),
+      quotes_view:  () => tbl("quotes").map(q => ({ ...q, code: "ΠΡ-" + q.quote_no })),
+      money_ledger: () => {
+        const A = tbl("money_accounts"), out = [];
+        tbl("ledger_entries").filter(l => Number(l.payment) > 0).forEach(l => {
+          const c = tbl("clients").find(x => x.id === l.client_id);
+          out.push({ source:"receipt", source_id:l.id, move_date:l.entry_date, account_id:accFor(l.method, l.bank), amount:Number(l.payment),
+                     description:"Είσπραξη — " + (c ? c.name : "") + (l.doc_number ? " · " + l.doc_number : ""), method:l.method, bank:l.bank, client_id:l.client_id, created_at:l.created_at || "" });
+        });
+        tbl("expenses").filter(e => Number(e.amount) !== 0 && (e.payer || "shop") === "shop").forEach(e =>
+          out.push({ source:"expense", source_id:e.id, move_date:e.expense_date, account_id:accFor(e.method, e.bank), amount:-Number(e.amount),
+                     description:e.category + (e.note ? " — " + e.note : ""), method:e.method, bank:e.bank, client_id:null, created_at:e.created_at || "" }));
+        tbl("money_movements").forEach(m => {
+          const t = A.find(a => a.id === m.to_account_id), f = A.find(a => a.id === m.account_id);
+          const lbl = { in:"Είσοδος χρημάτων", out:"Έξοδος χρημάτων", adjust:"Καταμέτρηση (διόρθωση)" }[m.kind] || ("Μεταφορά προς " + (t ? t.name : ""));
+          out.push({ source:"manual", source_id:m.id, move_date:m.move_date, account_id:m.account_id,
+                     amount:(m.kind === "in" || m.kind === "adjust") ? Number(m.amount) : -Number(m.amount), description:lbl + (m.note ? " — " + m.note : ""), method:m.kind, created_at:m.created_at || "" });
+          if (m.kind === "transfer") out.push({ source:"manual_in", source_id:m.id, move_date:m.move_date, account_id:m.to_account_id, amount:Number(m.amount),
+                     description:"Μεταφορά από " + (f ? f.name : "") + (m.note ? " — " + m.note : ""), method:"transfer", created_at:m.created_at || "" });
+        });
+        return out;
+      },
+      money_balances: () => {
+        const L = VIEWS.money_ledger();
+        return tbl("money_accounts").map(a => ({ ...a,
+          balance: Math.round((Number(a.opening_balance || 0) + L.filter(x => x.account_id === a.id && x.move_date >= a.opening_date).reduce((s, x) => s + x.amount, 0)) * 100) / 100,
+          last_counted: tbl("money_movements").filter(m => m.account_id === a.id && m.kind === "adjust").map(m => m.move_date).sort().pop() || null }));
+      }
+    };
+    const source = (t) => VIEWS[t] ? VIEWS[t]() : tbl(t);
+
+    // ---- εμφωλευμένα (clients(name), quote_items(...), profiles(...), tickets(... clients(name))) ----
+    const splitTop = (s) => { const out = []; let depth = 0, cur = ""; for (const ch of s) { if (ch === "(") depth++; if (ch === ")") depth--; if (ch === "," && depth === 0) { out.push(cur.trim()); cur = ""; } else cur += ch; } if (cur.trim()) out.push(cur.trim()); return out; };
+    const parseSel = (s) => splitTop(s || "*").map(p => { const m = p.match(/^(\w+)\((.*)\)$/s); return m ? { embed:m[1], sub:m[2] } : null; }).filter(Boolean);
+    const MANY_TO_ONE = { clients:"client_id", suppliers:"supplier_id", tickets:"ticket_id", quotes:"quote_id" };
+    const PROFILE_FK = { visit_logs:"tech_id", leave_requests:"tech_id", notifications:"user_id" };
+    const ONE_TO_MANY = { quote_items:"quote_id", ticket_notes:"ticket_id", visit_logs:"ticket_id", equipment:"client_id" };
+    const project = (row, table, sel) => {
+      const out = { ...row };
+      for (const { embed, sub } of parseSel(sel)) {
+        if (ONE_TO_MANY[embed] && !MANY_TO_ONE[embed]) {
+          out[embed] = tbl(embed).filter(c => c[ONE_TO_MANY[embed]] === row.id).map(c => project(c, embed, sub));
+        } else {
+          const fk = embed === "profiles" ? (PROFILE_FK[table] || "profile_id") : MANY_TO_ONE[embed];
+          const target = source(embed === "tickets" ? "tickets" : embed).find(x => x.id === row[fk]);
+          out[embed] = target ? project(target, embed, sub) : null;
+        }
+      }
+      return out;
+    };
+
+    class Q {
+      constructor(t){ this.t = t; this.f = []; this.ord = []; this.op = "select"; this.sel = "*"; this.lim = null; this.one = false; this.maybe = false; this.head = false; this.ret = false; }
+      select(cols, opts){ if (this.op === "select") this.sel = cols || "*"; else this.ret = true; if (opts && opts.head) this.head = true; return this; }
+      eq(c, v){ this.f.push(r => r[c] === v || (r[c] != null && v != null && String(r[c]) === String(v))); return this; }
+      neq(c, v){ this.f.push(r => r[c] !== v); return this; }
+      gt(c, v){ this.f.push(r => r[c] != null && r[c] > v); return this; }
+      gte(c, v){ this.f.push(r => r[c] != null && r[c] >= v); return this; }
+      lt(c, v){ this.f.push(r => r[c] != null && r[c] < v); return this; }
+      lte(c, v){ this.f.push(r => r[c] != null && r[c] <= v); return this; }
+      in(c, vs){ this.f.push(r => vs.includes(r[c])); return this; }
+      is(c, v){ this.f.push(r => (r[c] ?? null) === v); return this; }
+      not(c, op, v){ this.f.push(r => !((r[c] ?? null) === v)); return this; }
+      ilike(c, pat){ const re = new RegExp("^" + String(pat).replace(/[.+?^${}()|[\]\\]/g, "\\$&").replace(/%/g, ".*") + "$", "i"); this.f.push(r => re.test(r[c] || "")); return this; }
+      or(expr){ const conds = String(expr).split(",").map(x => x.split(".")); this.f.push(r => conds.some(([c, op, ...v]) => op === "eq" && String(r[c]) === v.join("."))); return this; }
+      order(c, o){ this.ord.push([c, !(o && o.ascending === false)]); return this; }
+      limit(n){ this.lim = n; return this; }
+      range(a, b){ this.off = a; this.lim = b - a + 1; return this; }
+      single(){ this.one = true; return this; }
+      maybeSingle(){ this.one = true; this.maybe = true; return this; }
+      insert(p){ this.op = "insert"; this.payload = Array.isArray(p) ? p : [p]; return this; }
+      upsert(p){ return this.insert(p); }
+      update(p){ this.op = "update"; this.payload = p; return this; }
+      delete(){ this.op = "delete"; return this; }
+      match(){ return source(this.t).filter(r => this.f.every(fn => fn(r))); }
+      async run(){
+        const t = this.t;
+        if (this.op === "insert") {
+          const rows = this.payload.map(p => { const r = { id: newId(), ...(DEFAULTS[t] ? DEFAULTS[t]() : { created_at: nowIso() }), ...p }; afterWrite(t, r); return r; });
+          rows.forEach(r => tbl(t).push(r)); save();
+          const data = rows.map(r => project(r, t, this.sel));
+          return { data: this.one ? data[0] : data, error: null };
+        }
+        if (this.op === "update") {
+          const rows = this.match(); rows.forEach(r => { Object.assign(r, this.payload); afterWrite(t, r); }); save();
+          return { data: this.one ? rows[0] : rows, error: null };
+        }
+        if (this.op === "delete") {
+          const rows = this.match(); DB[t] = tbl(t).filter(r => !rows.includes(r));
+          // «on delete cascade» για τα βασικά
+          if (t === "tickets") { const ids = rows.map(r => r.id); ["ticket_notes","visit_logs","notifications"].forEach(c => DB[c] = tbl(c).filter(x => !ids.includes(x.ticket_id))); }
+          if (t === "clients") { const ids = rows.map(r => r.id); ["tickets","ledger_entries","equipment","remote_access","quotes"].forEach(c => DB[c] = tbl(c).filter(x => !ids.includes(x.client_id))); }
+          if (t === "quotes") { const ids = rows.map(r => r.id); DB.quote_items = tbl("quote_items").filter(x => !ids.includes(x.quote_id)); }
+          if (t === "money_accounts") { const ids = rows.map(r => r.id); DB.money_movements = tbl("money_movements").filter(x => !ids.includes(x.account_id) && !ids.includes(x.to_account_id)); }
+          save();
+          return { data: rows, error: null };
+        }
+        let rows = this.match();
+        for (const [c, asc] of [...this.ord].reverse()) {
+          rows = [...rows].sort((a, b) => { const x = a[c] ?? null, y = b[c] ?? null; if (x === y) return 0; if (x === null) return 1; if (y === null) return -1; return (x < y ? -1 : 1) * (asc ? 1 : -1); });
+        }
+        const count = rows.length;
+        if (this.off) rows = rows.slice(this.off);
+        if (this.lim != null) rows = rows.slice(0, this.lim);
+        if (this.head) return { data: null, count, error: null };
+        rows = rows.map(r => project(r, t, this.sel));
+        if (this.one) return rows[0] ? { data: rows[0], error: null } : { data: null, error: this.maybe ? null : { message: "Δεν βρέθηκε" } };
+        return { data: rows, count, error: null };
+      }
+      then(res, rej){ return this.run().then(res, rej); }
+    }
+
+    // ---- συναρτήσεις της βάσης ----
+    const V = DB.__vault;
+    const verify = (p) => {
+      if (V.pin === null) return "none";
+      if (V.lockedUntil && V.lockedUntil > Date.now()) return "locked:" + Math.ceil((V.lockedUntil - Date.now()) / 60000);
+      if (p === V.pin) { V.failed = 0; return "ok"; }
+      V.failed++; if (V.failed >= 5) { V.failed = 0; V.lockedUntil = Date.now() + 15 * 60000; save(); return "locked:15"; }
+      save(); return "wrong:" + (5 - V.failed);
+    };
+    const debtLeftDemo = (d) => Number(d.original_amount)
+      + V.entries.filter(e => e.debt_id === d.id && e.kind === "increase").reduce((s, e) => s + Number(e.amount), 0)
+      - V.entries.filter(e => e.debt_id === d.id && e.kind === "payment").reduce((s, e) => s + Number(e.amount), 0);
+    const withPin = (fn) => (a) => { const v = verify(a.p_pin); if (v !== "ok") return { ok:false, error:v }; const r = fn(a); save(); return r; };
+    const RPC = {
+      next_doc_number: ({ p_key }) => { const c = tbl("doc_counters").find(x => x.key === p_key); const n = c.next_number; c.next_number++; save(); return c.label + "-" + n; },
+      visit_check_out: ({ p_visit, p_lat, p_lng, p_acc }) => { const v = tbl("visit_logs").find(x => x.id === p_visit); if (v && !v.checkout_at) Object.assign(v, { checkout_at: nowIso(), checkout_lat: p_lat, checkout_lng: p_lng, checkout_accuracy: p_acc }); save(); return v ? v.checkout_at : null; },
+      delete_user_account: ({ p_user }) => { DB.profiles = tbl("profiles").filter(p => p.id !== p_user); save(); return null; },
+      money_count: ({ p_account, p_actual, p_date, p_note }) => {
+        const a = tbl("money_accounts").find(x => x.id === p_account);
+        const bal = Number(a.opening_balance) + VIEWS.money_ledger().filter(x => x.account_id === p_account && x.move_date >= a.opening_date && x.move_date <= p_date).reduce((s, x) => s + x.amount, 0);
+        const diff = Math.round((p_actual - bal) * 100) / 100;
+        if (diff !== 0) tbl("money_movements").push({ id: newId(), account_id: p_account, move_date: p_date, kind:"adjust", amount: diff, note: p_note || ("Μετρήθηκαν " + Number(p_actual).toFixed(2) + "€"), created_at: nowIso() });
+        save(); return diff;
+      },
+      push_public_key: () => null, init_push_keys: () => null, save_push_subscription: () => null, remove_push_subscription: () => null,
+      send_test_notification: () => { tbl("notifications").unshift({ id:newId(), user_id:user.id, message:"✅ Δοκιμαστική ειδοποίηση", is_read:false, created_at:nowIso() }); save(); return null; },
+      vault_status: () => V.pin === null ? "none" : (V.lockedUntil && V.lockedUntil > Date.now() ? "locked:" + Math.ceil((V.lockedUntil - Date.now()) / 60000) : "set"),
+      vault_set_pin: ({ p_pin }) => { if (!/^\d{4}$/.test(p_pin)) return { ok:false, error:"format" }; if (V.pin !== null) return { ok:false, error:"exists" }; V.pin = p_pin; save(); return { ok:true }; },
+      vault_reset_pin: ({ p_new }) => { if (!/^\d{4}$/.test(p_new)) return { ok:false, error:"format" }; V.pin = p_new; V.lockedUntil = null; save(); return { ok:true }; },
+      vault_change_pin: ({ p_old, p_new }) => { const v = verify(p_old); if (v !== "ok") return { ok:false, error:v }; if (!/^\d{4}$/.test(p_new)) return { ok:false, error:"format" }; V.pin = p_new; save(); return { ok:true }; },
+      vault_get: withPin(() => ({ ok:true,
+        debts: V.debts.map(d => { const mine = V.entries.filter(e => e.debt_id === d.id);
+          return { ...d, paid: mine.filter(e => e.kind === "payment").reduce((s, e) => s + Number(e.amount), 0),
+                   increased: mine.filter(e => e.kind === "increase").reduce((s, e) => s + Number(e.amount), 0),
+                   last_payment: mine.filter(e => e.kind === "payment").map(e => e.entry_date).sort().pop() || null }; }),
+        entries: [...V.entries].sort((a, b) => a.entry_date < b.entry_date ? 1 : a.entry_date > b.entry_date ? -1 : 0) })),
+      vault_save_debt: withPin(({ p_debt: p }) => {
+        const rec = { title:p.title, creditor:p.creditor || null, kind:p.kind || "loan", original_amount:Number(p.original_amount),
+                      start_date:p.start_date || isoDay(new Date()), installment:p.installment === "" ? null : Number(p.installment),
+                      due_day:p.due_day === "" ? null : Number(p.due_day), end_date:p.end_date || null, note:p.note || null };
+        if (p.id) { Object.assign(V.debts.find(x => x.id === p.id), rec); return { ok:true, id:p.id }; }
+        const id = newId(); V.debts.push({ id, ...rec, created_at: nowIso() }); return { ok:true, id };
+      }),
+      vault_delete_debt: withPin(({ p_id }) => { V.debts = V.debts.filter(x => x.id !== p_id); V.entries = V.entries.filter(e => e.debt_id !== p_id); return { ok:true }; }),
+      vault_add_entry: withPin(({ p_debt, p_date, p_amount, p_kind, p_note }) => {
+        const d = V.debts.find(x => x.id === p_debt); if (!d) return { ok:false, error:"notfound" };
+        if (!(p_amount > 0)) return { ok:false, error:"amount" };
+        const left = debtLeftDemo(d);
+        if ((p_kind || "payment") === "payment" && p_amount > left + 0.005) return { ok:false, error:"overpay", left };
+        V.entries.push({ id:newId(), debt_id:p_debt, entry_date:p_date, kind:p_kind || "payment", amount:Math.round(p_amount * 100) / 100, note:p_note || null, created_at:nowIso() });
+        return { ok:true };
+      }),
+      vault_delete_entry: withPin(({ p_id }) => { V.entries = V.entries.filter(e => e.id !== p_id); return { ok:true }; })
+    };
+
+    return {
+      __demo: true,
+      from: (t) => new Q(t),
+      rpc: async (name, args) => {
+        if (!RPC[name]) return { data:null, error:{ message:"Δεν υποστηρίζεται στην επίδειξη" } };
+        try { return { data: RPC[name](args || {}), error:null }; }
+        catch (e) { return { data:null, error:{ message: e.message } }; }
+      },
+      auth: {
+        getSession: async () => ({ data: { session: { user } } }),
+        getUser: async () => ({ data: { user } }),
+        onAuthStateChange: () => ({ data: { subscription: { unsubscribe(){} } } }),
+        signOut: async () => ({ error:null }),
+        signInWithPassword: async ({ password }) => password === DEMO_PASSWORD ? { error:null } : { error:{ message:"Λάθος κωδικός" } },
+        signUp: async () => ({ error:{ message:"Δεν γίνεται εγγραφή στην επίδειξη" } }),
+        resetPasswordForEmail: async () => ({ error:null }),
+        updateUser: async () => ({ error:null })
+      }
+    };
+  }
+
+  // Είσοδος στην επίδειξη. fresh=true: ξεκινά από καθαρά εικονικά στοιχεία.
+  async function enterDemo(fresh){
+    let db = null;
+    if (!fresh) { try { db = JSON.parse(sessionStorage.getItem(DEMO_STORE) || "null"); } catch (e) { db = null; } }
+    if (!db || !db.profiles) db = buildDemoData();
+    try { sessionStorage.setItem(DEMO_STORE, JSON.stringify(db)); } catch (e) {}
+    DEMO = true;
+    sb = createDemoClient(db);
+    document.body.classList.add("demo-mode");
+    await boot();
+  }
+
+  function exitDemo(){
+    DEMO = false;
+    sb = REAL_SB;
+    document.body.classList.remove("demo-mode");
+    try { sessionStorage.removeItem(DEMO_STORE); } catch (e) {}
+  }
+
   // μετά από «Ενημέρωση» η διεύθυνση έχει ?v=… — καθαρίζει (το ?notif= το χρειάζεται η είσοδος, φεύγει μετά)
   (function cleanUrl(){
     const u = new URL(location.href);
@@ -924,6 +1335,14 @@
     e.preventDefault();
     const btn = $("#login-btn");
     btn.disabled = true; btn.innerHTML = '<span class="spinner"></span>Σύνδεση...';
+    // λογαριασμός επίδειξης: ΔΕΝ πάει καθόλου στη βάση
+    if ($("#login-email").value.trim().toLowerCase() === DEMO_EMAIL) {
+      btn.disabled = false; btn.textContent = "Σύνδεση";
+      if ($("#login-password").value !== DEMO_PASSWORD) { showMsg($("#auth-msg"), "Σφάλμα σύνδεσης: Invalid login credentials", "error"); return; }
+      clearMsg($("#auth-msg"));
+      await enterDemo(true);
+      return;
+    }
     const { error } = await sb.auth.signInWithPassword({
       email: $("#login-email").value.trim(),
       password: $("#login-password").value
@@ -1011,6 +1430,7 @@
     vaultLock();
     await unsubscribeThisDevice();   // αυτή η συσκευή σταματά να παίρνει τις ειδοποιήσεις σου
     await sb.auth.signOut();
+    if (DEMO) exitDemo();   // πίσω στην πραγματική βάση
     NOTIF_SEEN = null;
     PROFILE = null; USER = null;
     appView.classList.add("hidden");
@@ -1196,6 +1616,7 @@
   // interactive=true: μετά από πάτημα κουμπιού (ζητάει άδεια).
   // interactive=false: σιωπηλά στην είσοδο, ΜΟΝΟ αν η άδεια έχει ήδη δοθεί.
   async function subscribeThisDevice(interactive){
+    if (DEMO) { if (interactive) throw new Error("DEMO"); return false; }
     if (IS_IOS && !IS_STANDALONE) throw new Error("IOS_INSTALL");
     if (!PUSH_SUPPORTED) throw new Error("UNSUPPORTED");
     if (interactive) {
@@ -1238,10 +1659,12 @@
     DENIED: "Οι ειδοποιήσεις είναι μπλοκαρισμένες για τη σελίδα. Άνοιξέ τες από τις ρυθμίσεις του browser (το εικονίδιο δίπλα στη διεύθυνση) και ξαναδοκίμασε.",
     NO_KEYS: "Πρέπει πρώτα ο διαχειριστής να ενεργοποιήσει τις ειδοποιήσεις από τη δική του συσκευή.",
     NO_V12: "Λείπει η ρύθμιση στη βάση — τρέξε πρώτα το schema_v12.sql στο Supabase.",
-    NO_SW: "Δεν βρέθηκε το αρχείο sw.js — ανέβασέ το στο GitHub μαζί με το index.html."
+    NO_SW: "Δεν βρέθηκε το αρχείο sw.js — ανέβασέ το στο GitHub μαζί με το index.html.",
+    DEMO: "Στην επίδειξη οι ειδοποιήσεις κινητού είναι ανενεργές."
   };
 
   async function pushState(){
+    if (DEMO) return "demo";
     if (IS_IOS && !IS_STANDALONE) return "ios-install";
     if (!PUSH_SUPPORTED) return "unsupported";
     if (Notification.permission === "denied") return "denied";
@@ -1265,7 +1688,8 @@
               <button type="button" class="btn-primary btn-sm" id="push-on">Ενεργοποίηση σε αυτή τη συσκευή</button>`,
       "denied": `<div class="push-line">${PUSH_ERRORS.DENIED}</div>`,
       "ios-install": `<div class="push-line">${PUSH_ERRORS.IOS_INSTALL}</div>`,
-      "unsupported": `<div class="push-line">${PUSH_ERRORS.UNSUPPORTED}</div>`
+      "unsupported": `<div class="push-line">${PUSH_ERRORS.UNSUPPORTED}</div>`,
+      "demo": `<div class="push-line">📱 ${PUSH_ERRORS.DEMO}</div>`
     }[st];
     box.innerHTML = html + '<div class="push-msg" id="push-msg"></div>';
     const on = $("#push-on"), off = $("#push-off"), test = $("#push-test");
@@ -1529,7 +1953,14 @@
 
     const roleLabel = { owner:"Διαχειριστής", staff:"Τεχνικός", external:"Εξωτερικός συνεργάτης", client:"Πελάτης" }[profile.role] || profile.role;
     const pillClass = { owner:"pill-owner", staff:"pill-staff", external:"pill-external", client:"pill-client" }[profile.role] || "";
-    $("#who-label").innerHTML = `${escapeHtml(profile.full_name || user.email)} <span class="pill ${pillClass}">${roleLabel}</span>`;
+    $("#who-label").innerHTML = `${escapeHtml(profile.full_name || user.email)} <span class="pill ${pillClass}">${roleLabel}</span>`
+      + (DEMO ? ' <button type="button" class="pill demo-pill" id="demo-reset" title="Εικονικά στοιχεία — πάτα δύο φορές για επαναφορά">Επίδειξη</button>' : "");
+    if (DEMO) $("#demo-reset").addEventListener("click", async () => {
+      const b = $("#demo-reset");
+      if (!b.dataset.armed) { b.dataset.armed = "1"; b.textContent = "Επαναφορά;"; setTimeout(() => { if (b.isConnected) { delete b.dataset.armed; b.textContent = "Επίδειξη"; } }, 3000); return; }
+      closeDrawer();
+      await enterDemo(true);
+    });
 
     if (profile.role === "owner" || profile.role === "staff" || profile.role === "external") {
       const isOwnerRole = profile.role === "owner";
@@ -5205,6 +5636,10 @@
 
   // ================= INIT =================
   (async () => {
+    // αν ήταν ανοιχτή η επίδειξη (π.χ. ανανέωση σελίδας), συνεχίζει εκεί με τα ίδια εικονικά στοιχεία
+    let demoOpen = false;
+    try { demoOpen = !!sessionStorage.getItem(DEMO_STORE); } catch (e) {}
+    if (demoOpen) { await enterDemo(false); return; }
     const { data: { session } } = await sb.auth.getSession();
     if (session) await boot();
   })();
