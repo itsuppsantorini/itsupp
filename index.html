@@ -379,7 +379,7 @@
   }
 
   /* ---- αρχείο τιμολογίων ---- */
-  #view-suppliers .panel-head{flex-wrap:wrap;gap:10px;}
+  #view-suppliers .panel-head, #view-accounting .panel-head{flex-wrap:wrap;gap:10px;}
   .arch-tools{display:flex;flex-direction:column;gap:10px;padding:14px 20px 8px;}
   .arch-dates{display:flex;align-items:center;gap:6px;flex-wrap:wrap;}
   .arch-dates input[type=date]{width:auto;min-width:0;flex:0 1 150px;}
@@ -619,6 +619,7 @@
     <div class="nav-item hidden" data-view="suppliers" id="nav-suppliers">Προμηθευτές</div>
     <div class="nav-item" data-view="quotes" id="nav-quotes">Προσφορές</div>
     <div class="nav-item" data-view="expenses" id="nav-expenses">Έξοδα</div>
+    <div class="nav-item hidden" data-view="accounting" id="nav-accounting">Λογιστήριο</div>
     <div class="nav-item" data-view="schedule" id="nav-schedule">Πρόγραμμα<span class="nav-count hidden" id="nav-schedule-count" title="Υπενθυμίσεις που εκκρεμούν"></span></div>
     <div class="nav-item hidden" data-view="technicians" id="nav-technicians"><span id="nav-technicians-label">Τεχνικοί</span></div>
     <div class="nav-item hidden" data-view="users" id="nav-users">Χρήστες</div>
@@ -728,19 +729,33 @@
         <div class="panel-head">
           <h2>Προμηθευτές</h2>
           <div style="display:flex;gap:8px;flex-wrap:wrap;justify-content:flex-end;">
-            <button type="button" class="btn-ghost btn-sm" id="new-supplier-btn2">+ Προμηθευτής</button>
-            <button type="button" class="btn-ghost btn-sm" id="new-purchase-btn">+ Τιμολόγιο αγοράς</button>
-            <button type="button" class="btn-primary btn-sm" id="qr-scan-btn">📷 Σκανάρισμα τιμολογίου</button>
+            <button type="button" class="btn-primary btn-sm" id="new-supplier-btn2">+ Προμηθευτής</button>
           </div>
         </div>
         <div id="suppliers-msg" style="padding:12px 20px 0;"></div>
         <div class="stat-row" id="suppliers-stats"></div>
+        <div class="arch-tools" style="padding-bottom:0;"><input type="search" id="sup-q" placeholder="🔍 Αναζήτηση προμηθευτή: όνομα, ΑΦΜ, τηλέφωνο…"></div>
         <div class="panel-body">
           <table>
             <thead><tr><th>Προμηθευτής</th><th>Τελευταίο τιμολόγιο</th><th style="text-align:right;">Υπόλοιπο</th></tr></thead>
             <tbody id="suppliers-tbody"></tbody>
           </table>
         </div>
+      </div>
+    </div>
+
+    <!-- λογιστήριο (owner): τιμολόγια αγοράς, αρχείο, αποστολή στον λογιστή -->
+    <div id="view-accounting" class="hidden">
+      <div class="panel" style="margin-bottom:16px;">
+        <div class="panel-head">
+          <h2>Λογιστήριο</h2>
+          <div style="display:flex;gap:8px;flex-wrap:wrap;justify-content:flex-end;">
+            <button type="button" class="btn-ghost btn-sm" id="new-purchase-btn">+ Τιμολόγιο αγοράς</button>
+            <button type="button" class="btn-primary btn-sm" id="qr-scan-btn">📷 Σκανάρισμα τιμολογίου</button>
+          </div>
+        </div>
+        <div id="accounting-msg" style="padding:12px 20px 0;"></div>
+        <div class="stat-row" id="accounting-stats"></div>
       </div>
       <div class="panel">
         <div class="panel-head"><h2>Αρχείο τιμολογίων αγοράς</h2></div>
@@ -756,6 +771,7 @@
             <div class="chip active" data-st="all">Όλα</div>
             <div class="chip" data-st="unsent">Δεν έχουν σταλεί στον λογιστή</div>
             <div class="chip" data-st="sent">Σταλμένα</div>
+            <div class="chip" data-st="nofile">Χωρίς φωτογραφία</div>
           </div>
         </div>
         <div class="panel-body" id="purchases-recent" style="padding:0 20px 12px;"></div>
@@ -2074,6 +2090,7 @@
     $("#view-tickets").classList.toggle("hidden", view !== "tickets");
     $("#view-inventory").classList.toggle("hidden", view !== "inventory");
     $("#view-suppliers").classList.toggle("hidden", view !== "suppliers");
+    $("#view-accounting").classList.toggle("hidden", view !== "accounting");
     $("#view-quotes").classList.toggle("hidden", view !== "quotes");
     $("#view-expenses").classList.toggle("hidden", view !== "expenses");
     $("#view-schedule").classList.toggle("hidden", view !== "schedule");
@@ -2084,6 +2101,7 @@
     if (view === "tickets") loadTickets();
     if (view === "inventory") loadInventory();
     if (view === "suppliers") loadSuppliersView();
+    if (view === "accounting") loadAccountingView();
     if (view === "quotes") loadQuotes();
     if (view === "expenses") loadExpenses();
     if (view === "schedule") loadSchedule();
@@ -2103,6 +2121,7 @@
     $("#view-tickets").classList.add("hidden");
     $("#view-inventory").classList.add("hidden");
     $("#view-suppliers").classList.add("hidden");
+    $("#view-accounting").classList.add("hidden");
     $("#view-quotes").classList.add("hidden");
     $("#view-expenses").classList.add("hidden");
     $("#view-schedule").classList.add("hidden");
@@ -2148,6 +2167,7 @@
       $("#nav-inventory").classList.toggle("hidden", !isOwnerRole);
       $("#nav-quotes").classList.toggle("hidden", !isOwnerRole);
       $("#nav-suppliers").classList.toggle("hidden", !isOwnerRole);
+      $("#nav-accounting").classList.toggle("hidden", !isOwnerRole);
       document.body.classList.toggle("is-owner", isOwnerRole);
       $("#nav-expenses").classList.toggle("hidden", !isOwnerRole);
       $("#nav-tickets-label").textContent = isOwnerRole ? "Αιτήματα" : "Οι εργασίες μου";
@@ -3366,26 +3386,28 @@
   async function loadSuppliersView(){
     const msg = $("#suppliers-msg");
     clearMsg(msg);
-    const [balRes, invRes] = await Promise.all([
-      sb.from("supplier_balances").select("*").order("name"),
-      sb.from("purchase_invoices").select("doc_date, total").gte("doc_date", isoDay(new Date()).slice(0, 7) + "-01")
-    ]);
+    const balRes = await sb.from("supplier_balances").select("*").order("name");
     if (balRes.error) {
       showMsg(msg, isMissing(balRes.error) ? V15_MSG : "Σφάλμα φόρτωσης: " + balRes.error.message, "error");
-      $("#suppliers-tbody").innerHTML = ""; $("#suppliers-stats").innerHTML = ""; $("#purchases-recent").innerHTML = "";
+      $("#suppliers-tbody").innerHTML = ""; $("#suppliers-stats").innerHTML = "";
       return;
     }
-    const rows = balRes.data || [];
-    const owed = rows.reduce((s, r) => s + Math.max(0, Number(r.balance)), 0);
-    const month = isoDay(new Date()).slice(0, 7);
-    const recent = invRes.data || [];
-    const monthPurch = recent.filter(i => i.doc_date.startsWith(month)).reduce((s, i) => s + Number(i.total), 0);
+    SUPPLIER_ROWS = balRes.data || [];
+    const owed = SUPPLIER_ROWS.reduce((s, r) => s + Math.max(0, Number(r.balance)), 0);
+    const owedTo = SUPPLIER_ROWS.filter(r => Number(r.balance) > 0).length;
     $("#suppliers-stats").innerHTML = `
       <div class="stat-tile ${owed > 0 ? "balance-due" : ""}"><div class="num">${eur(owed)}</div><div class="lbl">Χρωστάω σε προμηθευτές</div></div>
-      <div class="stat-tile"><div class="num">${eur(monthPurch)}</div><div class="lbl">Αγορές μήνα</div></div>
-      <div class="stat-tile"><div class="num">${rows.length}</div><div class="lbl">Προμηθευτές</div></div>`;
+      <div class="stat-tile"><div class="num">${owedTo}</div><div class="lbl">Με ανοιχτό υπόλοιπο</div></div>
+      <div class="stat-tile"><div class="num">${SUPPLIER_ROWS.length}</div><div class="lbl">Προμηθευτές</div></div>`;
+    renderSuppliersList();
+  }
+
+  let SUPPLIER_ROWS = [];
+  function renderSuppliersList(){
+    const q = norm($("#sup-q").value.trim());
+    const rows = SUPPLIER_ROWS.filter(r => !q || q.split(/\s+/).every(w => norm([r.name, r.vat_number, r.phone, r.contact, r.email].join(" ")).includes(w)));
     $("#suppliers-tbody").innerHTML = rows.length === 0
-      ? '<tr><td colspan="3"><div class="empty-state">Δεν υπάρχουν προμηθευτές ακόμα. Σκάναρε το πρώτο τιμολόγιο ή πρόσθεσε έναν.</div></td></tr>'
+      ? `<tr><td colspan="3"><div class="empty-state">${SUPPLIER_ROWS.length ? "Κανένας προμηθευτής δεν ταιριάζει." : "Δεν υπάρχουν προμηθευτές ακόμα. Πρόσθεσε έναν ή σκάναρε ένα τιμολόγιο από το Λογιστήριο."}</div></td></tr>`
       : rows.map(r => `
         <tr class="clickable" data-sup="${r.id}">
           <td><strong>${escapeHtml(r.name)}</strong><div class="cell-sub">${r.vat_number ? "ΑΦΜ " + escapeHtml(r.vat_number) : "χωρίς ΑΦΜ"}${r.phone ? " · " + escapeHtml(r.phone) : ""}</div></td>
@@ -3393,7 +3415,33 @@
           <td style="text-align:right;font-weight:700;" class="${Number(r.balance) > 0 ? "amt-out" : ""}">${eur(r.balance)}</td>
         </tr>`).join("");
     $$("#suppliers-tbody [data-sup]").forEach(tr => tr.addEventListener("click", () => openSupplierCard(tr.dataset.sup)));
+  }
+
+  // ---- ΛΟΓΙΣΤΗΡΙΟ: τιμολόγια αγοράς, αρχείο, αποστολή στον λογιστή ----
+  async function loadAccountingView(){
+    clearMsg($("#accounting-msg"));
     await loadInvoiceArchive();
+    const month = isoDay(new Date()).slice(0, 7);
+    const thisMonth = ARCHIVE_ROWS.filter(r => r.doc_date.startsWith(month));
+    const unsent = ARCHIVE_ROWS.filter(r => !r.sent_to_accountant_at);
+    const noFile = ARCHIVE_ROWS.filter(r => !r.file_path).length;
+    $("#accounting-stats").innerHTML = `
+      <div class="stat-tile"><div class="num">${eur(thisMonth.reduce((s, r) => s + Number(r.total), 0))}</div><div class="lbl">Αγορές μήνα (${thisMonth.length})</div></div>
+      <div class="stat-tile"><div class="num">${eur(thisMonth.reduce((s, r) => s + Number(r.vat), 0))}</div><div class="lbl">ΦΠΑ αγορών μήνα</div></div>
+      <div class="stat-tile ${unsent.length ? "balance-due" : ""}" data-acc-filter="unsent" role="button" tabindex="0"><div class="num">${unsent.length}</div><div class="lbl">Δεν έχουν σταλεί στον λογιστή</div></div>
+      <div class="stat-tile" data-acc-filter="nofile" role="button" tabindex="0"><div class="num">${noFile}</div><div class="lbl">Χωρίς φωτογραφία</div></div>`;
+    $$("#accounting-stats [data-acc-filter]").forEach(t => t.addEventListener("click", () => {
+      if (t.dataset.accFilter === "unsent") { ARCHIVE_STATUS = "unsent"; }
+      else { ARCHIVE_STATUS = "nofile"; }
+      renderInvoiceArchive();
+      $("#purchases-recent").scrollIntoView({ behavior:"smooth", block:"start" });
+    }));
+  }
+
+  // μετά από κάθε αλλαγή σε τιμολόγιο/πληρωμή ανανεώνεται ό,τι είναι ανοιχτό
+  function refreshPurchaseViews(){
+    if (!$("#view-suppliers").classList.contains("hidden")) loadSuppliersView();
+    if (!$("#view-accounting").classList.contains("hidden")) loadAccountingView();
   }
 
   // ---- στοιχεία προμηθευτή (νέος ή αλλαγή) ----
@@ -3443,7 +3491,7 @@
       if (error) { showMsg($("#sup-msg"), "Σφάλμα: " + error.message, "error"); return; }
       await loadSuppliers();
       if (!$("#view-inventory").classList.contains("hidden")) await loadInventory();
-      if (!$("#view-suppliers").classList.contains("hidden")) await loadSuppliersView();
+      refreshPurchaseViews();
       if (data && data.id) openSupplierCard(data.id); else closeDrawer();
     });
   }
@@ -3536,7 +3584,7 @@
         payer: "shop", supplier_payment: true });
       if (error) { showMsg($("#sp-msg"), isMissing(error) ? V15_MSG : "Σφάλμα: " + error.message, "error"); return; }
       await openSupplierCard(supplierId);
-      if (!$("#view-suppliers").classList.contains("hidden")) loadSuppliersView();
+      refreshPurchaseViews();
     });
   }
 
@@ -3729,7 +3777,7 @@
         catch (err) { showToast("Το τιμολόγιο αποθηκεύτηκε, αλλά η φωτογραφία όχι: " + (isMissing(err) || /bucket/i.test(err.message || "") ? V16_MSG : err.message)); }
       }
       showToast(`Το τιμολόγιο καταχωρήθηκε (${eur(data.total)}).`);
-      if (!$("#view-suppliers").classList.contains("hidden")) loadSuppliersView();
+      refreshPurchaseViews();
       if (!$("#view-inventory").classList.contains("hidden")) loadInventory();
       if (!$("#view-expenses").classList.contains("hidden")) loadExpenses();
       await openSupplierCard(data.supplier_id);
@@ -3784,7 +3832,7 @@
       if (dErr) { alertMsg("Σφάλμα: " + dErr.message); return; }
       if (inv.file_path) await sb.storage.from(INVOICE_BUCKET).remove([inv.file_path]);
       showToast("Το τιμολόγιο διαγράφηκε.");
-      if (!$("#view-suppliers").classList.contains("hidden")) loadSuppliersView();
+      refreshPurchaseViews();
       if (!$("#view-inventory").classList.contains("hidden")) loadInventory();
       await openSupplierCard(inv.supplier_id);
     });
@@ -3856,6 +3904,7 @@
     return ARCHIVE_ROWS.filter(r => {
       if (ARCHIVE_STATUS === "unsent" && r.sent_to_accountant_at) return false;
       if (ARCHIVE_STATUS === "sent" && !r.sent_to_accountant_at) return false;
+      if (ARCHIVE_STATUS === "nofile" && r.file_path) return false;
       if (from && r.doc_date < from) return false;
       if (to && r.doc_date > to) return false;
       if (!q) return true;
@@ -4056,10 +4105,11 @@
       const ids = rows.map(r => r.id);
       await sb.from("purchase_invoices").update({ sent_to_accountant_at: new Date().toISOString() }).in("id", ids);
       ARCHIVE_SEL.clear();
+      refreshPurchaseViews();
       $("#acc-undo").addEventListener("click", async () => {
         await sb.from("purchase_invoices").update({ sent_to_accountant_at: null }).in("id", ids);
         showToast("Αναιρέθηκε η σήμανση «σταλμένα».");
-        closeDrawer(); loadInvoiceArchive();
+        closeDrawer(); refreshPurchaseViews();
       });
       loadInvoiceArchive();
     });
@@ -4214,6 +4264,7 @@
   $("#qr-scan-btn").addEventListener("click", () => openQrScanner());
   $("#new-purchase-btn").addEventListener("click", () => openPurchaseInvoiceForm());
   $("#new-supplier-btn2").addEventListener("click", () => openSupplierDrawer());
+  $("#sup-q").addEventListener("input", renderSuppliersList);
   $("#inv-purchase-btn").addEventListener("click", () => openQrScanner());
 
 
