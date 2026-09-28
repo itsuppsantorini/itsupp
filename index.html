@@ -356,6 +356,28 @@
     #view-expenses .panel-body{overflow-x:auto;}
   }
 
+  /* ---- τιμολόγια αγοράς / QR ---- */
+  .pl-line{border:1px solid var(--line);border-radius:10px;padding:10px 12px 4px;margin-bottom:10px;background:var(--surface-2);}
+  .pl-grid{display:grid;grid-template-columns:1.4fr 1.6fr .6fr .9fr .7fr auto;gap:8px;align-items:end;}
+  .pl-grid .field{margin-bottom:8px;min-width:0;}
+  .pl-grid .remove-x{margin-bottom:8px;}
+  .pl-hint{margin:-2px 0 6px;color:var(--green);}
+  .pi-totals{display:flex;justify-content:flex-end;gap:18px;flex-wrap:wrap;font-size:13.5px;margin-top:10px;padding:10px 12px;border-radius:10px;background:var(--tile-bg);}
+  .pi-total b{font-size:16px;}
+  .qr-wrap{max-width:460px;margin:0 auto;text-align:center;}
+  .qr-video-box{position:relative;border-radius:14px;overflow:hidden;background:#000;aspect-ratio:3/4;max-height:60vh;margin:0 auto;}
+  .qr-video-box video{width:100%;height:100%;object-fit:cover;display:block;}
+  .qr-frame{position:absolute;inset:18% 14%;border:3px solid rgba(255,255,255,.9);border-radius:14px;box-shadow:0 0 0 999px rgba(0,0,0,.35);}
+  .qr-status{margin:12px 0;font-size:13.5px;color:var(--ink-soft);}
+  .qr-actions{display:flex;gap:10px;justify-content:center;flex-wrap:wrap;}
+  .qr-photo-btn{cursor:pointer;display:inline-flex;align-items:center;}
+  body:not(.is-owner) .owner-only{display:none !important;}
+  @media (max-width:700px){
+    .pl-grid{grid-template-columns:1fr 1fr;}
+    .pl-grid .pl-item, .pl-grid .pl-desc{grid-column:1/-1;}
+    .pl-grid .remove-x{grid-column:2;justify-self:end;}
+  }
+
   /* ---- επίδειξη ---- */
   .demo-pill{background:var(--amber-bg);color:var(--amber);border:1px dashed var(--amber);cursor:pointer;font:inherit;font-size:11px;font-weight:700;}
   body.demo-mode .topbar{box-shadow:inset 0 -3px 0 var(--amber);}
@@ -573,6 +595,7 @@
     <div class="nav-item" data-view="clients" id="nav-clients">Πελάτες</div>
     <div class="nav-item" data-view="tickets" id="nav-tickets"><span id="nav-tickets-label">Αιτήματα</span></div>
     <div class="nav-item" data-view="inventory" id="nav-inventory">Αποθήκη</div>
+    <div class="nav-item hidden" data-view="suppliers" id="nav-suppliers">Προμηθευτές</div>
     <div class="nav-item" data-view="quotes" id="nav-quotes">Προσφορές</div>
     <div class="nav-item" data-view="expenses" id="nav-expenses">Έξοδα</div>
     <div class="nav-item" data-view="schedule" id="nav-schedule">Πρόγραμμα<span class="nav-count hidden" id="nav-schedule-count" title="Υπενθυμίσεις που εκκρεμούν"></span></div>
@@ -663,6 +686,7 @@
         <div class="panel-head">
           <h2>Αποθήκη</h2>
           <div style="display:flex;gap:8px;">
+            <button class="btn-ghost btn-sm owner-only" id="inv-purchase-btn">📥 Τιμολόγιο αγοράς</button>
             <button class="btn-ghost btn-sm" id="new-supplier-btn">+ Νέος προμηθευτής</button>
             <button class="btn-primary btn-sm" id="new-item-btn">+ Νέο είδος</button>
           </div>
@@ -674,6 +698,32 @@
             <tbody id="inventory-tbody"></tbody>
           </table>
         </div>
+      </div>
+    </div>
+
+    <!-- προμηθευτές & τιμολόγια αγοράς (owner) -->
+    <div id="view-suppliers" class="hidden">
+      <div class="panel" style="margin-bottom:16px;">
+        <div class="panel-head">
+          <h2>Προμηθευτές</h2>
+          <div style="display:flex;gap:8px;flex-wrap:wrap;justify-content:flex-end;">
+            <button type="button" class="btn-ghost btn-sm" id="new-supplier-btn2">+ Προμηθευτής</button>
+            <button type="button" class="btn-ghost btn-sm" id="new-purchase-btn">+ Τιμολόγιο αγοράς</button>
+            <button type="button" class="btn-primary btn-sm" id="qr-scan-btn">📷 Σκανάρισμα τιμολογίου</button>
+          </div>
+        </div>
+        <div id="suppliers-msg" style="padding:12px 20px 0;"></div>
+        <div class="stat-row" id="suppliers-stats"></div>
+        <div class="panel-body">
+          <table>
+            <thead><tr><th>Προμηθευτής</th><th>Τελευταίο τιμολόγιο</th><th style="text-align:right;">Υπόλοιπο</th></tr></thead>
+            <tbody id="suppliers-tbody"></tbody>
+          </table>
+        </div>
+      </div>
+      <div class="panel">
+        <div class="panel-head"><h2>Πρόσφατα τιμολόγια αγοράς</h2></div>
+        <div class="panel-body" id="purchases-recent" style="padding:6px 20px 12px;"></div>
       </div>
     </div>
 
@@ -893,17 +943,17 @@
         { id:C[5], name:"Εστιατόριο Θαλασσινό", type:"Εστιατόριο", city:"Περίσσα", contact:"Πέτρος Ζαχαρίου", phone:"210 000 0106", status:"pending", entity_type:"company", created_at: ts(-1) }
       ],
       suppliers: [
-        { id:S[0], name:"TechnoNet Διανομή (demo)", vat_number:null },
-        { id:S[1], name:"Ασφάλεια Plus (demo)", vat_number:null },
-        { id:S[2], name:"Telecom Parts (demo)", vat_number:null }
+        { id:S[0], name:"TechnoNet Διανομή (demo)", vat_number:null, contact:"Γιώργος Βασιλείου", phone:"210 000 0201", opening_balance:0 },
+        { id:S[1], name:"Ασφάλεια Plus (demo)", vat_number:null, contact:"Άννα Σταύρου", phone:"210 000 0202", opening_balance:0 },
+        { id:S[2], name:"Telecom Parts (demo)", vat_number:null, phone:"210 000 0203", opening_balance:150 }
       ],
       inventory_items: [
-        { id:"demo-i1", sku:"CAM-4MP-D", name:"IP κάμερα dome 4MP", category:"Κάμερες", stock:14, max_stock:20, price:89, supplier_id:S[1] },
+        { id:"demo-i1", sku:"CAM-4MP-D", name:"IP κάμερα dome 4MP", category:"Κάμερες", stock:14, max_stock:20, price:89, supplier_id:S[1], last_cost:52 },
         { id:"demo-i2", sku:"CAM-8MP-B", name:"IP κάμερα bullet 8MP", category:"Κάμερες", stock:3, max_stock:15, price:149, supplier_id:S[1] },
         { id:"demo-i3", sku:"NVR-16", name:"NVR 16 καναλιών", category:"Καταγραφικά", stock:4, max_stock:6, price:320, supplier_id:S[1] },
         { id:"demo-i4", sku:"HDD-4T", name:"Σκληρός δίσκος 4TB surveillance", category:"Καταγραφικά", stock:7, max_stock:10, price:115, supplier_id:S[0] },
-        { id:"demo-i5", sku:"SW-POE-8", name:"Switch PoE 8 θυρών", category:"Δίκτυα", stock:6, max_stock:10, price:95, supplier_id:S[0] },
-        { id:"demo-i6", sku:"CAT6-305", name:"Καλώδιο Cat6 305m", category:"Δίκτυα", stock:2, max_stock:8, price:120, supplier_id:S[0] },
+        { id:"demo-i5", sku:"SW-POE-8", name:"Switch PoE 8 θυρών", category:"Δίκτυα", stock:6, max_stock:10, price:95, supplier_id:S[0], last_cost:58 },
+        { id:"demo-i6", sku:"CAT6-305", name:"Καλώδιο Cat6 305m", category:"Δίκτυα", stock:2, max_stock:8, price:120, supplier_id:S[0], last_cost:74 },
         { id:"demo-i7", sku:"AP-WIFI6", name:"Access point Wi-Fi 6", category:"Δίκτυα", stock:9, max_stock:12, price:135, supplier_id:S[0] },
         { id:"demo-i8", sku:"PBX-IP-32", name:"Τηλεφωνικό κέντρο IP 32 εσωτ.", category:"Τηλεφωνία", stock:1, max_stock:3, price:690, supplier_id:S[2] },
         { id:"demo-i9", sku:"TEL-IP-STD", name:"Τηλέφωνο IP γραφείου", category:"Τηλεφωνία", stock:18, max_stock:25, price:65, supplier_id:S[2] },
@@ -964,7 +1014,8 @@
       ],
       expenses: [
         { id:"demo-x1", expense_date:day(0), category:"Καύσιμα", amount:45, method:"cash", payer:"shop", note:"Βαν", created_at:ts(0,8) },
-        { id:"demo-x2", expense_date:day(-2), category:"Προμήθεια εξοπλισμού", supplier_id:S[1], amount:612, method:"bank", bank:"Τράπεζα Πειραιώς", payer:"shop", note:"8 κάμερες dome", created_at:ts(-2,11) },
+        { id:"demo-x2", expense_date:day(-2), category:"Πληρωμή προμηθευτή", supplier_id:S[1], amount:612.56, method:"bank", bank:"Τράπεζα Πειραιώς", payer:"shop", note:"Τιμολόγιο ΤΔΑ Α-1182", supplier_payment:true, purchase_invoice_id:"demo-pi1", created_at:ts(-2,11) },
+        { id:"demo-x9", expense_date:day(-5), category:"Πληρωμή προμηθευτή", supplier_id:S[0], amount:400, method:"bank", bank:"Τράπεζα Πειραιώς", payer:"shop", note:"έναντι ΤΔΑ 3471", supplier_payment:true, created_at:ts(-5,12) },
         { id:"demo-x3", expense_date:day(-3), category:"Τηλέφωνο/Internet", amount:58, method:"card", payer:"shop", created_at:ts(-3,12) },
         { id:"demo-x4", expense_date:day(-5), category:"ΔΕΗ/Ρεύμα", amount:134, method:"bank", bank:"Εθνική Τράπεζα", payer:"shop", created_at:ts(-5,9) },
         { id:"demo-x5", expense_date:day(-6), category:"Καύσιμα", amount:38, method:"cash", payer:"employee", payer_id:NIKOS, created_at:ts(-6,17) },
@@ -997,7 +1048,22 @@
       money_movements: [
         { id:"demo-mm1", account_id:"demo-m1", to_account_id:"demo-m2", move_date:day(-7), kind:"transfer", amount:500, note:"κατάθεση εισπράξεων", created_at:ts(-7,13) }
       ],
-      push_subscriptions: []
+      push_subscriptions: [],
+      purchase_invoices: [
+        { id:"demo-pi1", supplier_id:S[1], doc_date:day(-2), doc_number:"ΤΔΑ Α-1182", mark:"400000000000001", net:494, vat:118.56, total:612.56, note:null, created_at:ts(-2,11) },
+        { id:"demo-pi2", supplier_id:S[0], doc_date:day(-9), doc_number:"ΤΔΑ 3471", mark:"400000000000002", net:570, vat:136.8, total:706.8, note:null, created_at:ts(-9,10) }
+      ],
+      purchase_invoice_lines: [
+        { id:"demo-pl1", invoice_id:"demo-pi1", line_no:1, inventory_item_id:"demo-i1", supplier_code:"D4-POE", description:"Dome 4MP PoE", qty:8, unit_price:52, vat_rate:24, line_net:416, stock_added:8 },
+        { id:"demo-pl2", invoice_id:"demo-pi1", line_no:2, inventory_item_id:null, supplier_code:null, description:"Μεταφορικά", qty:1, unit_price:78, vat_rate:24, line_net:78, stock_added:0 },
+        { id:"demo-pl3", invoice_id:"demo-pi2", line_no:1, inventory_item_id:"demo-i5", supplier_code:"SW8P", description:"Switch 8P PoE", qty:6, unit_price:58, vat_rate:24, line_net:348, stock_added:6 },
+        { id:"demo-pl4", invoice_id:"demo-pi2", line_no:2, inventory_item_id:"demo-i6", supplier_code:"C6-305", description:"Cat6 UTP 305m", qty:3, unit_price:74, vat_rate:24, line_net:222, stock_added:3 }
+      ],
+      supplier_item_map: [
+        { supplier_id:S[1], match_key:"d4-poe", inventory_item_id:"demo-i1" },
+        { supplier_id:S[0], match_key:"sw8p", inventory_item_id:"demo-i5" },
+        { supplier_id:S[0], match_key:"c6-305", inventory_item_id:"demo-i6" }
+      ]
     };
     // ιδιωτικό τμήμα (PIN 1234)
     db.__vault = {
@@ -1057,6 +1123,14 @@
     const VIEWS = {
       tickets_view: () => tbl("tickets").map(t => ({ ...t, code: "ΤΚ-" + t.ticket_no })),
       quotes_view:  () => tbl("quotes").map(q => ({ ...q, code: "ΠΡ-" + q.quote_no })),
+      supplier_balances: () => tbl("suppliers").map(s => {
+        const inv = tbl("purchase_invoices").filter(i => i.supplier_id === s.id);
+        const purchases = inv.reduce((a, i) => a + Number(i.total), 0);
+        const paid = tbl("expenses").filter(e => e.supplier_payment && e.supplier_id === s.id).reduce((a, e) => a + Number(e.amount), 0);
+        return { ...s, purchases: Math.round(purchases * 100) / 100, paid: Math.round(paid * 100) / 100,
+                 balance: Math.round((Number(s.opening_balance || 0) + purchases - paid) * 100) / 100,
+                 invoices: inv.length, last_date: inv.map(i => i.doc_date).sort().pop() || null };
+      }),
       money_ledger: () => {
         const A = tbl("money_accounts"), out = [];
         tbl("ledger_entries").filter(l => Number(l.payment) > 0).forEach(l => {
@@ -1091,7 +1165,7 @@
     const parseSel = (s) => splitTop(s || "*").map(p => { const m = p.match(/^(\w+)\((.*)\)$/s); return m ? { embed:m[1], sub:m[2] } : null; }).filter(Boolean);
     const MANY_TO_ONE = { clients:"client_id", suppliers:"supplier_id", tickets:"ticket_id", quotes:"quote_id" };
     const PROFILE_FK = { visit_logs:"tech_id", leave_requests:"tech_id", notifications:"user_id" };
-    const ONE_TO_MANY = { quote_items:"quote_id", ticket_notes:"ticket_id", visit_logs:"ticket_id", equipment:"client_id" };
+    const ONE_TO_MANY = { quote_items:"quote_id", ticket_notes:"ticket_id", visit_logs:"ticket_id", equipment:"client_id", purchase_invoice_lines:"invoice_id" };
     const project = (row, table, sel) => {
       const out = { ...row };
       for (const { embed, sub } of parseSel(sel)) {
@@ -1190,6 +1264,46 @@
         const diff = Math.round((p_actual - bal) * 100) / 100;
         if (diff !== 0) tbl("money_movements").push({ id: newId(), account_id: p_account, move_date: p_date, kind:"adjust", amount: diff, note: p_note || ("Μετρήθηκαν " + Number(p_actual).toFixed(2) + "€"), created_at: nowIso() });
         save(); return diff;
+      },
+      save_purchase_invoice: ({ p }) => {
+        const r2 = (x) => Math.round(x * 100) / 100;
+        if (!p.lines || !p.lines.length) return { ok:false, error:"Πρόσθεσε τουλάχιστον μία γραμμή." };
+        if (p.mark) { const d = tbl("purchase_invoices").find(i => i.mark === p.mark); if (d) return { ok:false, error:"duplicate", id:d.id }; }
+        let sup = p.supplier_id || null;
+        if (!sup && p.new_supplier) {
+          const ex = p.new_supplier.vat_number && tbl("suppliers").find(s => s.vat_number === p.new_supplier.vat_number);
+          if (ex) sup = ex.id;
+          else { if (!p.new_supplier.name) return { ok:false, error:"Γράψε την επωνυμία του νέου προμηθευτή." };
+                 sup = newId(); tbl("suppliers").push({ id:sup, name:p.new_supplier.name, vat_number:p.new_supplier.vat_number || null, opening_balance:0 }); }
+        }
+        if (!sup) return { ok:false, error:"Διάλεξε προμηθευτή." };
+        const id = newId(); let net = 0, vat = 0;
+        const inv = { id, supplier_id:sup, doc_date:p.doc_date || isoDay(new Date()), doc_number:p.doc_number || null, mark:p.mark || null, note:p.note || null, qr_raw:p.qr_raw || null, created_at:nowIso() };
+        p.lines.forEach((l, i) => {
+          let item = l.inventory_item_id || null;
+          if (!item && l.new_item && l.new_item.name) { item = newId(); tbl("inventory_items").push({ id:item, sku:l.new_item.sku || ("ΝΕΟ-" + Math.random().toString(36).slice(2, 8).toUpperCase()), name:l.new_item.name, category:l.new_item.category || null, stock:0, max_stock:0, price:0, supplier_id:sup }); }
+          const qty = Number(l.qty || 1), price = Number(l.unit_price || 0), rate = Number(l.vat_rate ?? 24), ln = r2(qty * price);
+          tbl("purchase_invoice_lines").push({ id:newId(), invoice_id:id, line_no:i + 1, inventory_item_id:item, supplier_code:l.supplier_code || null,
+            description:l.description || (item ? tbl("inventory_items").find(x => x.id === item).name : "Γραμμή " + (i + 1)), qty, unit_price:price, vat_rate:rate, line_net:ln, stock_added:item ? qty : 0 });
+          if (item) { const it = tbl("inventory_items").find(x => x.id === item); it.stock = Number(it.stock) + qty; it.last_cost = price; it.supplier_id = it.supplier_id || sup;
+            const key = String(l.supplier_code || l.description || "").trim().toLowerCase();
+            if (key) { const m = tbl("supplier_item_map").find(x => x.supplier_id === sup && x.match_key === key); if (m) m.inventory_item_id = item; else tbl("supplier_item_map").push({ supplier_id:sup, match_key:key, inventory_item_id:item }); } }
+          net += ln; vat += r2(ln * rate / 100);
+        });
+        Object.assign(inv, { net:r2(net), vat:r2(vat), total:r2(net + vat) });
+        tbl("purchase_invoices").push(inv);
+        if (p.paid_now) tbl("expenses").push({ id:newId(), expense_date:inv.doc_date, category:"Πληρωμή προμηθευτή", supplier_id:sup, amount:inv.total,
+          note:"Τιμολόγιο " + (inv.doc_number || "(χωρίς αριθμό)"), method:p.paid_now.method || "cash", bank:p.paid_now.bank || null, payer:"shop", supplier_payment:true, purchase_invoice_id:id, created_at:nowIso() });
+        save();
+        return { ok:true, id, supplier_id:sup, total:inv.total };
+      },
+      delete_purchase_invoice: ({ p_id }) => {
+        tbl("purchase_invoice_lines").filter(l => l.invoice_id === p_id && l.inventory_item_id).forEach(l => {
+          const it = tbl("inventory_items").find(x => x.id === l.inventory_item_id); if (it) it.stock = Number(it.stock) - Number(l.stock_added || 0); });
+        DB.purchase_invoice_lines = tbl("purchase_invoice_lines").filter(l => l.invoice_id !== p_id);
+        DB.expenses = tbl("expenses").filter(e => !(e.purchase_invoice_id === p_id && e.supplier_payment));
+        DB.purchase_invoices = tbl("purchase_invoices").filter(i => i.id !== p_id);
+        save(); return { ok:true };
       },
       push_public_key: () => null, init_push_keys: () => null, save_push_subscription: () => null, remove_push_subscription: () => null,
       send_test_notification: () => { tbl("notifications").unshift({ id:newId(), user_id:user.id, message:"✅ Δοκιμαστική ειδοποίηση", is_read:false, created_at:nowIso() }); save(); return null; },
@@ -1440,6 +1554,7 @@
     $("#notif-badge").classList.add("hidden");
     $("#nav-schedule-count").classList.add("hidden");
     $("#push-prompt").classList.add("hidden");
+    document.body.classList.remove("is-owner");
     $("#nav-toggle").classList.add("hidden");
     document.body.classList.remove("nav-collapsed");
   });
@@ -1816,6 +1931,7 @@
 
   // ================= DRAWER =================
   function openDrawer(title, bodyHtml, wide){
+    if (typeof stopQrCamera === "function" && QR_STREAM) stopQrCamera();
     $("#drawer-title").textContent = title;
     $("#drawer-body").innerHTML = bodyHtml;
     if (wide) { overlay.classList.add("overlay-center"); drawer.classList.add("drawer-wide"); }
@@ -1823,6 +1939,7 @@
   }
   function closeDrawer(){
     if (typeof vaultLock === "function" && VAULT_PIN) vaultLock();   // το ιδιωτικό κλειδώνει μόλις κλείσει
+    if (typeof stopQrCamera === "function") stopQrCamera();          // και η κάμερα σβήνει
     overlay.classList.remove("open");
     overlay.classList.remove("overlay-center");
     drawer.classList.remove("drawer-wide");
@@ -1903,6 +2020,7 @@
     $("#view-clients").classList.toggle("hidden", view !== "clients");
     $("#view-tickets").classList.toggle("hidden", view !== "tickets");
     $("#view-inventory").classList.toggle("hidden", view !== "inventory");
+    $("#view-suppliers").classList.toggle("hidden", view !== "suppliers");
     $("#view-quotes").classList.toggle("hidden", view !== "quotes");
     $("#view-expenses").classList.toggle("hidden", view !== "expenses");
     $("#view-schedule").classList.toggle("hidden", view !== "schedule");
@@ -1912,6 +2030,7 @@
     if (view === "clients") loadClients();
     if (view === "tickets") loadTickets();
     if (view === "inventory") loadInventory();
+    if (view === "suppliers") loadSuppliersView();
     if (view === "quotes") loadQuotes();
     if (view === "expenses") loadExpenses();
     if (view === "schedule") loadSchedule();
@@ -1930,6 +2049,7 @@
     $("#view-clients").classList.add("hidden");
     $("#view-tickets").classList.add("hidden");
     $("#view-inventory").classList.add("hidden");
+    $("#view-suppliers").classList.add("hidden");
     $("#view-quotes").classList.add("hidden");
     $("#view-expenses").classList.add("hidden");
     $("#view-schedule").classList.add("hidden");
@@ -1974,6 +2094,8 @@
       $("#nav-clients").classList.toggle("hidden", !isOwnerRole);
       $("#nav-inventory").classList.toggle("hidden", !isOwnerRole);
       $("#nav-quotes").classList.toggle("hidden", !isOwnerRole);
+      $("#nav-suppliers").classList.toggle("hidden", !isOwnerRole);
+      document.body.classList.toggle("is-owner", isOwnerRole);
       $("#nav-expenses").classList.toggle("hidden", !isOwnerRole);
       $("#nav-tickets-label").textContent = isOwnerRole ? "Αιτήματα" : "Οι εργασίες μου";
       $("#nav-technicians").classList.remove("hidden");
@@ -3180,51 +3302,554 @@
       SUPPLIERS_CACHE.map(s => `<option value="${s.id}" ${s.id===selectedId?"selected":""}>${escapeHtml(s.name)}</option>`).join("");
   }
   $("#new-supplier-btn").addEventListener("click", () => openSupplierDrawer());
+  // ================= ΠΡΟΜΗΘΕΥΤΕΣ & ΤΙΜΟΛΟΓΙΑ ΑΓΟΡΑΣ =================
+  // Ένα τιμολόγιο αγοράς (με το χέρι ή από QR) πάει σε ΤΡΙΑ σημεία μαζί, μέσω
+  // save_purchase_invoice στη βάση: καρτέλα προμηθευτή, αποθήκη, και (αν
+  // πληρώθηκε αμέσως) Έξοδα/ταμείο. Όλα ή τίποτα.
+  const VAT_RATES = [24, 13, 6, 0];
+  const V15_MSG = "Για τα τιμολόγια αγοράς τρέξε πρώτα το schema_v15.sql στο Supabase.";
+  const isMissing = (err) => err && /schema cache|does not exist|Could not find/i.test(err.message || "");
+
+  async function loadSuppliersView(){
+    const msg = $("#suppliers-msg");
+    clearMsg(msg);
+    const [balRes, invRes] = await Promise.all([
+      sb.from("supplier_balances").select("*").order("name"),
+      sb.from("purchase_invoices").select("*, suppliers(name)").order("doc_date", { ascending:false }).order("created_at", { ascending:false }).limit(12)
+    ]);
+    if (balRes.error) {
+      showMsg(msg, isMissing(balRes.error) ? V15_MSG : "Σφάλμα φόρτωσης: " + balRes.error.message, "error");
+      $("#suppliers-tbody").innerHTML = ""; $("#suppliers-stats").innerHTML = ""; $("#purchases-recent").innerHTML = "";
+      return;
+    }
+    const rows = balRes.data || [];
+    const owed = rows.reduce((s, r) => s + Math.max(0, Number(r.balance)), 0);
+    const month = isoDay(new Date()).slice(0, 7);
+    const recent = invRes.data || [];
+    const monthPurch = recent.filter(i => i.doc_date.startsWith(month)).reduce((s, i) => s + Number(i.total), 0);
+    $("#suppliers-stats").innerHTML = `
+      <div class="stat-tile ${owed > 0 ? "balance-due" : ""}"><div class="num">${eur(owed)}</div><div class="lbl">Χρωστάω σε προμηθευτές</div></div>
+      <div class="stat-tile"><div class="num">${eur(monthPurch)}</div><div class="lbl">Αγορές μήνα</div></div>
+      <div class="stat-tile"><div class="num">${rows.length}</div><div class="lbl">Προμηθευτές</div></div>`;
+    $("#suppliers-tbody").innerHTML = rows.length === 0
+      ? '<tr><td colspan="3"><div class="empty-state">Δεν υπάρχουν προμηθευτές ακόμα. Σκάναρε το πρώτο τιμολόγιο ή πρόσθεσε έναν.</div></td></tr>'
+      : rows.map(r => `
+        <tr class="clickable" data-sup="${r.id}">
+          <td><strong>${escapeHtml(r.name)}</strong><div class="cell-sub">${r.vat_number ? "ΑΦΜ " + escapeHtml(r.vat_number) : "χωρίς ΑΦΜ"}${r.phone ? " · " + escapeHtml(r.phone) : ""}</div></td>
+          <td>${r.last_date ? fmtShortDate(r.last_date) : "—"}<div class="cell-sub">${r.invoices} τιμολόγια</div></td>
+          <td style="text-align:right;font-weight:700;" class="${Number(r.balance) > 0 ? "amt-out" : ""}">${eur(r.balance)}</td>
+        </tr>`).join("");
+    $$("#suppliers-tbody [data-sup]").forEach(tr => tr.addEventListener("click", () => openSupplierCard(tr.dataset.sup)));
+    $("#purchases-recent").innerHTML = recent.length === 0
+      ? '<div class="empty-state">Κανένα τιμολόγιο αγοράς ακόμα.</div>'
+      : recent.map(i => `
+        <div class="sched-visit" data-inv="${i.id}">
+          <div class="sched-time">${fmtShortDate(i.doc_date)}</div>
+          <div class="sched-info"><strong>${escapeHtml(i.suppliers ? i.suppliers.name : "")}</strong> — ${escapeHtml(i.doc_number || "χωρίς αριθμό")}${i.mark ? ' <span class="cell-sub">· ΜΑΡΚ ' + escapeHtml(i.mark) + "</span>" : ""}</div>
+          <div class="sched-tech" style="font-weight:700;">${eur(i.total)}</div>
+        </div>`).join("");
+    $$("#purchases-recent [data-inv]").forEach(el => el.addEventListener("click", () => openPurchaseInvoice(el.dataset.inv)));
+  }
+
+  // ---- στοιχεία προμηθευτή (νέος ή αλλαγή) ----
   function openSupplierDrawer(supplierId){
     const s = supplierId ? SUPPLIERS_CACHE.find(x => x.id === supplierId) : null;
-    const listHtml = SUPPLIERS_CACHE.length === 0
-      ? '<div class="cell-sub" style="padding:8px 2px;">Δεν υπάρχουν ακόμα προμηθευτές.</div>'
-      : SUPPLIERS_CACHE.map(x => `
-          <div class="vlog-row" data-sup-id="${x.id}" style="cursor:pointer;">
-            <strong>${escapeHtml(x.name)}</strong>
-            <div class="vlog-who">${x.vat_number ? "ΑΦΜ " + escapeHtml(x.vat_number) : "— χωρίς ΑΦΜ —"}</div>
-          </div>`).join("");
-
-    openDrawer(s ? "Προμηθευτής" : "Νέος προμηθευτής", `
+    openDrawer(s ? "Στοιχεία προμηθευτή" : "Νέος προμηθευτής", `
       <form id="supplier-form">
         <div id="sup-msg"></div>
-        <div class="field"><label>Επωνυμία *</label><input id="sup-name" required value="${s ? escapeHtml(s.name) : ""}"></div>
-        <div class="field">
-          <label>ΑΦΜ</label><input id="sup-vat" inputmode="numeric" maxlength="12" value="${s ? escapeHtml(s.vat_number || "") : ""}">
-          <div id="sup-vat-note" style="margin-top:4px;"></div>
+        <div class="form-row">
+          <div class="field"><label>Επωνυμία *</label><input id="sup-name" required value="${s ? escapeHtml(s.name) : ""}"></div>
+          <div class="field"><label>ΑΦΜ</label><input id="sup-vat" inputmode="numeric" maxlength="12" value="${s ? escapeHtml(s.vat_number || "") : ""}">
+            <div id="sup-vat-note" style="margin-top:4px;"></div></div>
+        </div>
+        <div class="form-row">
+          <div class="field"><label>Υπεύθυνος</label><input id="sup-contact" value="${s ? escapeHtml(s.contact || "") : ""}"></div>
+          <div class="field"><label>Τηλέφωνο</label><input id="sup-phone" inputmode="tel" value="${s ? escapeHtml(s.phone || "") : ""}"></div>
+        </div>
+        <div class="form-row">
+          <div class="field"><label>Email</label><input id="sup-email" type="email" value="${s ? escapeHtml(s.email || "") : ""}"></div>
+          <div class="field"><label>Διεύθυνση</label><input id="sup-address" value="${s ? escapeHtml(s.address || "") : ""}"></div>
+        </div>
+        <div class="form-row">
+          <div class="field"><label>Υπόλοιπο που του χρωστούσα ήδη (€)</label><input id="sup-open" type="number" step="0.01" value="${s ? (s.opening_balance ?? 0) : 0}"></div>
+          <div class="field"><label>Σημείωση</label><input id="sup-note" value="${s ? escapeHtml(s.note || "") : ""}"></div>
         </div>
         <div class="drawer-foot" style="margin:22px -22px -20px;">
           <span></span>
           <button type="submit" class="btn-primary">Αποθήκευση</button>
         </div>
-      </form>
-      ${s ? "" : `<div class="section-title">Υπάρχοντες προμηθευτές</div>
-        <p class="cell-sub" style="margin:-4px 0 6px;">Πάτα σε έναν για να συμπληρώσεις ή να αλλάξεις το ΑΦΜ του.</p>
-        <div id="sup-list">${listHtml}</div>`}
-    `);
+      </form>`, true);
     wireVatHint("#sup-vat", "#sup-vat-note");
-    $$("#sup-list [data-sup-id]").forEach(el => {
-      el.addEventListener("click", () => openSupplierDrawer(el.dataset.supId));
-    });
     $("#supplier-form").addEventListener("submit", async (e) => {
       e.preventDefault();
       const name = $("#sup-name").value.trim();
       if (!name) return;
-      const payload = { name, vat_number: normalizeVat($("#sup-vat").value) || null };
-      const { error } = supplierId
-        ? await sb.from("suppliers").update(payload).eq("id", supplierId)
-        : await sb.from("suppliers").insert(payload);
+      const full = {
+        name, vat_number: normalizeVat($("#sup-vat").value) || null,
+        contact: $("#sup-contact").value.trim() || null, phone: $("#sup-phone").value.trim() || null,
+        email: $("#sup-email").value.trim() || null, address: $("#sup-address").value.trim() || null,
+        note: $("#sup-note").value.trim() || null, opening_balance: parseFloat($("#sup-open").value || "0") || 0
+      };
+      const write = (p) => supplierId ? sb.from("suppliers").update(p).eq("id", supplierId).select("id").single()
+                                      : sb.from("suppliers").insert(p).select("id").single();
+      let { data, error } = await write(full);
+      // χωρίς το v15 λείπουν οι νέες στήλες — αποθηκεύει τουλάχιστον όνομα + ΑΦΜ
+      if (error && isMissing(error)) ({ data, error } = await write({ name: full.name, vat_number: full.vat_number }));
       if (error) { showMsg($("#sup-msg"), "Σφάλμα: " + error.message, "error"); return; }
       await loadSuppliers();
-      closeDrawer();
-      await loadInventory();
+      if (!$("#view-inventory").classList.contains("hidden")) await loadInventory();
+      if (!$("#view-suppliers").classList.contains("hidden")) await loadSuppliersView();
+      if (data && data.id) openSupplierCard(data.id); else closeDrawer();
     });
   }
+
+  // ---- καρτέλα προμηθευτή: τιμολόγια, πληρωμές, υπόλοιπο ----
+  async function openSupplierCard(supplierId){
+    await loadSuppliers();
+    const [balRes, invRes, payRes] = await Promise.all([
+      sb.from("supplier_balances").select("*").eq("id", supplierId).maybeSingle(),
+      sb.from("purchase_invoices").select("*").eq("supplier_id", supplierId).order("doc_date").order("created_at"),
+      sb.from("expenses").select("*").eq("supplier_id", supplierId).eq("supplier_payment", true).order("expense_date").order("created_at")
+    ]);
+    if (balRes.error || !balRes.data) { alertMsg(isMissing(balRes.error) ? V15_MSG : "Ο προμηθευτής δεν βρέθηκε."); return; }
+    const s = balRes.data;
+    const moves = [
+      ...(invRes.data || []).map(i => ({ date:i.doc_date, at:i.created_at, kind:"inv", id:i.id, text:"Τιμολόγιο " + (i.doc_number || "(χωρίς αριθμό)"), sub: i.mark ? "ΜΑΡΚ " + i.mark : "", debit:Number(i.total), credit:0 })),
+      ...(payRes.data || []).map(p => ({ date:p.expense_date, at:p.created_at, kind:"pay", id:p.id, text:"Πληρωμή · " + (METHOD_LABEL[p.method] || p.method || ""), sub: p.note || "", debit:0, credit:Number(p.amount) }))
+    ].sort((a, b) => a.date < b.date ? -1 : a.date > b.date ? 1 : (a.at < b.at ? -1 : 1));
+    let run = Number(s.opening_balance || 0);
+    const lines = moves.map(m => {
+      run += m.debit - m.credit;
+      return `<tr class="clickable" data-kind="${m.kind}" data-id="${m.id}">
+        <td>${fmtShortDate(m.date)}</td>
+        <td>${escapeHtml(m.text)}${m.sub ? `<div class="cell-sub">${escapeHtml(m.sub)}</div>` : ""}</td>
+        <td style="text-align:right;white-space:nowrap;">${m.debit ? eur(m.debit) : ""}</td>
+        <td style="text-align:right;white-space:nowrap;" class="amt-in">${m.credit ? eur(m.credit) : ""}</td>
+        <td style="text-align:right;white-space:nowrap;font-weight:600;">${eur(run)}</td></tr>`;
+    }).reverse().join("");
+    openDrawer(s.name, `
+      <div class="money-st-head">
+        <div>
+          <div class="cell-sub">${s.vat_number ? "ΑΦΜ " + escapeHtml(s.vat_number) : "χωρίς ΑΦΜ"}${s.contact ? " · " + escapeHtml(s.contact) : ""}${s.phone ? ` · <a href="tel:${escapeHtml(s.phone)}">${escapeHtml(s.phone)}</a>` : ""}${s.email ? ` · <a href="mailto:${escapeHtml(s.email)}">${escapeHtml(s.email)}</a>` : ""}</div>
+        </div>
+        <div style="display:flex;gap:8px;flex-wrap:wrap;">
+          <button type="button" class="btn-primary btn-sm" id="sc-inv">+ Τιμολόγιο</button>
+          <button type="button" class="btn-ghost btn-sm" id="sc-scan">📷 QR</button>
+          <button type="button" class="btn-ghost btn-sm" id="sc-pay">Πληρωμή</button>
+          <button type="button" class="btn-ghost btn-sm" id="sc-edit">Στοιχεία</button>
+        </div>
+      </div>
+      <div class="stat-row" style="padding:12px 0 6px;">
+        <div class="stat-tile"><div class="num">${eur(s.purchases)}</div><div class="lbl">Αγορές</div></div>
+        <div class="stat-tile"><div class="num">${eur(s.paid)}</div><div class="lbl">Πληρωμές</div></div>
+        <div class="stat-tile ${Number(s.balance) > 0 ? "balance-due" : ""}"><div class="num">${eur(s.balance)}</div><div class="lbl">${Number(s.balance) >= 0 ? "Του χρωστάω" : "Μου χρωστάει"}</div></div>
+      </div>
+      ${Number(s.opening_balance) ? `<div class="cell-sub">Περιλαμβάνει παλιό υπόλοιπο ${eur(s.opening_balance)}.</div>` : ""}
+      ${moves.length === 0 ? '<div class="empty-state">Δεν υπάρχουν τιμολόγια ή πληρωμές ακόμα.</div>' : `
+      <table style="margin-top:10px;"><thead><tr><th>Ημ/νία</th><th>Κίνηση</th><th style="text-align:right;">Χρέωση</th><th style="text-align:right;">Πληρωμή</th><th style="text-align:right;">Υπόλοιπο</th></tr></thead>
+      <tbody id="sc-rows">${lines}</tbody></table>`}`, true);
+    $("#sc-inv").addEventListener("click", () => openPurchaseInvoiceForm({ supplier_id: supplierId }));
+    $("#sc-scan").addEventListener("click", () => openQrScanner({ supplier_id: supplierId }));
+    $("#sc-pay").addEventListener("click", () => openSupplierPayment(supplierId, Math.max(0, Number(s.balance))));
+    $("#sc-edit").addEventListener("click", () => openSupplierDrawer(supplierId));
+    $$("#sc-rows tr").forEach(tr => tr.addEventListener("click", () =>
+      tr.dataset.kind === "inv" ? openPurchaseInvoice(tr.dataset.id) : openExpenseDrawer(tr.dataset.id)));
+  }
+
+  // ---- πληρωμή προμηθευτή = έξοδο (άρα περνάει και στο ταμείο) ----
+  function openSupplierPayment(supplierId, suggest){
+    const s = SUPPLIERS_CACHE.find(x => x.id === supplierId);
+    openDrawer("Πληρωμή — " + (s ? s.name : ""), `
+      <form id="sp-form">
+        <div id="sp-msg"></div>
+        <div class="form-row">
+          <div class="field"><label>Ποσό (€) *</label><input type="number" step="0.01" min="0" id="sp-amount" value="${suggest ? suggest.toFixed(2) : ""}" inputmode="decimal"></div>
+          <div class="field"><label>Ημερομηνία</label><input type="date" id="sp-date" value="${isoDay(new Date())}"></div>
+        </div>
+        <div class="form-row">
+          <div class="field"><label>Τρόπος πληρωμής</label>
+            <select id="sp-method"><option value="cash">Μετρητά</option><option value="card">Κάρτα</option><option value="bank">Τραπεζική κατάθεση</option></select></div>
+          <div class="field hidden" id="sp-bank-field"><label>Τράπεζα</label><select id="sp-bank">${BANKS.map(b => `<option>${escapeHtml(b)}</option>`).join("")}</select></div>
+        </div>
+        <div class="field"><label>Σημείωση</label><input id="sp-note" placeholder="π.χ. εξόφληση ΤΔΑ-551"></div>
+        <div class="cell-sub">Γράφεται στα Έξοδα ως «Πληρωμή προμηθευτή» και αφαιρείται από το ταμείο/τράπεζα.</div>
+        <div class="drawer-foot" style="margin:22px -22px -20px;">
+          <button type="button" class="btn-ghost" id="sp-back">‹ Πίσω</button>
+          <button type="submit" class="btn-primary">Αποθήκευση</button>
+        </div>
+      </form>`, true);
+    $("#sp-method").addEventListener("change", () => $("#sp-bank-field").classList.toggle("hidden", $("#sp-method").value !== "bank"));
+    $("#sp-back").addEventListener("click", () => openSupplierCard(supplierId));
+    $("#sp-form").addEventListener("submit", async (e) => {
+      e.preventDefault();
+      const amount = parseFloat($("#sp-amount").value);
+      if (!amount || amount <= 0) { showMsg($("#sp-msg"), "Γράψε ένα ποσό.", "error"); return; }
+      const method = $("#sp-method").value;
+      const { error } = await sb.from("expenses").insert({
+        expense_date: $("#sp-date").value || isoDay(new Date()), category: "Πληρωμή προμηθευτή", supplier_id: supplierId,
+        amount, method, bank: method === "bank" ? $("#sp-bank").value : null, note: $("#sp-note").value.trim() || null,
+        payer: "shop", supplier_payment: true });
+      if (error) { showMsg($("#sp-msg"), isMissing(error) ? V15_MSG : "Σφάλμα: " + error.message, "error"); return; }
+      await openSupplierCard(supplierId);
+      if (!$("#view-suppliers").classList.contains("hidden")) loadSuppliersView();
+    });
+  }
+
+  // ---- νέο τιμολόγιο αγοράς ----
+  async function openPurchaseInvoiceForm(prefill){
+    prefill = prefill || {};
+    await loadSuppliers();
+    const { data: items } = await sb.from("inventory_items").select("*").order("name");
+    const ITEMS = items || [];
+    let MAP = [];
+    const loadMap = async (sid) => {
+      if (!sid) { MAP = []; return; }
+      const { data } = await sb.from("supplier_item_map").select("*").eq("supplier_id", sid);
+      MAP = data || [];
+    };
+    let supplierId = prefill.supplier_id || "";
+    if (!supplierId && prefill.vat) { const m = SUPPLIERS_CACHE.find(s => s.vat_number === prefill.vat); if (m) supplierId = m.id; }
+    await loadMap(supplierId);
+
+    const itemOpts = (sel) => `<option value="">— μόνο στο τιμολόγιο —</option>
+      ${ITEMS.map(i => `<option value="${i.id}" ${i.id === sel ? "selected" : ""}>${escapeHtml(i.name)} (${escapeHtml(i.sku)})</option>`).join("")}
+      <option value="__new">＋ Νέο είδος αποθήκης</option>`;
+    const lineHtml = (l, n) => `
+      <div class="pl-line" data-line="${n}">
+        <div class="pl-grid">
+          <div class="field pl-item"><label>Είδος αποθήκης</label><select class="pl-sel">${itemOpts(l.inventory_item_id || "")}</select></div>
+          <div class="field pl-desc"><label>Περιγραφή στο τιμολόγιο</label><input class="pl-descr" value="${escapeHtml(l.description || "")}" placeholder="όπως γράφει το τιμολόγιο"></div>
+          <div class="field pl-q"><label>Ποσ.</label><input class="pl-qty" type="number" step="1" min="0" value="${l.qty || 1}" inputmode="decimal"></div>
+          <div class="field pl-p"><label>Τιμή μον. (χωρίς ΦΠΑ)</label><input class="pl-price" type="number" step="0.01" min="0" value="${l.unit_price ?? ""}" inputmode="decimal"></div>
+          <div class="field pl-v"><label>ΦΠΑ</label><select class="pl-vat">${VAT_RATES.map(r => `<option value="${r}" ${Number(l.vat_rate ?? 24) === r ? "selected" : ""}>${r}%</option>`).join("")}</select></div>
+          <button type="button" class="remove-x pl-del" aria-label="Αφαίρεση γραμμής">×</button>
+        </div>
+        <div class="pl-new hidden">
+          <div class="form-row">
+            <div class="field"><label>Κωδικός νέου είδους</label><input class="pl-new-sku" placeholder="π.χ. CAM-8MP"></div>
+            <div class="field"><label>Κατηγορία</label><input class="pl-new-cat" placeholder="π.χ. Κάμερες"></div>
+          </div>
+        </div>
+        <div class="cell-sub pl-hint"></div>
+      </div>`;
+
+    openDrawer("Τιμολόγιο αγοράς", `
+      <form id="pi-form" novalidate>
+        <div id="pi-msg"></div>
+        ${prefill.mark ? `<div class="money-count-diff ok" style="margin:0 0 14px;">📷 Διαβάστηκε το QR — ΜΑΡΚ <b>${escapeHtml(prefill.mark)}</b>${prefill.url ? ` · <a href="${escapeHtml(prefill.url)}" target="_blank" rel="noopener">άνοιγμα στην ΑΑΔΕ</a>` : ""}.
+           Συμπλήρωσε τα υπόλοιπα από το χαρτί.</div>` : ""}
+        <div class="form-row">
+          <div class="field"><label>Προμηθευτής *</label>
+            <select id="pi-sup"><option value="">— Διάλεξε —</option>${SUPPLIERS_CACHE.map(s => `<option value="${s.id}" ${s.id === supplierId ? "selected" : ""}>${escapeHtml(s.name)}</option>`).join("")}
+              <option value="__new">＋ Νέος προμηθευτής</option></select></div>
+          <div class="field"><label>Ημερομηνία</label><input type="date" id="pi-date" value="${prefill.doc_date || isoDay(new Date())}"></div>
+        </div>
+        <div class="form-row hidden" id="pi-newsup">
+          <div class="field"><label>Επωνυμία νέου προμηθευτή *</label><input id="pi-ns-name"></div>
+          <div class="field"><label>ΑΦΜ</label><input id="pi-ns-vat" inputmode="numeric" maxlength="12" value="${escapeHtml(prefill.vat || "")}"></div>
+        </div>
+        <div class="form-row">
+          <div class="field"><label>Αριθμός παραστατικού</label><input id="pi-num" placeholder="π.χ. ΤΔΑ Α-551" value="${escapeHtml(prefill.doc_number || "")}"></div>
+          <div class="field"><label>ΜΑΡΚ <span style="font-weight:400;color:var(--ink-soft);">(από το QR)</span></label>
+            <div style="display:flex;gap:6px;"><input id="pi-mark" inputmode="numeric" value="${escapeHtml(prefill.mark || "")}"><button type="button" class="btn-ghost btn-sm" id="pi-scan" title="Σκανάρισμα QR">📷</button></div></div>
+        </div>
+        <div class="section-title">Γραμμές</div>
+        <div id="pi-lines">${lineHtml({}, 0)}</div>
+        <button type="button" class="add-link" id="pi-add">+ Γραμμή</button>
+        <div class="pi-totals" id="pi-totals"></div>
+        <label class="check-line" style="margin-top:12px;"><input type="checkbox" id="pi-paid"> Το πλήρωσα ήδη</label>
+        <div class="form-row hidden" id="pi-paid-row">
+          <div class="field"><label>Τρόπος</label><select id="pi-method"><option value="cash">Μετρητά</option><option value="card">Κάρτα</option><option value="bank">Τραπεζική κατάθεση</option></select></div>
+          <div class="field hidden" id="pi-bank-field"><label>Τράπεζα</label><select id="pi-bank">${BANKS.map(b => `<option>${escapeHtml(b)}</option>`).join("")}</select></div>
+        </div>
+        <div class="field" style="margin-top:10px;"><label>Σημείωση</label><input id="pi-note"></div>
+        <div class="drawer-foot" style="margin:22px -22px -20px;">
+          <span class="cell-sub" id="pi-foot-hint">Τα είδη αποθήκης θα προστεθούν στο απόθεμα.</span>
+          <button type="submit" class="btn-primary">Αποθήκευση</button>
+        </div>
+      </form>`, true);
+
+    let lineN = 1;
+    const recalc = () => {
+      let net = 0, vat = 0;
+      $$("#pi-lines .pl-line").forEach(el => {
+        const q = parseFloat(el.querySelector(".pl-qty").value || "0"), p = parseFloat(el.querySelector(".pl-price").value || "0");
+        const n = Math.round(q * p * 100) / 100;
+        net += n; vat += Math.round(n * Number(el.querySelector(".pl-vat").value) ) / 100;
+      });
+      $("#pi-totals").innerHTML = `<span>Καθαρή αξία <b>${eur(net)}</b></span><span>ΦΠΑ <b>${eur(vat)}</b></span><span class="pi-total">Σύνολο <b>${eur(net + vat)}</b></span>`;
+    };
+    // αν η περιγραφή ταιριάζει με κάτι που έχει «μάθει» για τον προμηθευτή -> βρίσκει μόνη της το είδος
+    const autoMatch = (el) => {
+      const sel = el.querySelector(".pl-sel");
+      if (sel.value) return;
+      const key = el.querySelector(".pl-descr").value.trim().toLowerCase();
+      const hit = key && MAP.find(m => m.match_key === key);
+      if (hit && ITEMS.some(i => i.id === hit.inventory_item_id)) {
+        sel.value = hit.inventory_item_id;
+        el.querySelector(".pl-hint").textContent = "✓ Το αναγνώρισε από προηγούμενο τιμολόγιο.";
+        onItem(el);
+      }
+    };
+    const onItem = (el) => {
+      const v = el.querySelector(".pl-sel").value;
+      el.querySelector(".pl-new").classList.toggle("hidden", v !== "__new");
+      el.querySelector(".pl-qty").step = v ? "1" : "0.001";
+      const it = ITEMS.find(i => i.id === v);
+      if (it) {
+        if (!el.querySelector(".pl-descr").value) el.querySelector(".pl-descr").value = it.name;
+        if (el.querySelector(".pl-price").value === "" && it.last_cost != null) el.querySelector(".pl-price").value = Number(it.last_cost).toFixed(2);
+        el.querySelector(".pl-hint").textContent = el.querySelector(".pl-hint").textContent || `Απόθεμα τώρα: ${it.stock}`;
+      }
+      recalc();
+    };
+    const wireLine = (el) => {
+      el.querySelector(".pl-sel").addEventListener("change", () => { el.querySelector(".pl-hint").textContent = ""; onItem(el); });
+      el.querySelector(".pl-descr").addEventListener("change", () => autoMatch(el));
+      ["pl-qty","pl-price","pl-vat"].forEach(c => el.querySelector("." + c).addEventListener("input", recalc));
+      el.querySelector(".pl-del").addEventListener("click", () => { if ($$("#pi-lines .pl-line").length > 1) { el.remove(); recalc(); } });
+    };
+    $$("#pi-lines .pl-line").forEach(wireLine);
+    $("#pi-add").addEventListener("click", () => {
+      $("#pi-lines").insertAdjacentHTML("beforeend", lineHtml({}, lineN++));
+      wireLine($("#pi-lines .pl-line:last-child"));
+    });
+    $("#pi-sup").addEventListener("change", async () => {
+      $("#pi-newsup").classList.toggle("hidden", $("#pi-sup").value !== "__new");
+      await loadMap($("#pi-sup").value === "__new" ? "" : $("#pi-sup").value);
+      $$("#pi-lines .pl-line").forEach(autoMatch);
+    });
+    if (!supplierId && prefill.vat) { $("#pi-sup").value = "__new"; $("#pi-newsup").classList.remove("hidden"); }
+    $("#pi-paid").addEventListener("change", () => $("#pi-paid-row").classList.toggle("hidden", !$("#pi-paid").checked));
+    $("#pi-method").addEventListener("change", () => $("#pi-bank-field").classList.toggle("hidden", $("#pi-method").value !== "bank"));
+    $("#pi-scan").addEventListener("click", () => openQrScanner({ supplier_id: $("#pi-sup").value !== "__new" ? $("#pi-sup").value : "" }));
+    recalc();
+
+    $("#pi-form").addEventListener("submit", async (e) => {
+      e.preventDefault();
+      clearMsg($("#pi-msg"));
+      const sup = $("#pi-sup").value;
+      if (!sup) { showMsg($("#pi-msg"), "Διάλεξε προμηθευτή.", "error"); return; }
+      const lines = [];
+      for (const el of $$("#pi-lines .pl-line")) {
+        const sel = el.querySelector(".pl-sel").value;
+        const qty = parseFloat(el.querySelector(".pl-qty").value || "0");
+        const price = el.querySelector(".pl-price").value;
+        const descr = el.querySelector(".pl-descr").value.trim();
+        if (!descr && !sel) continue;   // κενή γραμμή
+        if (!(qty > 0)) { showMsg($("#pi-msg"), "Κάθε γραμμή θέλει ποσότητα.", "error"); return; }
+        if (price === "") { showMsg($("#pi-msg"), "Κάθε γραμμή θέλει τιμή.", "error"); return; }
+        if (sel && !Number.isInteger(qty)) { showMsg($("#pi-msg"), "Για είδη αποθήκης η ποσότητα είναι ακέραια.", "error"); return; }
+        const line = { description: descr, qty, unit_price: parseFloat(price), vat_rate: Number(el.querySelector(".pl-vat").value) };
+        if (sel === "__new") {
+          if (!descr) { showMsg($("#pi-msg"), "Γράψε περιγραφή για το νέο είδος.", "error"); return; }
+          line.new_item = { name: descr, sku: el.querySelector(".pl-new-sku").value.trim(), category: el.querySelector(".pl-new-cat").value.trim() };
+        } else if (sel) line.inventory_item_id = sel;
+        lines.push(line);
+      }
+      if (lines.length === 0) { showMsg($("#pi-msg"), "Πρόσθεσε τουλάχιστον μία γραμμή.", "error"); return; }
+      const payload = {
+        doc_date: $("#pi-date").value, doc_number: $("#pi-num").value.trim(), mark: $("#pi-mark").value.trim(),
+        note: $("#pi-note").value.trim(), qr_raw: prefill.qr_raw || "", lines
+      };
+      if (sup === "__new") {
+        if (!$("#pi-ns-name").value.trim()) { showMsg($("#pi-msg"), "Γράψε την επωνυμία του νέου προμηθευτή.", "error"); return; }
+        payload.new_supplier = { name: $("#pi-ns-name").value.trim(), vat_number: normalizeVat($("#pi-ns-vat").value) || "" };
+      } else payload.supplier_id = sup;
+      if ($("#pi-paid").checked) payload.paid_now = { method: $("#pi-method").value, bank: $("#pi-method").value === "bank" ? $("#pi-bank").value : "" };
+
+      const { data, error } = await sb.rpc("save_purchase_invoice", { p: payload });
+      if (error) { showMsg($("#pi-msg"), isMissing(error) ? V15_MSG : "Σφάλμα: " + error.message, "error"); return; }
+      if (!data.ok) {
+        if (data.error === "duplicate") {
+          $("#pi-msg").innerHTML = `<div class="msg msg-error">Αυτό το τιμολόγιο (ίδιος ΜΑΡΚ) έχει ήδη καταχωρηθεί. <button type="button" class="add-link" id="pi-open-dup">Άνοιγμα</button></div>`;
+          $("#pi-open-dup").addEventListener("click", () => openPurchaseInvoice(data.id));
+        } else showMsg($("#pi-msg"), data.error, "error");
+        return;
+      }
+      showToast(`Το τιμολόγιο καταχωρήθηκε (${eur(data.total)}).`);
+      if (!$("#view-suppliers").classList.contains("hidden")) loadSuppliersView();
+      if (!$("#view-inventory").classList.contains("hidden")) loadInventory();
+      if (!$("#view-expenses").classList.contains("hidden")) loadExpenses();
+      await openSupplierCard(data.supplier_id);
+    });
+  }
+
+  // ---- προβολή τιμολογίου αγοράς ----
+  async function openPurchaseInvoice(id){
+    const [{ data: inv, error }, { data: lines }] = await Promise.all([
+      sb.from("purchase_invoices").select("*, suppliers(name)").eq("id", id).single(),
+      sb.from("purchase_invoice_lines").select("*").eq("invoice_id", id).order("line_no")
+    ]);
+    if (error || !inv) { alertMsg("Το τιμολόγιο δεν βρέθηκε."); return; }
+    const qrUrl = inv.qr_raw && /^https?:\/\//i.test(inv.qr_raw) ? inv.qr_raw : null;
+    openDrawer("Τιμολόγιο " + (inv.doc_number || ""), `
+      <div class="money-st-head">
+        <div><strong>${escapeHtml(inv.suppliers ? inv.suppliers.name : "")}</strong>
+          <div class="cell-sub">${fmtShortDate(inv.doc_date)}${inv.mark ? " · ΜΑΡΚ " + escapeHtml(inv.mark) : ""}${qrUrl ? ` · <a href="${escapeHtml(qrUrl)}" target="_blank" rel="noopener">άνοιγμα στην ΑΑΔΕ</a>` : ""}</div></div>
+        <div style="display:flex;gap:8px;">
+          <button type="button" class="btn-ghost btn-sm" id="piv-card">Καρτέλα προμηθευτή</button>
+          <button type="button" class="btn-danger btn-sm" id="piv-del">Διαγραφή</button>
+        </div>
+      </div>
+      <table style="margin-top:14px;"><thead><tr><th>Περιγραφή</th><th style="text-align:right;">Ποσ.</th><th style="text-align:right;">Τιμή</th><th style="text-align:right;">ΦΠΑ</th><th style="text-align:right;">Αξία</th></tr></thead>
+      <tbody>${(lines || []).map(l => `<tr>
+        <td>${escapeHtml(l.description)}${l.inventory_item_id ? `<div class="cell-sub">📦 +${l.stock_added} στην αποθήκη</div>` : ""}</td>
+        <td style="text-align:right;">${Number(l.qty)}</td><td style="text-align:right;">${eur(l.unit_price)}</td>
+        <td style="text-align:right;">${Number(l.vat_rate)}%</td><td style="text-align:right;">${eur(l.line_net)}</td></tr>`).join("")}</tbody></table>
+      <div class="pi-totals"><span>Καθαρή αξία <b>${eur(inv.net)}</b></span><span>ΦΠΑ <b>${eur(inv.vat)}</b></span><span class="pi-total">Σύνολο <b>${eur(inv.total)}</b></span></div>
+      ${inv.note ? `<div class="cell-sub" style="margin-top:8px;">${escapeHtml(inv.note)}</div>` : ""}`, true);
+    $("#piv-card").addEventListener("click", () => openSupplierCard(inv.supplier_id));
+    $("#piv-del").addEventListener("click", async () => {
+      const b = $("#piv-del");
+      if (!b.dataset.armed) { b.dataset.armed = "1"; b.textContent = "Σίγουρα; Το απόθεμα θα γυρίσει πίσω"; return; }
+      const { error: dErr } = await sb.rpc("delete_purchase_invoice", { p_id: id });
+      if (dErr) { alertMsg("Σφάλμα: " + dErr.message); return; }
+      showToast("Το τιμολόγιο διαγράφηκε.");
+      if (!$("#view-suppliers").classList.contains("hidden")) loadSuppliersView();
+      if (!$("#view-inventory").classList.contains("hidden")) loadInventory();
+      await openSupplierCard(inv.supplier_id);
+    });
+  }
+
+  // ================= ΣΚΑΝΑΡΙΣΜΑ QR ΤΙΜΟΛΟΓΙΟΥ =================
+  // Κάμερα (ζωντανά) ή φωτογραφία. Χρησιμοποιεί τον ενσωματωμένο αναγνώστη του
+  // browser όπου υπάρχει (Chrome/Android), αλλιώς φορτώνει το jsQR (iPhone κ.λπ.).
+  let QR_STREAM = null, QR_TIMER = null;
+  function stopQrCamera(){
+    clearTimeout(QR_TIMER); QR_TIMER = null;
+    if (QR_STREAM) { QR_STREAM.getTracks().forEach(t => t.stop()); QR_STREAM = null; }
+  }
+  let JSQR_PROMISE = null;
+  function loadJsQR(){
+    if (window.jsQR) return Promise.resolve(window.jsQR);
+    if (!JSQR_PROMISE) JSQR_PROMISE = new Promise((res, rej) => {
+      const s = document.createElement("script");
+      s.src = "https://cdn.jsdelivr.net/npm/jsqr@1.4.0/dist/jsQR.min.js";
+      s.onload = () => res(window.jsQR); s.onerror = () => { JSQR_PROMISE = null; rej(new Error("jsQR")); };
+      document.head.appendChild(s);
+    });
+    return JSQR_PROMISE;
+  }
+  async function decodeQrFromCanvas(canvas){
+    if ("BarcodeDetector" in window) {
+      try {
+        const det = new BarcodeDetector({ formats: ["qr_code"] });
+        const found = await det.detect(canvas);
+        if (found && found[0]) return found[0].rawValue;
+        return null;
+      } catch (e) { /* πέφτει στο jsQR */ }
+    }
+    const jsQR = await loadJsQR();
+    const ctx = canvas.getContext("2d", { willReadFrequently: true });
+    const img = ctx.getImageData(0, 0, canvas.width, canvas.height);
+    const r = jsQR(img.data, img.width, img.height, { inversionAttempts: "attemptBoth" });
+    return r ? r.data : null;
+  }
+
+  // Από το κείμενο του QR βγάζει ΜΑΡΚ (15ψήφιο), σύνδεσμο, και ΑΦΜ/ημερομηνία αν υπάρχουν.
+  function parseInvoiceQr(text){
+    const raw = String(text || "").trim();
+    const out = { qr_raw: raw };
+    if (/^https?:\/\//i.test(raw)) out.url = raw;
+    let params = null;
+    try { params = new URL(raw).searchParams; } catch (e) {}
+    const pick = (names) => { if (!params) return null; for (const [k, v] of params) if (names.includes(k.toLowerCase())) return v; return null; };
+    const markParam = pick(["mark", "invoicemark", "m"]);
+    const markMatch = (markParam && markParam.match(/\d{15}/)) || raw.match(/(?<!\d)\d{15}(?!\d)/);
+    if (markMatch) out.mark = markMatch[0];
+    const vat = pick(["afm", "vat", "vatnumber", "issuervat", "issuer"]);
+    if (vat && /^\d{9}$/.test(vat)) out.vat = vat;
+    const date = pick(["date", "issuedate", "dt"]);
+    if (date) { const m = date.match(/(\d{4})-?(\d{2})-?(\d{2})/) || date.match(/(\d{2})[\/.-](\d{2})[\/.-](\d{4})/);
+      if (m) out.doc_date = m[1].length === 4 ? `${m[1]}-${m[2]}-${m[3]}` : `${m[3]}-${m[2]}-${m[1]}`; }
+    return out;
+  }
+
+  async function handleQrResult(text, ctx){
+    stopQrCamera();
+    const info = parseInvoiceQr(text);
+    if (info.mark) {
+      const { data: dup } = await sb.from("purchase_invoices").select("id").eq("mark", info.mark).maybeSingle();
+      if (dup) {
+        openDrawer("Σκανάρισμα QR", `<div class="pin-wrap"><div class="pin-title">Υπάρχει ήδη</div>
+          <div class="pin-sub">Το τιμολόγιο με ΜΑΡΚ ${escapeHtml(info.mark)} έχει ήδη καταχωρηθεί.</div>
+          <button type="button" class="btn-primary" id="qr-open-dup">Άνοιγμα</button></div>`, true);
+        $("#qr-open-dup").addEventListener("click", () => openPurchaseInvoice(dup.id));
+        return;
+      }
+    }
+    await openPurchaseInvoiceForm({ ...(ctx || {}), ...info, supplier_id: (ctx && ctx.supplier_id) || "" });
+    if (!info.mark) showMsg($("#pi-msg"), "Διαβάστηκε το QR αλλά δεν βρέθηκε ΜΑΡΚ μέσα του. Γράψε τα στοιχεία από το χαρτί.", "error");
+  }
+
+  function openQrScanner(ctx){
+    stopQrCamera();
+    const canCamera = !!(navigator.mediaDevices && navigator.mediaDevices.getUserMedia);
+    openDrawer("📷 Σκανάρισμα QR τιμολογίου", `
+      <div class="qr-wrap">
+        <div class="qr-video-box ${canCamera ? "" : "hidden"}" id="qr-box">
+          <video id="qr-video" playsinline muted></video>
+          <div class="qr-frame"></div>
+        </div>
+        <div class="qr-status" id="qr-status">${canCamera ? "Στόχευσε το QR του τιμολογίου…" : "Η κάμερα δεν είναι διαθέσιμη εδώ — τράβηξε φωτογραφία."}</div>
+        <div class="qr-actions">
+          <label class="btn-ghost btn-sm qr-photo-btn">🖼 Από φωτογραφία
+            <input type="file" id="qr-file" accept="image/*" capture="environment" hidden></label>
+          <button type="button" class="btn-ghost btn-sm" id="qr-manual">Χωρίς QR (με το χέρι)</button>
+        </div>
+      </div>`, true);
+    $("#qr-manual").addEventListener("click", () => { stopQrCamera(); openPurchaseInvoiceForm(ctx); });
+    $("#qr-file").addEventListener("change", async (e) => {
+      const f = e.target.files && e.target.files[0];
+      if (!f) return;
+      $("#qr-status").textContent = "Διαβάζω τη φωτογραφία…";
+      try {
+        const bmp = await createImageBitmap(f);
+        // οι φωτογραφίες κινητού είναι τεράστιες — μικραίνουν για ταχύτητα, με δεύτερη δοκιμή σε μεγαλύτερο μέγεθος
+        for (const max of [1400, 2400]) {
+          const k = Math.min(1, max / Math.max(bmp.width, bmp.height));
+          const c = document.createElement("canvas"); c.width = Math.round(bmp.width * k); c.height = Math.round(bmp.height * k);
+          c.getContext("2d").drawImage(bmp, 0, 0, c.width, c.height);
+          const txt = await decodeQrFromCanvas(c);
+          if (txt) { await handleQrResult(txt, ctx); return; }
+        }
+        $("#qr-status").textContent = "Δεν βρέθηκε QR στη φωτογραφία. Δοκίμασε πιο κοντά και με καλό φως.";
+      } catch (err) {
+        $("#qr-status").textContent = err.message === "jsQR" ? "Δεν φόρτωσε ο αναγνώστης QR — έλεγξε τη σύνδεση." : "Δεν διαβάστηκε η φωτογραφία.";
+      }
+    });
+    if (!canCamera) return;
+    (async () => {
+      try {
+        QR_STREAM = await navigator.mediaDevices.getUserMedia({ video: { facingMode: { ideal: "environment" } }, audio: false });
+        const v = $("#qr-video");
+        if (!v) { stopQrCamera(); return; }
+        v.srcObject = QR_STREAM; await v.play();
+        const c = document.createElement("canvas");
+        const tick = async () => {
+          if (!QR_STREAM || !$("#qr-video")) { stopQrCamera(); return; }
+          if (v.videoWidth) {
+            const k = Math.min(1, 900 / Math.max(v.videoWidth, v.videoHeight));
+            c.width = Math.round(v.videoWidth * k); c.height = Math.round(v.videoHeight * k);
+            c.getContext("2d", { willReadFrequently: true }).drawImage(v, 0, 0, c.width, c.height);
+            try { const txt = await decodeQrFromCanvas(c); if (txt) { await handleQrResult(txt, ctx); return; } } catch (e) {}
+          }
+          QR_TIMER = setTimeout(tick, 250);
+        };
+        tick();
+      } catch (err) {
+        $("#qr-box") && $("#qr-box").classList.add("hidden");
+        if ($("#qr-status")) $("#qr-status").textContent = "Δεν δόθηκε πρόσβαση στην κάμερα — τράβηξε φωτογραφία με το κουμπί από κάτω.";
+      }
+    })();
+  }
+
+  $("#qr-scan-btn").addEventListener("click", () => openQrScanner());
+  $("#new-purchase-btn").addEventListener("click", () => openPurchaseInvoiceForm());
+  $("#new-supplier-btn2").addEventListener("click", () => openSupplierDrawer());
+  $("#inv-purchase-btn").addEventListener("click", () => openQrScanner());
+
 
   // ================= INVENTORY (staff) =================
   let INVENTORY_CACHE = [];
@@ -3591,7 +4216,7 @@
   }
 
   // ================= EXPENSES (staff) =================
-  const EXPENSE_CATEGORIES = ["Προμήθεια εξοπλισμού","Ενοίκιο","ΔΕΗ/Ρεύμα","Νερό","Τηλέφωνο/Internet","Καύσιμα","Συντήρηση οχήματος","Μισθοδοσία","Πληρωμή υπαλλήλου","Λογιστής/Φόρος","Διαφήμιση","Διάφορα"];
+  const EXPENSE_CATEGORIES = ["Προμήθεια εξοπλισμού","Ενοίκιο","ΔΕΗ/Ρεύμα","Νερό","Τηλέφωνο/Internet","Καύσιμα","Συντήρηση οχήματος","Μισθοδοσία","Πληρωμή υπαλλήλου","Πληρωμή προμηθευτή","Λογιστής/Φόρος","Διαφήμιση","Διάφορα"];
   let EXPENSE_CATEGORY_FILTER = "all";
   $("#expense-filters").innerHTML = ["all", ...EXPENSE_CATEGORIES].map(c => `<div class="chip ${c==='all'?'active':''}" data-f="${escapeHtml(c)}">${c==='all'?'Όλα':c}</div>`).join("");
   $("#expense-filters").addEventListener("click", (e) => {
