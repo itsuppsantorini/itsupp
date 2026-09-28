@@ -378,6 +378,27 @@
     .pl-grid .remove-x{grid-column:2;justify-self:end;}
   }
 
+  /* ---- αρχείο τιμολογίων ---- */
+  #view-suppliers .panel-head{flex-wrap:wrap;gap:10px;}
+  .arch-tools{display:flex;flex-direction:column;gap:10px;padding:14px 20px 8px;}
+  .arch-dates{display:flex;align-items:center;gap:6px;flex-wrap:wrap;}
+  .arch-dates input[type=date]{width:auto;min-width:0;flex:0 1 150px;}
+  .arch-all{padding:6px 0 4px;}
+  .arch-row{display:flex;align-items:center;gap:10px;padding:10px 8px;border-bottom:1px solid var(--line);cursor:pointer;border-radius:8px;}
+  .arch-row:hover{background:var(--surface-2);}
+  .arch-row.sel{background:var(--teal-light);}
+  .arch-date{font-family:'IBM Plex Mono',monospace;font-size:12.5px;color:var(--ink-soft);min-width:64px;}
+  .arch-main{flex:1;min-width:0;font-size:13.5px;}
+  .arch-total{font-weight:700;white-space:nowrap;}
+  .arch-sent{color:var(--green);font-weight:600;}
+  .arch-bar{position:sticky;bottom:0;display:flex;align-items:center;gap:8px;flex-wrap:wrap;padding:12px 20px;background:var(--card);
+            border-top:1px solid var(--line);border-radius:0 0 var(--radius) var(--radius);box-shadow:0 -6px 18px rgba(0,0,0,.08);font-size:13.5px;font-weight:600;}
+  .pi-file{display:flex;align-items:center;gap:10px;flex-wrap:wrap;}
+  .piv-img{max-width:100%;max-height:520px;border-radius:10px;border:1px solid var(--line);display:block;}
+  .acc-progress{margin:6px 0 4px;}
+  .acc-bar{height:8px;border-radius:99px;background:var(--surface-2);overflow:hidden;margin-bottom:6px;}
+  .acc-bar span{display:block;height:100%;width:0;background:var(--teal);transition:width .2s;}
+
   /* ---- επίδειξη ---- */
   .demo-pill{background:var(--amber-bg);color:var(--amber);border:1px dashed var(--amber);cursor:pointer;font:inherit;font-size:11px;font-weight:700;}
   body.demo-mode .topbar{box-shadow:inset 0 -3px 0 var(--amber);}
@@ -722,8 +743,28 @@
         </div>
       </div>
       <div class="panel">
-        <div class="panel-head"><h2>Πρόσφατα τιμολόγια αγοράς</h2></div>
-        <div class="panel-body" id="purchases-recent" style="padding:6px 20px 12px;"></div>
+        <div class="panel-head"><h2>Αρχείο τιμολογίων αγοράς</h2></div>
+        <div class="arch-tools">
+          <input type="search" id="arch-q" placeholder="🔍 Αναζήτηση: προμηθευτής, αριθμός, ΜΑΡΚ, ΑΦΜ, είδος, ποσό…">
+          <div class="arch-dates">
+            <input type="date" id="arch-from" aria-label="Από"><span class="cell-sub">έως</span><input type="date" id="arch-to" aria-label="Έως">
+            <button type="button" class="btn-ghost btn-sm" id="arch-this-month">Αυτός ο μήνας</button>
+            <button type="button" class="btn-ghost btn-sm" id="arch-last-month">Προηγούμενος</button>
+            <button type="button" class="btn-ghost btn-sm" id="arch-clear">Καθαρισμός</button>
+          </div>
+          <div class="filterbar" id="arch-status" style="padding:0;">
+            <div class="chip active" data-st="all">Όλα</div>
+            <div class="chip" data-st="unsent">Δεν έχουν σταλεί στον λογιστή</div>
+            <div class="chip" data-st="sent">Σταλμένα</div>
+          </div>
+        </div>
+        <div class="panel-body" id="purchases-recent" style="padding:0 20px 12px;"></div>
+        <div class="arch-bar hidden" id="arch-bar">
+          <span id="arch-bar-text"></span>
+          <span style="flex:1"></span>
+          <button type="button" class="btn-ghost btn-sm" id="arch-clear-sel">Καμία επιλογή</button>
+          <button type="button" class="btn-primary btn-sm" id="arch-send">📤 Στον λογιστή</button>
+        </div>
       </div>
     </div>
 
@@ -1049,6 +1090,7 @@
         { id:"demo-mm1", account_id:"demo-m1", to_account_id:"demo-m2", move_date:day(-7), kind:"transfer", amount:500, note:"κατάθεση εισπράξεων", created_at:ts(-7,13) }
       ],
       push_subscriptions: [],
+      app_settings: [],
       purchase_invoices: [
         { id:"demo-pi1", supplier_id:S[1], doc_date:day(-2), doc_number:"ΤΔΑ Α-1182", mark:"400000000000001", net:494, vat:118.56, total:612.56, note:null, created_at:ts(-2,11) },
         { id:"demo-pi2", supplier_id:S[0], doc_date:day(-9), doc_number:"ΤΔΑ 3471", mark:"400000000000002", net:570, vat:136.8, total:706.8, note:null, created_at:ts(-9,10) }
@@ -1336,8 +1378,19 @@
       vault_delete_entry: withPin(({ p_id }) => { V.entries = V.entries.filter(e => e.id !== p_id); return { ok:true }; })
     };
 
+    // αρχεία στην επίδειξη: μόνο στη μνήμη (χάνονται με ανανέωση — δεν χωράνε στο sessionStorage)
+    const FILES = window.__DEMO_FILES = window.__DEMO_FILES || {};
+    const storage = {
+      from: () => ({
+        upload: async (path, blob) => { FILES[path] = blob; return { data: { path }, error: null }; },
+        createSignedUrl: async (path) => FILES[path] ? { data: { signedUrl: URL.createObjectURL(FILES[path]) }, error: null } : { data: null, error: { message: "not found" } },
+        download: async (path) => FILES[path] ? { data: FILES[path], error: null } : { data: null, error: { message: "not found" } },
+        remove: async (paths) => { paths.forEach(p => delete FILES[p]); return { data: paths, error: null }; }
+      })
+    };
     return {
       __demo: true,
+      storage,
       from: (t) => new Q(t),
       rpc: async (name, args) => {
         if (!RPC[name]) return { data:null, error:{ message:"Δεν υποστηρίζεται στην επίδειξη" } };
@@ -3315,7 +3368,7 @@
     clearMsg(msg);
     const [balRes, invRes] = await Promise.all([
       sb.from("supplier_balances").select("*").order("name"),
-      sb.from("purchase_invoices").select("*, suppliers(name)").order("doc_date", { ascending:false }).order("created_at", { ascending:false }).limit(12)
+      sb.from("purchase_invoices").select("doc_date, total").gte("doc_date", isoDay(new Date()).slice(0, 7) + "-01")
     ]);
     if (balRes.error) {
       showMsg(msg, isMissing(balRes.error) ? V15_MSG : "Σφάλμα φόρτωσης: " + balRes.error.message, "error");
@@ -3340,15 +3393,7 @@
           <td style="text-align:right;font-weight:700;" class="${Number(r.balance) > 0 ? "amt-out" : ""}">${eur(r.balance)}</td>
         </tr>`).join("");
     $$("#suppliers-tbody [data-sup]").forEach(tr => tr.addEventListener("click", () => openSupplierCard(tr.dataset.sup)));
-    $("#purchases-recent").innerHTML = recent.length === 0
-      ? '<div class="empty-state">Κανένα τιμολόγιο αγοράς ακόμα.</div>'
-      : recent.map(i => `
-        <div class="sched-visit" data-inv="${i.id}">
-          <div class="sched-time">${fmtShortDate(i.doc_date)}</div>
-          <div class="sched-info"><strong>${escapeHtml(i.suppliers ? i.suppliers.name : "")}</strong> — ${escapeHtml(i.doc_number || "χωρίς αριθμό")}${i.mark ? ' <span class="cell-sub">· ΜΑΡΚ ' + escapeHtml(i.mark) + "</span>" : ""}</div>
-          <div class="sched-tech" style="font-weight:700;">${eur(i.total)}</div>
-        </div>`).join("");
-    $$("#purchases-recent [data-inv]").forEach(el => el.addEventListener("click", () => openPurchaseInvoice(el.dataset.inv)));
+    await loadInvoiceArchive();
   }
 
   // ---- στοιχεία προμηθευτή (νέος ή αλλαγή) ----
@@ -3563,6 +3608,11 @@
           <div class="field hidden" id="pi-bank-field"><label>Τράπεζα</label><select id="pi-bank">${BANKS.map(b => `<option>${escapeHtml(b)}</option>`).join("")}</select></div>
         </div>
         <div class="field" style="margin-top:10px;"><label>Σημείωση</label><input id="pi-note"></div>
+        <div class="field"><label>Φωτογραφία / PDF τιμολογίου (για το αρχείο και τον λογιστή)</label>
+          <div class="pi-file">
+            <label class="btn-ghost btn-sm qr-photo-btn">📎 ${prefill.file ? "Αλλαγή" : "Επισύναψη"}<input type="file" id="pi-file" accept="image/*,application/pdf" hidden></label>
+            <span class="cell-sub" id="pi-file-name">${prefill.file ? "✓ Θα κρατηθεί η φωτογραφία που σκανάρισες" : "καμία ακόμα"}</span>
+          </div></div>
         <div class="drawer-foot" style="margin:22px -22px -20px;">
           <span class="cell-sub" id="pi-foot-hint">Τα είδη αποθήκης θα προστεθούν στο απόθεμα.</span>
           <button type="submit" class="btn-primary">Αποθήκευση</button>
@@ -3623,6 +3673,13 @@
     $("#pi-paid").addEventListener("change", () => $("#pi-paid-row").classList.toggle("hidden", !$("#pi-paid").checked));
     $("#pi-method").addEventListener("change", () => $("#pi-bank-field").classList.toggle("hidden", $("#pi-method").value !== "bank"));
     $("#pi-scan").addEventListener("click", () => openQrScanner({ supplier_id: $("#pi-sup").value !== "__new" ? $("#pi-sup").value : "" }));
+    let invoiceFile = prefill.file || null;
+    $("#pi-file").addEventListener("change", (e) => {
+      const f = e.target.files && e.target.files[0];
+      if (!f) return;
+      invoiceFile = f;
+      $("#pi-file-name").textContent = "✓ " + f.name;
+    });
     recalc();
 
     $("#pi-form").addEventListener("submit", async (e) => {
@@ -3667,6 +3724,10 @@
         } else showMsg($("#pi-msg"), data.error, "error");
         return;
       }
+      if (invoiceFile) {
+        try { await uploadInvoiceFile({ id: data.id, doc_date: payload.doc_date }, invoiceFile); }
+        catch (err) { showToast("Το τιμολόγιο αποθηκεύτηκε, αλλά η φωτογραφία όχι: " + (isMissing(err) || /bucket/i.test(err.message || "") ? V16_MSG : err.message)); }
+      }
       showToast(`Το τιμολόγιο καταχωρήθηκε (${eur(data.total)}).`);
       if (!$("#view-suppliers").classList.contains("hidden")) loadSuppliersView();
       if (!$("#view-inventory").classList.contains("hidden")) loadInventory();
@@ -3698,19 +3759,321 @@
         <td style="text-align:right;">${Number(l.qty)}</td><td style="text-align:right;">${eur(l.unit_price)}</td>
         <td style="text-align:right;">${Number(l.vat_rate)}%</td><td style="text-align:right;">${eur(l.line_net)}</td></tr>`).join("")}</tbody></table>
       <div class="pi-totals"><span>Καθαρή αξία <b>${eur(inv.net)}</b></span><span>ΦΠΑ <b>${eur(inv.vat)}</b></span><span class="pi-total">Σύνολο <b>${eur(inv.total)}</b></span></div>
-      ${inv.note ? `<div class="cell-sub" style="margin-top:8px;">${escapeHtml(inv.note)}</div>` : ""}`, true);
+      ${inv.note ? `<div class="cell-sub" style="margin-top:8px;">${escapeHtml(inv.note)}</div>` : ""}
+      <div class="section-title">Φωτογραφία τιμολογίου</div>
+      <div id="piv-file">${inv.file_path ? '<div class="cell-sub">Φόρτωση…</div>' : '<div class="cell-sub">Δεν έχει επισυναφθεί φωτογραφία.</div>'}</div>
+      <label class="btn-ghost btn-sm qr-photo-btn" style="margin-top:8px;">📎 ${inv.file_path ? "Αλλαγή φωτογραφίας" : "Επισύναψη φωτογραφίας / PDF"}<input type="file" id="piv-upload" accept="image/*,application/pdf" hidden></label>`, true);
+    if (inv.file_path) {
+      invoiceFileUrl(inv.file_path).then(url => {
+        const box = $("#piv-file"); if (!box) return;
+        box.innerHTML = !url ? '<div class="cell-sub">Δεν φορτώθηκε η φωτογραφία.</div>'
+          : inv.file_type === "application/pdf" ? `<a href="${url}" target="_blank" rel="noopener" class="add-link">📄 Άνοιγμα PDF</a>`
+          : `<a href="${url}" target="_blank" rel="noopener"><img src="${url}" alt="Τιμολόγιο" class="piv-img"></a>`;
+      });
+    }
+    $("#piv-upload").addEventListener("change", async (e) => {
+      const f = e.target.files && e.target.files[0]; if (!f) return;
+      try { await uploadInvoiceFile(inv, f); showToast("Η φωτογραφία αποθηκεύτηκε."); openPurchaseInvoice(id); }
+      catch (err) { alertMsg("Σφάλμα: " + (/bucket|not found/i.test(err.message || "") ? V16_MSG : err.message)); }
+    });
     $("#piv-card").addEventListener("click", () => openSupplierCard(inv.supplier_id));
     $("#piv-del").addEventListener("click", async () => {
       const b = $("#piv-del");
       if (!b.dataset.armed) { b.dataset.armed = "1"; b.textContent = "Σίγουρα; Το απόθεμα θα γυρίσει πίσω"; return; }
       const { error: dErr } = await sb.rpc("delete_purchase_invoice", { p_id: id });
       if (dErr) { alertMsg("Σφάλμα: " + dErr.message); return; }
+      if (inv.file_path) await sb.storage.from(INVOICE_BUCKET).remove([inv.file_path]);
       showToast("Το τιμολόγιο διαγράφηκε.");
       if (!$("#view-suppliers").classList.contains("hidden")) loadSuppliersView();
       if (!$("#view-inventory").classList.contains("hidden")) loadInventory();
       await openSupplierCard(inv.supplier_id);
     });
   }
+
+  // ================= ΑΡΧΕΙΟ ΤΙΜΟΛΟΓΙΩΝ ΑΓΟΡΑΣ & ΑΠΟΣΤΟΛΗ ΣΤΟΝ ΛΟΓΙΣΤΗ =================
+  const V16_MSG = "Για φωτογραφίες και αποστολή στον λογιστή τρέξε πρώτα το schema_v16.sql στο Supabase.";
+  const INVOICE_BUCKET = "invoices";
+  let ARCHIVE_ROWS = [], ARCHIVE_SEL = new Set(), ARCHIVE_STATUS = "all";
+
+  function loadScript(src, globalName){
+    if (window[globalName]) return Promise.resolve(window[globalName]);
+    return new Promise((res, rej) => {
+      const s = document.createElement("script"); s.src = src;
+      s.onload = () => window[globalName] ? res(window[globalName]) : rej(new Error(globalName));
+      s.onerror = () => rej(new Error(globalName));
+      document.head.appendChild(s);
+    });
+  }
+  const loadJsPDF = () => loadScript("https://cdn.jsdelivr.net/npm/jspdf@2.5.1/dist/jspdf.umd.min.js", "jspdf");
+  const loadJSZip = () => loadScript("https://cdn.jsdelivr.net/npm/jszip@3.10.1/dist/jszip.min.js", "JSZip");
+
+  // Φωτογραφίες κινητού = 3–8MB. Μικραίνουν σε JPEG ~2000px (ευανάγνωστο, ~300KB).
+  async function compressImage(file){
+    if (!file || !/^image\//.test(file.type) || /heic|heif/i.test(file.type)) return file;
+    try {
+      const bmp = await createImageBitmap(file);
+      const k = Math.min(1, 2000 / Math.max(bmp.width, bmp.height));
+      const c = document.createElement("canvas"); c.width = Math.round(bmp.width * k); c.height = Math.round(bmp.height * k);
+      const ctx = c.getContext("2d"); ctx.fillStyle = "#fff"; ctx.fillRect(0, 0, c.width, c.height); ctx.drawImage(bmp, 0, 0, c.width, c.height);
+      const blob = await new Promise(r => c.toBlob(r, "image/jpeg", 0.82));
+      return blob && blob.size < file.size ? blob : file;
+    } catch (e) { return file; }
+  }
+
+  async function uploadInvoiceFile(inv, file){
+    const blob = await compressImage(file);
+    const isPdf = (blob.type || file.type) === "application/pdf";
+    const ext = isPdf ? "pdf" : ((blob.type || "").includes("png") ? "png" : "jpg");
+    const path = `${(inv.doc_date || isoDay(new Date())).slice(0, 4)}/${inv.id}.${ext}`;
+    const { error } = await sb.storage.from(INVOICE_BUCKET).upload(path, blob, { contentType: blob.type || file.type, upsert: true });
+    if (error) throw error;
+    if (inv.file_path && inv.file_path !== path) await sb.storage.from(INVOICE_BUCKET).remove([inv.file_path]);
+    const { error: uErr } = await sb.from("purchase_invoices").update({ file_path: path, file_type: isPdf ? "application/pdf" : "image/jpeg" }).eq("id", inv.id);
+    if (uErr) throw uErr;
+    return path;
+  }
+  async function invoiceFileUrl(path){
+    const { data, error } = await sb.storage.from(INVOICE_BUCKET).createSignedUrl(path, 3600);
+    return error ? null : data.signedUrl;
+  }
+  const norm = (t) => String(t || "").normalize("NFD").replace(/[̀-ͯ]/g, "").toLowerCase();
+
+  // ---- λίστα-αρχείο με αναζήτηση, φίλτρα και επιλογή ----
+  async function loadInvoiceArchive(){
+    const box = $("#purchases-recent");
+    let res = await sb.from("purchase_invoices").select("*, suppliers(name, vat_number), purchase_invoice_lines(description)")
+      .order("doc_date", { ascending:false }).order("created_at", { ascending:false });
+    if (res.error) { box.innerHTML = `<div class="empty-state">${isMissing(res.error) ? V15_MSG : escapeHtml(res.error.message)}</div>`; return; }
+    ARCHIVE_ROWS = res.data || [];
+    const alive = new Set(ARCHIVE_ROWS.map(r => r.id));
+    ARCHIVE_SEL = new Set([...ARCHIVE_SEL].filter(id => alive.has(id)));
+    renderInvoiceArchive();
+  }
+
+  function archiveFiltered(){
+    const q = norm($("#arch-q").value.trim());
+    const from = $("#arch-from").value, to = $("#arch-to").value;
+    return ARCHIVE_ROWS.filter(r => {
+      if (ARCHIVE_STATUS === "unsent" && r.sent_to_accountant_at) return false;
+      if (ARCHIVE_STATUS === "sent" && !r.sent_to_accountant_at) return false;
+      if (from && r.doc_date < from) return false;
+      if (to && r.doc_date > to) return false;
+      if (!q) return true;
+      const hay = norm([r.suppliers && r.suppliers.name, r.suppliers && r.suppliers.vat_number, r.doc_number, r.mark, r.note,
+                        String(r.total), ...(r.purchase_invoice_lines || []).map(l => l.description)].join(" "));
+      return q.split(/\s+/).every(w => hay.includes(w));
+    });
+  }
+
+  function renderInvoiceArchive(){
+    const rows = archiveFiltered();
+    $$("#arch-status .chip").forEach(c => c.classList.toggle("active", c.dataset.st === ARCHIVE_STATUS));
+    const box = $("#purchases-recent");
+    box.innerHTML = rows.length === 0
+      ? `<div class="empty-state">${ARCHIVE_ROWS.length ? "Κανένα τιμολόγιο δεν ταιριάζει στην αναζήτηση." : "Κανένα τιμολόγιο αγοράς ακόμα."}</div>`
+      : `<label class="check-line arch-all"><input type="checkbox" id="arch-all" ${rows.every(r => ARCHIVE_SEL.has(r.id)) ? "checked" : ""}> Επιλογή όλων (${rows.length})</label>` +
+        rows.map(r => `
+        <div class="arch-row ${ARCHIVE_SEL.has(r.id) ? "sel" : ""}" data-inv="${r.id}">
+          <label class="note-check"><input type="checkbox" data-pick="${r.id}" ${ARCHIVE_SEL.has(r.id) ? "checked" : ""} aria-label="Επιλογή"></label>
+          <div class="arch-date">${fmtShortDate(r.doc_date)}</div>
+          <div class="arch-main"><strong>${escapeHtml(r.suppliers ? r.suppliers.name : "")}</strong> — ${escapeHtml(r.doc_number || "χωρίς αριθμό")}
+            <div class="cell-sub">${r.mark ? "ΜΑΡΚ " + escapeHtml(r.mark) + " · " : ""}${r.file_path ? "📎 " + (r.file_type === "application/pdf" ? "PDF" : "φωτογραφία") : '<span style="color:var(--amber);">χωρίς φωτογραφία</span>'}${r.sent_to_accountant_at ? ` · <span class="arch-sent">✓ στάλθηκε ${fmtShortDate(r.sent_to_accountant_at.slice(0, 10))}</span>` : ""}</div></div>
+          <div class="arch-total">${eur(r.total)}</div>
+        </div>`).join("");
+    const selRows = ARCHIVE_ROWS.filter(r => ARCHIVE_SEL.has(r.id));
+    $("#arch-bar").classList.toggle("hidden", selRows.length === 0);
+    $("#arch-bar-text").textContent = `${selRows.length} επιλεγμένα · ${eur(selRows.reduce((s, r) => s + Number(r.total), 0))}`;
+    box.querySelectorAll("[data-pick]").forEach(cb => {
+      cb.addEventListener("click", (e) => e.stopPropagation());
+      cb.addEventListener("change", () => { cb.checked ? ARCHIVE_SEL.add(cb.dataset.pick) : ARCHIVE_SEL.delete(cb.dataset.pick); renderInvoiceArchive(); });
+    });
+    box.querySelectorAll("[data-inv]").forEach(el => el.addEventListener("click", (e) => { if (!e.target.closest(".note-check")) openPurchaseInvoice(el.dataset.inv); }));
+    const all = $("#arch-all");
+    if (all) all.addEventListener("change", () => { rows.forEach(r => all.checked ? ARCHIVE_SEL.add(r.id) : ARCHIVE_SEL.delete(r.id)); renderInvoiceArchive(); });
+  }
+
+  function setArchiveMonth(offset){
+    const d = new Date(); d.setDate(1); d.setMonth(d.getMonth() + offset);
+    const last = new Date(d.getFullYear(), d.getMonth() + 1, 0);
+    $("#arch-from").value = isoDay(d); $("#arch-to").value = isoDay(last);
+    renderInvoiceArchive();
+  }
+
+  // ---- δημιουργία πακέτου για τον λογιστή ----
+  const A4 = { w: 1240, h: 1754 };   // A4 σε 150dpi
+  function canvasPage(){ const c = document.createElement("canvas"); c.width = A4.w; c.height = A4.h; const x = c.getContext("2d"); x.fillStyle = "#fff"; x.fillRect(0, 0, c.width, c.height); x.fillStyle = "#111"; x.textBaseline = "top"; return [c, x]; }
+  const fontOf = (px, bold) => `${bold ? "700 " : ""}${px}px "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif`;
+  function fitText(x, text, maxW){ let t = String(text); while (t.length > 1 && x.measureText(t).width > maxW) t = t.slice(0, -2) + "…"; return t; }
+
+  async function buildAccountantPackage(rows, onProgress){
+    const { jsPDF } = await loadJsPDF();
+    const pdf = new jsPDF({ unit: "mm", format: "a4", compress: true });
+    const addCanvas = (c, first) => { if (!first) pdf.addPage(); pdf.addImage(c.toDataURL("image/jpeg", 0.85), "JPEG", 0, 0, 210, 297); };
+    const sorted = [...rows].sort((a, b) => a.doc_date < b.doc_date ? -1 : a.doc_date > b.doc_date ? 1 : 0);
+    const dates = sorted.map(r => r.doc_date);
+    const period = `${fmtShortDate(dates[0])} – ${fmtShortDate(dates[dates.length - 1])}`;
+    const sum = (k) => sorted.reduce((s, r) => s + Number(r[k] || 0), 0);
+
+    // σελίδες σύνοψης (35 γραμμές/σελίδα)
+    const per = 35;
+    for (let p = 0; p * per < sorted.length || p === 0; p++) {
+      const [c, x] = canvasPage();
+      x.font = fontOf(40, true); x.fillText("Τιμολόγια αγοράς", 80, 70);
+      x.font = fontOf(24); x.fillStyle = "#444";
+      x.fillText(`Περίοδος ${period} · ${sorted.length} τιμολόγια · Σύνολο ${eur(sum("total"))}`, 80, 125);
+      x.fillText(`Δημιουργήθηκε ${new Date().toLocaleString("el-GR")}${sorted.length > per ? ` · σελίδα ${p + 1}/${Math.ceil(sorted.length / per)}` : ""}`, 80, 160);
+      const cols = [[80, "Ημ/νία"], [215, "Προμηθευτής"], [555, "ΑΦΜ"], [660, "Αριθμός"], [905, "Καθαρή"], [1030, "ΦΠΑ"], [1165, "Σύνολο"]];
+      let y = 230; x.fillStyle = "#111"; x.font = fontOf(22, true);
+      cols.forEach(([cx, t], i) => { x.textAlign = i >= 4 ? "right" : "left"; x.fillText(t, i >= 4 ? cx + 0 : cx, y); });
+      x.fillRect(80, y + 34, A4.w - 160, 2); y += 50; x.font = fontOf(21);
+      sorted.slice(p * per, (p + 1) * per).forEach((r, i) => {
+        if (i % 2) { x.fillStyle = "#f2f4f4"; x.fillRect(70, y - 6, A4.w - 140, 38); }
+        x.fillStyle = "#111"; x.textAlign = "left";
+        x.fillText(fmtShortDate(r.doc_date), 80, y);
+        x.fillText(fitText(x, r.suppliers ? r.suppliers.name : "", 320), 215, y);
+        x.fillText((r.suppliers && r.suppliers.vat_number) || "—", 555, y);
+        x.fillText(fitText(x, r.doc_number || "—", 135), 660, y);
+        x.textAlign = "right";
+        x.fillText(eur(r.net), 905, y); x.fillText(eur(r.vat), 1030, y); x.fillText(eur(r.total), 1165, y);
+        y += 40;
+      });
+      if ((p + 1) * per >= sorted.length) {
+        x.fillStyle = "#111"; x.fillRect(80, y + 2, A4.w - 160, 2); y += 16; x.font = fontOf(22, true); x.textAlign = "left";
+        x.fillText("Σύνολα", 80, y); x.textAlign = "right";
+        x.fillText(eur(sum("net")), 905, y); x.fillText(eur(sum("vat")), 1030, y); x.fillText(eur(sum("total")), 1165, y);
+      }
+      x.textAlign = "left";
+      addCanvas(c, p === 0);
+    }
+
+    // μία σελίδα ανά τιμολόγιο με τη φωτογραφία του· τα PDF πάνε ως ξεχωριστά αρχεία
+    const extras = [];
+    let done = 0;
+    for (const r of sorted) {
+      onProgress && onProgress(++done, sorted.length);
+      if (!r.file_path) continue;
+      const { data: blob, error } = await sb.storage.from(INVOICE_BUCKET).download(r.file_path);
+      if (error || !blob) continue;
+      const base = `${r.doc_date}_${(r.suppliers ? r.suppliers.name : "promitheftis").replace(/[^\p{L}\p{N}]+/gu, "-").slice(0, 40)}_${(r.doc_number || "").replace(/[^\p{L}\p{N}]+/gu, "-")}`.replace(/-+$/, "");
+      if (r.file_type === "application/pdf" || blob.type === "application/pdf") {
+        extras.push(new File([blob], base + ".pdf", { type: "application/pdf" }));
+        continue;
+      }
+      const [c, x] = canvasPage();
+      x.font = fontOf(30, true); x.fillText(fitText(x, `${r.suppliers ? r.suppliers.name : ""} — ${r.doc_number || "χωρίς αριθμό"}`, A4.w - 160), 80, 50);
+      x.font = fontOf(22); x.fillStyle = "#444";
+      x.fillText(`${fmtShortDate(r.doc_date)}${r.suppliers && r.suppliers.vat_number ? " · ΑΦΜ " + r.suppliers.vat_number : ""}${r.mark ? " · ΜΑΡΚ " + r.mark : ""} · Σύνολο ${eur(r.total)}`, 80, 95);
+      try {
+        const bmp = await createImageBitmap(blob);
+        const top = 145, maxW = A4.w - 120, maxH = A4.h - top - 50;
+        const k = Math.min(maxW / bmp.width, maxH / bmp.height);
+        x.drawImage(bmp, (A4.w - bmp.width * k) / 2, top, bmp.width * k, bmp.height * k);
+      } catch (e) { x.fillText("(η φωτογραφία δεν διαβάστηκε)", 80, 160); }
+      addCanvas(c, false);
+    }
+
+    // κατάλογος για Excel: UTF-8 με BOM, «;» και δεκαδικό κόμμα — ανοίγει σωστά στο ελληνικό Excel
+    const num = (v) => Number(v || 0).toFixed(2).replace(".", ",");
+    const esc = (v) => `"${String(v ?? "").replace(/"/g, '""')}"`;
+    const csv = "﻿" + [["Ημερομηνία","Προμηθευτής","ΑΦΜ","Αριθμός","ΜΑΡΚ","Καθαρή αξία","ΦΠΑ","Σύνολο","Αρχείο"].map(esc).join(";"),
+      ...sorted.map(r => [r.doc_date, r.suppliers ? r.suppliers.name : "", (r.suppliers && r.suppliers.vat_number) || "", r.doc_number || "", r.mark || "",
+                          num(r.net), num(r.vat), num(r.total), r.file_path ? "ναι" : "όχι"].map((v, i) => i >= 5 && i <= 7 ? v : esc(v)).join(";"))].join("\r\n");
+
+    const tag = `${dates[0]}_${dates[dates.length - 1]}`;
+    return {
+      pdf: new File([pdf.output("blob")], `timologia-agoras_${tag}.pdf`, { type: "application/pdf" }),
+      csv: new File([csv], `timologia-agoras_${tag}.csv`, { type: "text/csv" }),
+      extras, period, total: sum("total"), count: sorted.length, tag,
+      missing: sorted.filter(r => !r.file_path).length
+    };
+  }
+
+  function downloadBlob(blob, name){
+    const a = document.createElement("a"); a.href = URL.createObjectURL(blob); a.download = name;
+    document.body.appendChild(a); a.click(); a.remove(); setTimeout(() => URL.revokeObjectURL(a.href), 10000);
+  }
+
+  async function openAccountantExport(){
+    const rows = ARCHIVE_ROWS.filter(r => ARCHIVE_SEL.has(r.id));
+    if (rows.length === 0) return;
+    let accEmail = "";
+    const setRes = await sb.from("app_settings").select("value").eq("key", "accountant_email").maybeSingle();
+    if (!setRes.error && setRes.data) accEmail = setRes.data.value || "";
+    const noFile = rows.filter(r => !r.file_path).length;
+    openDrawer("📤 Αποστολή στον λογιστή", `
+      <div id="acc-msg"></div>
+      <div class="money-count-diff ok" style="margin:0 0 14px;"><b>${rows.length}</b> τιμολόγια · σύνολο <b>${eur(rows.reduce((s, r) => s + Number(r.total), 0))}</b>
+        ${noFile ? `<div style="color:var(--amber);margin-top:4px;">${noFile} χωρίς φωτογραφία — θα φαίνονται μόνο στη λίστα.</div>` : ""}</div>
+      <div class="field"><label>Email λογιστή</label><input type="email" id="acc-email" value="${escapeHtml(accEmail)}" placeholder="π.χ. logistis@example.gr"></div>
+      <div class="cell-sub" style="margin-bottom:14px;">Θα φτιαχτεί <b>ένα PDF</b> (λίστα + μία σελίδα ανά τιμολόγιο με τη φωτογραφία του) και <b>ένας κατάλογος για Excel</b>.
+        Στο κινητό ανοίγει η «Κοινοποίηση» για να τα στείλεις με email/Viber/WhatsApp· στον υπολογιστή κατεβαίνουν σε ένα .zip.</div>
+      <div class="acc-progress hidden" id="acc-progress"><div class="acc-bar"><span id="acc-bar"></span></div><div class="cell-sub" id="acc-ptext"></div></div>
+      <div class="drawer-foot" style="margin:22px -22px -20px;">
+        <button type="button" class="btn-ghost" id="acc-back">‹ Πίσω</button>
+        <button type="button" class="btn-primary" id="acc-go">Δημιουργία & αποστολή</button>
+      </div>`, true);
+    $("#acc-back").addEventListener("click", closeDrawer);
+    $("#acc-go").addEventListener("click", async () => {
+      const btn = $("#acc-go"); btn.disabled = true; btn.textContent = "Ετοιμάζεται…";
+      const email = $("#acc-email").value.trim();
+      if (email && email !== accEmail) await sb.from("app_settings").upsert({ key: "accountant_email", value: email, updated_at: new Date().toISOString() });
+      $("#acc-progress").classList.remove("hidden");
+      let pack;
+      try {
+        pack = await buildAccountantPackage(rows, (i, n) => {
+          $("#acc-bar").style.width = Math.round(i / n * 100) + "%";
+          $("#acc-ptext").textContent = `Τιμολόγιο ${i} από ${n}…`;
+        });
+      } catch (err) {
+        btn.disabled = false; btn.textContent = "Δημιουργία & αποστολή";
+        showMsg($("#acc-msg"), /jspdf|JSZip/.test(err.message) ? "Δεν φόρτωσε το εργαλείο PDF — έλεγξε τη σύνδεση." : "Σφάλμα: " + err.message, "error");
+        return;
+      }
+      const files = [pack.pdf, pack.csv, ...pack.extras];
+      const text = `Τιμολόγια αγοράς ${pack.period} — ${pack.count} τιμολόγια, σύνολο ${eur(pack.total)}.`;
+      let delivered = false, how = "";
+      if (navigator.canShare && navigator.canShare({ files })) {
+        try { await navigator.share({ files, title: "Τιμολόγια αγοράς " + pack.period, text }); delivered = true; how = "share"; }
+        catch (e) { if (e && e.name === "AbortError") { btn.disabled = false; btn.textContent = "Δημιουργία & αποστολή"; return; } }
+      }
+      if (!delivered) {
+        try {
+          const JSZip = await loadJSZip();
+          const zip = new JSZip(); files.forEach(f => zip.file(f.name, f));
+          downloadBlob(await zip.generateAsync({ type: "blob" }), `timologia-gia-logisti_${pack.tag}.zip`);
+        } catch (e) { files.forEach(f => downloadBlob(f, f.name)); }
+        how = "download";
+      }
+      openDrawer("📤 Αποστολή στον λογιστή", `
+        <div class="pin-wrap" style="max-width:420px;">
+          <div class="pin-title">${how === "share" ? "Στάλθηκε ✓" : "Τα αρχεία κατέβηκαν ✓"}</div>
+          <div class="pin-sub">${how === "share" ? "Τα τιμολόγια σημειώθηκαν ως σταλμένα στον λογιστή."
+            : "Επισύναψε το .zip σε ένα email προς τον λογιστή. Τα τιμολόγια σημειώθηκαν ως σταλμένα."}</div>
+          ${how === "download" && email ? `<a class="btn-primary" style="display:inline-block;margin-top:10px;text-decoration:none;padding:9px 16px;border-radius:8px;"
+             href="mailto:${encodeURIComponent(email)}?subject=${encodeURIComponent("Τιμολόγια αγοράς " + pack.period)}&body=${encodeURIComponent(text + "\n\nΣας επισυνάπτω τα αρχεία.")}">✉️ Άνοιγμα email προς λογιστή</a>` : ""}
+          <div style="margin-top:14px;"><button type="button" class="add-link" id="acc-undo">Αναίρεση «σταλμένα»</button></div>
+        </div>`, true);
+      const ids = rows.map(r => r.id);
+      await sb.from("purchase_invoices").update({ sent_to_accountant_at: new Date().toISOString() }).in("id", ids);
+      ARCHIVE_SEL.clear();
+      $("#acc-undo").addEventListener("click", async () => {
+        await sb.from("purchase_invoices").update({ sent_to_accountant_at: null }).in("id", ids);
+        showToast("Αναιρέθηκε η σήμανση «σταλμένα».");
+        closeDrawer(); loadInvoiceArchive();
+      });
+      loadInvoiceArchive();
+    });
+  }
+
+  $("#arch-q").addEventListener("input", renderInvoiceArchive);
+  ["#arch-from", "#arch-to"].forEach(s => $(s).addEventListener("change", renderInvoiceArchive));
+  $("#arch-status").addEventListener("click", (e) => { const c = e.target.closest("[data-st]"); if (c) { ARCHIVE_STATUS = c.dataset.st; renderInvoiceArchive(); } });
+  $("#arch-this-month").addEventListener("click", () => setArchiveMonth(0));
+  $("#arch-last-month").addEventListener("click", () => setArchiveMonth(-1));
+  $("#arch-clear").addEventListener("click", () => { $("#arch-q").value = ""; $("#arch-from").value = ""; $("#arch-to").value = ""; ARCHIVE_STATUS = "all"; renderInvoiceArchive(); });
+  $("#arch-send").addEventListener("click", openAccountantExport);
+  $("#arch-clear-sel").addEventListener("click", () => { ARCHIVE_SEL.clear(); renderInvoiceArchive(); });
+
 
   // ================= ΣΚΑΝΑΡΙΣΜΑ QR ΤΙΜΟΛΟΓΙΟΥ =================
   // Κάμερα (ζωντανά) ή φωτογραφία. Χρησιμοποιεί τον ενσωματωμένο αναγνώστη του
@@ -3780,6 +4143,8 @@
       }
     }
     await openPurchaseInvoiceForm({ ...(ctx || {}), ...info, supplier_id: (ctx && ctx.supplier_id) || "" });
+    // από την κάμερα δεν έχουμε φωτογραφία ολόκληρου του τιμολογίου — πρόταση να τραβηχτεί μία
+    if (!(ctx && ctx.file) && $("#pi-file-name")) $("#pi-file-name").innerHTML = '<span style="color:var(--amber);">Τράβηξε μια φωτογραφία ολόκληρου του τιμολογίου για το αρχείο</span>';
     if (!info.mark) showMsg($("#pi-msg"), "Διαβάστηκε το QR αλλά δεν βρέθηκε ΜΑΡΚ μέσα του. Γράψε τα στοιχεία από το χαρτί.", "error");
   }
 
@@ -3812,9 +4177,10 @@
           const c = document.createElement("canvas"); c.width = Math.round(bmp.width * k); c.height = Math.round(bmp.height * k);
           c.getContext("2d").drawImage(bmp, 0, 0, c.width, c.height);
           const txt = await decodeQrFromCanvas(c);
-          if (txt) { await handleQrResult(txt, ctx); return; }
+          if (txt) { await handleQrResult(txt, { ...(ctx || {}), file: f }); return; }
         }
-        $("#qr-status").textContent = "Δεν βρέθηκε QR στη φωτογραφία. Δοκίμασε πιο κοντά και με καλό φως.";
+        $("#qr-status").innerHTML = 'Δεν βρέθηκε QR στη φωτογραφία. Δοκίμασε πιο κοντά και με καλό φως — ή <button type="button" class="add-link" id="qr-use-photo">κράτα τη φωτογραφία και συμπλήρωσε με το χέρι</button>.';
+        $("#qr-use-photo").addEventListener("click", () => openPurchaseInvoiceForm({ ...(ctx || {}), file: f }));
       } catch (err) {
         $("#qr-status").textContent = err.message === "jsQR" ? "Δεν φόρτωσε ο αναγνώστης QR — έλεγξε τη σύνδεση." : "Δεν διαβάστηκε η φωτογραφία.";
       }
