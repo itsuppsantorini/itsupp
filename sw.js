@@ -1,40 +1,37 @@
-'use strict';
-// Bump the version whenever cached static assets change. Never cache business data.
-const CACHE_NAME = 'itsupp-install-v1';
-const BASE = self.registration.scope;
-const ASSETS = [
-  'offline.html', 'pwa.css', 'pwa.js', 'manifest.webmanifest',
-  'icons/icon-192.png', 'icons/icon-512.png',
-  'icons/icon-maskable-512.png', 'icons/apple-touch-icon.png'
-].map(path => new URL(path, BASE).href);
-const OFFLINE = new URL('offline.html', BASE).href;
+// ITSUPP — service worker ΜΟΝΟ για ειδοποιήσεις.
+// Δεν κρατάει ΤΙΠΟΤΑ σε cache: κάθε νέα έκδοση της εφαρμογής φαίνεται αμέσως.
+self.addEventListener("install", () => self.skipWaiting());
+self.addEventListener("activate", (event) => event.waitUntil(self.clients.claim()));
 
-self.addEventListener('install', event => {
-  event.waitUntil(caches.open(CACHE_NAME).then(cache => cache.addAll(ASSETS)));
-  // Let an existing window finish its work before a new worker takes over.
+self.addEventListener("push", (event) => {
+  let d = {};
+  try { d = event.data ? event.data.json() : {}; }
+  catch (e) { d = { body: event.data ? event.data.text() : "" }; }
+  event.waitUntil(self.registration.showNotification(d.title || "ITSUPP", {
+    body: d.body || "",
+    icon: "/icon-192.png",
+    badge: "/badge-96.png",
+    tag: d.tag || undefined,
+    renotify: !!d.tag,
+    lang: "el",
+    data: { url: d.url || "/" }
+  }));
 });
-self.addEventListener('activate', event => {
+
+// Πάτημα στην ειδοποίηση: αν η εφαρμογή είναι ήδη ανοιχτή, πάει εκεί και ανοίγει
+// το σχετικό αίτημα/σημείωση· αλλιώς ανοίγει την εφαρμογή σε αυτό.
+self.addEventListener("notificationclick", (event) => {
+  event.notification.close();
+  const url = new URL((event.notification.data && event.notification.data.url) || "/", self.location.origin);
+  const id = url.searchParams.get("notif");
   event.waitUntil((async () => {
-    const names = await caches.keys();
-    await Promise.all(names.filter(name => name.startsWith('itsupp-install-') && name !== CACHE_NAME).map(name => caches.delete(name)));
-    await self.clients.claim();
+    const wins = await self.clients.matchAll({ type: "window", includeUncontrolled: true });
+    for (const w of wins) {
+      if (new URL(w.url).origin !== self.location.origin) continue;
+      try { await w.focus(); } catch (e) {}
+      w.postMessage({ type: "open-notif", id });
+      return;
+    }
+    await self.clients.openWindow(url.href);
   })());
-});
-self.addEventListener('fetch', event => {
-  const request = event.request;
-  const url = new URL(request.url);
-  const base = new URL(BASE);
-  // Leave API calls, auth callbacks with query parameters, and external CDNs alone.
-  if (request.method !== 'GET' || url.origin !== base.origin || url.search || request.headers.has('Authorization')) return;
-  if (request.mode === 'navigate' && [base.pathname, `${base.pathname}index.html`].includes(url.pathname)) {
-    event.respondWith(fetch(request).catch(async () => {
-      return (await caches.match(OFFLINE)) || new Response('Δεν υπάρχει σύνδεση στο Internet.', {
-        status:503, headers:{'Content-Type':'text/plain; charset=utf-8'}
-      });
-    }));
-    return;
-  }
-  if (ASSETS.includes(url.href)) {
-    event.respondWith(caches.open(CACHE_NAME).then(async cache => (await cache.match(request)) || fetch(request)));
-  }
 });
