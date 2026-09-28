@@ -356,6 +356,41 @@
     #view-expenses .panel-body{overflow-x:auto;}
   }
 
+  /* ---- ιδιωτικό: δάνεια & χρέη ---- */
+  .vault-btn{opacity:.55;font-size:13px;}
+  .vault-btn:hover{opacity:1;}
+  .pin-wrap{max-width:320px;margin:10px auto 0;text-align:center;}
+  .pin-title{font-size:18px;font-weight:700;margin-bottom:6px;}
+  .pin-sub{font-size:13px;color:var(--ink-soft);line-height:1.5;margin-bottom:6px;}
+  .pin-dots{display:flex;justify-content:center;gap:16px;margin:18px 0 8px;}
+  .pin-dots span{width:16px;height:16px;border-radius:50%;border:2px solid var(--teal);transition:background .1s;}
+  .pin-dots span.on{background:var(--teal);}
+  .pin-dots.shake{animation:pinShake .35s;}
+  @keyframes pinShake{20%,60%{transform:translateX(-8px);}40%,80%{transform:translateX(8px);}}
+  .pin-msg{min-height:20px;font-size:13px;color:var(--red);font-weight:600;margin-bottom:8px;}
+  .pin-pad{display:grid;grid-template-columns:repeat(3,72px);gap:12px;justify-content:center;margin:6px 0 14px;}
+  .pin-key{height:60px;border-radius:50%;font-size:22px;font-weight:600;background:var(--surface-2);color:var(--ink);border:1px solid var(--line);}
+  .pin-key:active{background:var(--teal-light);}
+  .pin-key:disabled{opacity:.5;}
+  .pin-back{font-size:18px;background:transparent;border-color:transparent;}
+  .pin-link{display:block;margin:4px auto;}
+  .vault-actions{display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:14px;}
+  .debt-list{display:flex;flex-direction:column;gap:10px;margin-bottom:14px;}
+  .debt-card{position:relative;border:1px solid var(--line);border-radius:12px;padding:14px 16px;background:var(--card);cursor:pointer;}
+  .debt-card:hover{background:var(--surface-2);}
+  .debt-card.closed{opacity:.6;}
+  .debt-top{display:flex;justify-content:space-between;gap:12px;align-items:flex-start;}
+  .debt-title{font-weight:700;font-size:14.5px;}
+  .debt-left{font-size:21px;font-weight:700;color:var(--red);white-space:nowrap;font-variant-numeric:tabular-nums;}
+  .debt-card.closed .debt-left{color:var(--green);font-size:15px;}
+  .debt-bar{height:7px;border-radius:99px;background:var(--surface-2);overflow:hidden;margin:10px 96px 8px 0;}
+  .debt-card.closed .debt-bar{margin-right:0;}
+  .debt-bar span{display:block;height:100%;background:var(--green);border-radius:99px;}
+  .debt-meta{display:flex;flex-wrap:wrap;gap:4px 14px;font-size:12px;color:var(--ink-soft);padding-right:90px;}
+  .debt-due-soon{color:var(--red);font-weight:700;}
+  .debt-pay{position:absolute;right:14px;bottom:12px;}
+  @media (max-width:560px){ .debt-bar{margin-right:0;} .debt-meta{padding-right:0;} .debt-pay{position:static;margin-top:10px;width:100%;} .pin-pad{grid-template-columns:repeat(3,68px);} }
+
   /* ---- ανανέωση / νέα έκδοση / ειδοποιήσεις ---- */
   .refresh-btn{font-size:17px;line-height:1;padding:6px 9px;}
   .refresh-btn .ico{display:inline-block;}
@@ -663,6 +698,7 @@
         <div class="panel-head">
           <h2>Ταμείο &amp; τράπεζες</h2>
           <div style="display:flex;gap:8px;">
+            <button type="button" class="btn-ghost btn-sm vault-btn" id="vault-btn" title="Ιδιωτικό" aria-label="Ιδιωτικό">🔒</button>
             <button type="button" class="btn-ghost btn-sm" id="money-accounts-btn">Λογαριασμοί</button>
             <button type="button" class="btn-primary btn-sm" id="money-move-btn">+ Κίνηση</button>
           </div>
@@ -972,6 +1008,7 @@
   });
 
   $("#signout-btn").addEventListener("click", async () => {
+    vaultLock();
     await unsubscribeThisDevice();   // αυτή η συσκευή σταματά να παίρνει τις ειδοποιήσεις σου
     await sb.auth.signOut();
     NOTIF_SEEN = null;
@@ -1361,13 +1398,14 @@
     overlay.classList.add("open");
   }
   function closeDrawer(){
+    if (typeof vaultLock === "function" && VAULT_PIN) vaultLock();   // το ιδιωτικό κλειδώνει μόλις κλείσει
     overlay.classList.remove("open");
     overlay.classList.remove("overlay-center");
     drawer.classList.remove("drawer-wide");
     $("#drawer-body").innerHTML = "";
   }
   $("#drawer-close").addEventListener("click", closeDrawer);
-  overlay.addEventListener("click", (e) => { if (e.target === overlay) closeDrawer(); });
+  // Κλείνει ΜΟΝΟ από το ✕ — όχι με πάτημα έξω από το παράθυρο (έκλεινε κατά λάθος και χανόταν ό,τι έγραφες).
 
   // ================= NAV =================
   $$(".nav-item").forEach(item => {
@@ -3698,6 +3736,431 @@
 
   $("#money-move-btn").addEventListener("click", () => openMoneyMove());
   $("#money-accounts-btn").addEventListener("click", () => MONEY_ACCOUNTS.length ? openMoneyAccounts() : openMoneySetup());
+
+
+  // ================= ΙΔΙΩΤΙΚΟ: ΔΑΝΕΙΑ & ΧΡΕΗ (με PIN) =================
+  // Τα δεδομένα ΔΕΝ διαβάζονται απευθείας: κάθε κλήση (vault_*) στέλνει το PIN
+  // και η βάση το ελέγχει. Το PIN κρατιέται μόνο στη μνήμη όσο είναι ξεκλείδωτο
+  // και σβήνεται όταν κλείσει το παράθυρο, όταν φύγεις από την εφαρμογή, ή μετά
+  // από 5 λεπτά χωρίς κίνηση.
+  let VAULT_PIN = null, VAULT_DATA = null, VAULT_IDLE = null, PIN_KEY_HANDLER = null;
+
+  function vaultLock(){
+    VAULT_PIN = null; VAULT_DATA = null;
+    clearTimeout(VAULT_IDLE);
+  }
+  function vaultTouch(){
+    clearTimeout(VAULT_IDLE);
+    VAULT_IDLE = setTimeout(() => {
+      if (!VAULT_PIN) return;
+      vaultLock();
+      if ($("#drawer-body [data-vault]")) closeDrawer();
+    }, 5 * 60 * 1000);
+  }
+  document.addEventListener("visibilitychange", () => {
+    if (document.visibilityState === "hidden" && VAULT_PIN) {
+      vaultLock();
+      if ($("#drawer-body [data-vault]")) closeDrawer();
+    }
+  });
+
+  function vaultErrorText(err){
+    if (!err) return "Κάτι πήγε στραβά.";
+    if (err.startsWith("wrong:")) { const n = Number(err.split(":")[1]); return `Λάθος PIN — ${n === 1 ? "απομένει 1 προσπάθεια" : "απομένουν " + n + " προσπάθειες"}.`; }
+    if (err.startsWith("locked:")) return `Πολλές λάθος προσπάθειες — κλειδώθηκε για ${err.split(":")[1]}′.`;
+    return { none:"Δεν έχει φτιαχτεί PIN.", format:"Το PIN πρέπει να είναι 4 ψηφία.", exists:"Υπάρχει ήδη PIN.",
+             reauth:"Χρειάζεται να ξαναβάλεις τον κωδικό του λογαριασμού σου.", overpay:"Το ποσό είναι μεγαλύτερο από αυτό που χρωστάς.",
+             amount:"Γράψε ένα ποσό.", notfound:"Δεν βρέθηκε." }[err] || ("Σφάλμα: " + err);
+  }
+
+  // Κλήση με PIN. Αν το PIN δεν ισχύει πια (π.χ. άλλαξε), κλειδώνει και ξαναζητάει.
+  async function vaultCall(fn, args){
+    const { data, error } = await sb.rpc(fn, { p_pin: VAULT_PIN, ...(args || {}) });
+    if (error) return { ok:false, error: error.message };
+    if (data && !data.ok && /^(wrong|locked|none)/.test(data.error || "")) { vaultLock(); openVault(vaultErrorText(data.error)); return data; }
+    vaultTouch();
+    return data;
+  }
+
+  // ---- αριθμητικό πληκτρολόγιο PIN (δουλεύει ίδια σε κινητό και υπολογιστή) ----
+  function renderPinPad({ title, subtitle, message, onComplete, links }){
+    let pin = "";
+    openDrawer("🔒 Ιδιωτικό", `
+      <div class="pin-wrap" data-vault="pin">
+        <div class="pin-title">${title}</div>
+        ${subtitle ? `<div class="pin-sub">${subtitle}</div>` : ""}
+        <div class="pin-dots" id="pin-dots">${"<span></span>".repeat(4)}</div>
+        <div class="pin-msg" id="pin-msg">${message || ""}</div>
+        <div class="pin-pad">
+          ${[1,2,3,4,5,6,7,8,9].map(n => `<button type="button" class="pin-key" data-k="${n}">${n}</button>`).join("")}
+          <span></span><button type="button" class="pin-key" data-k="0">0</button>
+          <button type="button" class="pin-key pin-back" data-k="back" aria-label="Διαγραφή">⌫</button>
+        </div>
+        ${links || ""}
+      </div>`, true);
+    const dots = () => $$("#pin-dots span").forEach((s, i) => s.classList.toggle("on", i < pin.length));
+    const press = async (k) => {
+      if (k === "back") pin = pin.slice(0, -1);
+      else if (pin.length < 4) pin += k;
+      dots();
+      if (pin.length === 4) {
+        const entered = pin;
+        $$(".pin-key").forEach(b => b.disabled = true);
+        const res = await onComplete(entered);
+        if (res && res.retry) {             // λάθος: τίναγμα, καθάρισμα, ξανά
+          pin = ""; dots();
+          $$(".pin-key").forEach(b => b.disabled = false);
+          $("#pin-msg").textContent = res.message || "";
+          const d = $("#pin-dots"); d.classList.remove("shake"); void d.offsetWidth; d.classList.add("shake");
+        }
+      }
+    };
+    $$(".pin-key").forEach(b => b.addEventListener("click", () => press(b.dataset.k)));
+    // πληκτρολόγιο υπολογιστή — ένας μόνο ακροατής κάθε φορά (αλλιώς κάθε πλήκτρο θα μετρούσε διπλά)
+    if (PIN_KEY_HANDLER) document.removeEventListener("keydown", PIN_KEY_HANDLER);
+    PIN_KEY_HANDLER = (e) => {
+      if (!$("#drawer-body [data-vault=pin]")) return;
+      if (/^[0-9]$/.test(e.key)) press(e.key);
+      else if (e.key === "Backspace") press("back");
+    };
+    document.addEventListener("keydown", PIN_KEY_HANDLER);
+  }
+
+  async function openVault(message){
+    const { data: st, error } = await sb.rpc("vault_status");
+    if (error) {
+      openDrawer("🔒 Ιδιωτικό", `<div data-vault="x" class="empty-state">${/vault_status|schema cache|function/i.test(error.message)
+        ? "Για να δουλέψει, τρέξε πρώτα το schema_v14.sql στο Supabase." : escapeHtml(error.message)}</div>`, true);
+      return;
+    }
+    if (VAULT_PIN) { await loadVault(); return; }
+    if (st === "none") return vaultCreatePin();
+    if (st.startsWith("locked:")) {
+      openDrawer("🔒 Ιδιωτικό", `<div data-vault="x" class="pin-wrap"><div class="pin-title">Κλειδωμένο</div>
+        <div class="pin-sub">${vaultErrorText(st)} Δοκίμασε ξανά μετά, ή:</div>
+        <button type="button" class="add-link" id="vault-forgot">Ξέχασα το PIN</button></div>`, true);
+      $("#vault-forgot").addEventListener("click", vaultForgot);
+      return;
+    }
+    renderPinPad({
+      title: "Βάλε το PIN σου",
+      message: message || "",
+      links: '<button type="button" class="add-link pin-link" id="vault-forgot">Ξέχασα το PIN</button>',
+      onComplete: async (pin) => {
+        const { data, error } = await sb.rpc("vault_get", { p_pin: pin });
+        if (error) return { retry:true, message:"Σφάλμα: " + error.message };
+        if (!data.ok) {
+          if (String(data.error).startsWith("locked")) { openVault(); return; }
+          return { retry:true, message: vaultErrorText(data.error) };
+        }
+        VAULT_PIN = pin; VAULT_DATA = data; vaultTouch();
+        renderVault();
+      }
+    });
+    $("#vault-forgot").addEventListener("click", vaultForgot);
+  }
+
+  // πρώτο άνοιγμα: φτιάχνεις PIN (δύο φορές, για να μη γίνει λάθος)
+  function vaultCreatePin(reset){
+    renderPinPad({
+      title: reset ? "Νέο PIN" : "Φτιάξε το PIN σου",
+      subtitle: reset ? "4 ψηφία. Τα δάνεια και τα χρέη σου μένουν όπως ήταν." : "4 ψηφία. Θα το ζητάει κάθε φορά που ανοίγεις αυτό το τμήμα.",
+      onComplete: async (first) => {
+        renderPinPad({
+          title: "Γράψ' το ξανά",
+          subtitle: "Για επιβεβαίωση.",
+          onComplete: async (second) => {
+            if (second !== first) { vaultCreatePin(reset); $("#pin-msg").textContent = "Δεν ταίριαξαν — ξεκίνα από την αρχή."; return; }
+            const { data, error } = await sb.rpc(reset ? "vault_reset_pin" : "vault_set_pin", reset ? { p_new: first } : { p_pin: first });
+            if (error || !data.ok) {
+              const msg = error ? "Σφάλμα: " + error.message : vaultErrorText(data.error);
+              if (!error && data.error === "reauth") { vaultForgot(msg); return; }
+              return { retry:true, message: msg };
+            }
+            VAULT_PIN = first;
+            await loadVault();
+          }
+        });
+      }
+    });
+  }
+
+  // ξέχασα το PIN: ξαναβάζεις τον κωδικό του λογαριασμού σου -> νέο PIN
+  function vaultForgot(message){
+    openDrawer("🔒 Ιδιωτικό", `
+      <form id="vf-form" data-vault="forgot" class="pin-wrap">
+        <div class="pin-title">Ξέχασα το PIN</div>
+        <div class="pin-sub">Βάλε τον κωδικό με τον οποίο μπαίνεις στην εφαρμογή (${escapeHtml(USER.email)}). Μετά φτιάχνεις νέο PIN — τα δεδομένα σου μένουν.</div>
+        <div id="vf-msg">${typeof message === "string" ? `<div class="msg msg-error">${escapeHtml(message)}</div>` : ""}</div>
+        <input type="password" id="vf-pass" autocomplete="current-password" placeholder="Κωδικός λογαριασμού" style="max-width:280px;margin:10px auto;display:block;">
+        <button type="submit" class="btn-primary">Συνέχεια</button>
+      </form>`, true);
+    $("#vf-pass").focus();
+    $("#vf-form").addEventListener("submit", async (e) => {
+      e.preventDefault();
+      const { error } = await sb.auth.signInWithPassword({ email: USER.email, password: $("#vf-pass").value });
+      if (error) { showMsg($("#vf-msg"), "Λάθος κωδικός.", "error"); return; }
+      vaultCreatePin(true);
+    });
+  }
+
+  async function loadVault(){
+    const data = await vaultCall("vault_get");
+    if (!data || !data.ok) return;
+    VAULT_DATA = data;
+    renderVault();
+  }
+
+  // ---- υπολογισμοί ----
+  function debtLeft(d){ return Math.round((Number(d.original_amount) + Number(d.increased || 0) - Number(d.paid || 0)) * 100) / 100; }
+  function nextDue(d){
+    if (!d.due_day || debtLeft(d) <= 0) return null;
+    const t = new Date(); t.setHours(0,0,0,0);
+    for (let add = 0; add < 3; add++) {
+      const y = t.getFullYear(), m = t.getMonth() + add;
+      const last = new Date(y, m + 1, 0).getDate();
+      const cand = new Date(y, m, Math.min(d.due_day, last));
+      if (cand >= t) return cand;
+    }
+    return null;
+  }
+  const VAULT_KIND = { loan:"Δάνειο", debt:"Χρέος" };
+
+  function renderVault(){
+    const debts = VAULT_DATA.debts || [], entries = VAULT_DATA.entries || [];
+    const open = debts.filter(d => debtLeft(d) > 0), closed = debts.filter(d => debtLeft(d) <= 0);
+    const owed = open.reduce((s, d) => s + debtLeft(d), 0);
+    const year = String(new Date().getFullYear());
+    const paidYear = entries.filter(e => e.kind === "payment" && e.entry_date.startsWith(year)).reduce((s, e) => s + Number(e.amount), 0);
+    const monthly = open.reduce((s, d) => s + Number(d.installment || 0), 0);
+    const card = (d) => {
+      const left = debtLeft(d), total = Number(d.original_amount) + Number(d.increased || 0);
+      const pct = total > 0 ? Math.min(100, Math.round(Number(d.paid || 0) / total * 100)) : 100;
+      const due = nextDue(d);
+      const dueSoon = due && (due - new Date()) / 86400000 <= 5;
+      return `
+        <div class="debt-card ${left <= 0 ? "closed" : ""}" data-debt="${d.id}" role="button" tabindex="0">
+          <div class="debt-top">
+            <div class="debt-title">${escapeHtml(d.title)} <span class="money-tag">${VAULT_KIND[d.kind] || ""}</span>
+              ${d.creditor ? `<div class="cell-sub">${escapeHtml(d.creditor)}</div>` : ""}</div>
+            <div class="debt-left">${left <= 0 ? "✓ Εξοφλήθηκε" : eur(left)}</div>
+          </div>
+          <div class="debt-bar"><span style="width:${pct}%"></span></div>
+          <div class="debt-meta">
+            <span>Πληρώθηκαν ${eur(d.paid)} από ${eur(total)} (${pct}%)</span>
+            ${d.installment && left > 0 ? `<span>δόση ${eur(d.installment)}${d.due_day ? " · κάθε " + d.due_day + " του μήνα" : ""}</span>` : ""}
+            ${due ? `<span class="${dueSoon ? "debt-due-soon" : ""}">επόμενη ${due.toLocaleDateString("el-GR", { day:"numeric", month:"numeric" })}</span>` : ""}
+            ${d.last_payment ? `<span>τελευταία πληρωμή ${fmtShortDate(d.last_payment)}</span>` : ""}
+          </div>
+          ${left > 0 ? `<button type="button" class="btn-primary btn-sm debt-pay" data-pay="${d.id}">Πληρωμή</button>` : ""}
+        </div>`;
+    };
+    openDrawer("🔒 Δάνεια & χρέη", `
+      <div data-vault="main">
+        <div class="stat-row" style="padding:0 0 12px;">
+          <div class="stat-tile"><div class="num">${eur(owed)}</div><div class="lbl">Χρωστάω συνολικά</div></div>
+          <div class="stat-tile"><div class="num">${eur(monthly)}</div><div class="lbl">Δόσεις τον μήνα</div></div>
+          <div class="stat-tile"><div class="num">${eur(paidYear)}</div><div class="lbl">Πλήρωσα το ${year}</div></div>
+        </div>
+        <div class="vault-actions">
+          <button type="button" class="btn-primary btn-sm" id="vault-new">+ Νέο δάνειο / χρέος</button>
+          <span style="flex:1"></span>
+          <button type="button" class="btn-ghost btn-sm" id="vault-chpin">Αλλαγή PIN</button>
+          <button type="button" class="btn-ghost btn-sm" id="vault-lock">🔒 Κλείδωμα</button>
+        </div>
+        ${debts.length === 0 ? '<div class="empty-state">Δεν έχεις καταχωρήσει δάνεια ή χρέη ακόμα.</div>' : ""}
+        <div class="debt-list">${open.map(card).join("")}</div>
+        ${closed.length ? `<div class="sched-subtitle">Εξοφλημένα</div><div class="debt-list">${closed.map(card).join("")}</div>` : ""}
+      </div>`, true);
+    $("#vault-new").addEventListener("click", () => vaultDebtForm(null));
+    $("#vault-lock").addEventListener("click", () => { vaultLock(); closeDrawer(); });
+    $("#vault-chpin").addEventListener("click", vaultChangePin);
+    $$("[data-debt]").forEach(el => {
+      el.addEventListener("click", (e) => { if (!e.target.closest("[data-pay]")) vaultDebtDetail(el.dataset.debt); });
+      el.addEventListener("keydown", (e) => { if (e.key === "Enter") vaultDebtDetail(el.dataset.debt); });
+    });
+    $$("[data-pay]").forEach(b => b.addEventListener("click", () => vaultEntryForm(b.dataset.pay)));
+  }
+
+  function vaultBack(){ return '<button type="button" class="btn-ghost btn-sm" id="vault-back">‹ Πίσω</button>'; }
+  function wireBack(to){ const b = $("#vault-back"); if (b) b.addEventListener("click", to || renderVault); }
+
+  function vaultDebtForm(id){
+    const d = id ? VAULT_DATA.debts.find(x => x.id === id)
+                 : { title:"", creditor:"", kind:"loan", original_amount:"", start_date: isoDay(new Date()), installment:"", due_day:"", end_date:"", note:"" };
+    openDrawer(id ? "🔒 " + d.title : "🔒 Νέο δάνειο / χρέος", `
+      <form id="vd-form" data-vault="form">
+        <div style="margin-bottom:12px;">${vaultBack()}</div>
+        <div id="vd-msg"></div>
+        <div class="form-row">
+          <div class="field"><label>Είδος</label><select id="vd-kind">
+            <option value="loan" ${d.kind==="loan"?"selected":""}>Δάνειο</option><option value="debt" ${d.kind==="debt"?"selected":""}>Χρέος</option></select></div>
+          <div class="field"><label>Τίτλος *</label><input id="vd-title" value="${escapeHtml(d.title)}" placeholder="π.χ. Επαγγελματικό δάνειο"></div>
+        </div>
+        <div class="form-row">
+          <div class="field"><label>Σε ποιον</label><input id="vd-creditor" value="${escapeHtml(d.creditor || "")}" placeholder="π.χ. Τράπεζα Πειραιώς, ΕΦΚΑ, Νίκος"></div>
+          <div class="field"><label>Ποσό που χρωστάω (αρχικό) *</label><input type="number" step="0.01" min="0" id="vd-amount" value="${d.original_amount}" inputmode="decimal"></div>
+        </div>
+        <div class="form-row">
+          <div class="field"><label>Δόση (προαιρετικά)</label><input type="number" step="0.01" min="0" id="vd-inst" value="${d.installment ?? ""}" inputmode="decimal"></div>
+          <div class="field"><label>Ημέρα πληρωμής (1–31)</label><input type="number" min="1" max="31" id="vd-day" value="${d.due_day ?? ""}" inputmode="numeric"></div>
+        </div>
+        <div class="form-row">
+          <div class="field"><label>Από</label><input type="date" id="vd-start" value="${d.start_date || ""}"></div>
+          <div class="field"><label>Λήξη (προαιρετικά)</label><input type="date" id="vd-end" value="${d.end_date || ""}"></div>
+        </div>
+        <div class="field"><label>Σημείωση</label><textarea id="vd-note" rows="2">${escapeHtml(d.note || "")}</textarea></div>
+        <div class="drawer-foot" style="margin:22px -22px -20px;">
+          <span></span><button type="submit" class="btn-primary">Αποθήκευση</button>
+        </div>
+      </form>`, true);
+    wireBack(id ? () => vaultDebtDetail(id) : renderVault);
+    $("#vd-form").addEventListener("submit", async (e) => {
+      e.preventDefault();
+      const payload = {
+        id: id || "", title: $("#vd-title").value.trim(), kind: $("#vd-kind").value,
+        creditor: $("#vd-creditor").value.trim(), original_amount: $("#vd-amount").value,
+        installment: $("#vd-inst").value, due_day: $("#vd-day").value,
+        start_date: $("#vd-start").value, end_date: $("#vd-end").value, note: $("#vd-note").value.trim()
+      };
+      if (!payload.title) { showMsg($("#vd-msg"), "Γράψε έναν τίτλο.", "error"); return; }
+      if (payload.original_amount === "" || Number(payload.original_amount) < 0) { showMsg($("#vd-msg"), "Γράψε το ποσό που χρωστάς.", "error"); return; }
+      if (payload.due_day && (payload.due_day < 1 || payload.due_day > 31)) { showMsg($("#vd-msg"), "Η ημέρα πληρωμής είναι από 1 έως 31.", "error"); return; }
+      const res = await vaultCall("vault_save_debt", { p_debt: payload });
+      if (!res || !res.ok) { if (res && res.error && $("#vd-msg")) showMsg($("#vd-msg"), vaultErrorText(res.error), "error"); return; }
+      await loadVault();
+      if (id) vaultDebtDetail(id);
+    });
+  }
+
+  function vaultEntryForm(debtId, back){
+    const d = VAULT_DATA.debts.find(x => x.id === debtId);
+    const left = debtLeft(d);
+    const suggest = d.installment ? Math.min(Number(d.installment), left) : "";
+    openDrawer("🔒 " + d.title, `
+      <form id="ve-form" data-vault="entry">
+        <div style="margin-bottom:12px;">${vaultBack()}</div>
+        <div class="money-count-diff ok" style="margin:0 0 14px;">Χρωστάς τώρα <b>${eur(left)}</b></div>
+        <div id="ve-msg"></div>
+        <div class="field"><label>Τι είναι</label>
+          <div class="kind-picker" id="ve-kind">
+            <div class="chip k-task active" data-kind="payment" role="button" tabindex="0">Πλήρωσα</div>
+            <div class="chip k-payment" data-kind="increase" role="button" tabindex="0">Αυξήθηκε (τόκοι / νέο ποσό)</div>
+          </div></div>
+        <div class="form-row">
+          <div class="field"><label>Ποσό (€)</label><input type="number" step="0.01" min="0" id="ve-amount" value="${suggest}" inputmode="decimal"></div>
+          <div class="field"><label>Ημερομηνία</label><input type="date" id="ve-date" value="${isoDay(new Date())}"></div>
+        </div>
+        <div class="field"><label>Σημείωση</label><input id="ve-note" placeholder="π.χ. δόση Οκτωβρίου"></div>
+        <div class="cell-sub" id="ve-after"></div>
+        <div class="drawer-foot" style="margin:22px -22px -20px;">
+          <span></span><button type="submit" class="btn-primary">Αποθήκευση</button>
+        </div>
+      </form>`, true);
+    wireBack(back || renderVault);
+    let kind = "payment";
+    const after = () => {
+      const a = parseFloat($("#ve-amount").value || "0") || 0;
+      $("#ve-after").textContent = a ? `Μετά θα χρωστάς ${eur(kind === "payment" ? left - a : left + a)}.` : "";
+    };
+    $$("#ve-kind .chip").forEach(c => c.addEventListener("click", () => {
+      kind = c.dataset.kind; $$("#ve-kind .chip").forEach(x => x.classList.toggle("active", x === c)); after();
+    }));
+    $("#ve-amount").addEventListener("input", after); after();
+    $("#ve-form").addEventListener("submit", async (e) => {
+      e.preventDefault();
+      const amount = parseFloat($("#ve-amount").value);
+      if (!amount || amount <= 0) { showMsg($("#ve-msg"), "Γράψε ένα ποσό.", "error"); return; }
+      const res = await vaultCall("vault_add_entry", { p_debt: debtId, p_date: $("#ve-date").value || isoDay(new Date()),
+                                                      p_amount: amount, p_kind: kind, p_note: $("#ve-note").value.trim() || null });
+      if (!res || !res.ok) {
+        if (res && $("#ve-msg")) showMsg($("#ve-msg"), res.error === "overpay" ? `Το ποσό ξεπερνά αυτό που χρωστάς (${eur(res.left)}).` : vaultErrorText(res.error), "error");
+        return;
+      }
+      await loadVault();
+      if (back) vaultDebtDetail(debtId);
+    });
+  }
+
+  function vaultDebtDetail(id){
+    const d = VAULT_DATA.debts.find(x => x.id === id);
+    if (!d) { renderVault(); return; }
+    // ιστορικό με το τι χρωστούσα μετά από κάθε κίνηση (από την αρχή προς το τέλος)
+    const list = (VAULT_DATA.entries || []).filter(e => e.debt_id === id)
+      .sort((a, b) => a.entry_date < b.entry_date ? -1 : a.entry_date > b.entry_date ? 1 : (a.created_at < b.created_at ? -1 : 1));
+    let run = Number(d.original_amount);
+    const rows = list.map(e => {
+      run += e.kind === "payment" ? -Number(e.amount) : Number(e.amount);
+      return `<tr class="clickable" data-entry="${e.id}">
+        <td>${fmtShortDate(e.entry_date)}</td>
+        <td>${e.kind === "payment" ? "Πληρωμή" : "Αύξηση"}${e.note ? `<div class="cell-sub">${escapeHtml(e.note)}</div>` : ""}</td>
+        <td style="text-align:right;white-space:nowrap;" class="${e.kind === "payment" ? "amt-in" : "amt-out"}">${e.kind === "payment" ? "−" : "+"}${eur(e.amount)}</td>
+        <td style="text-align:right;white-space:nowrap;font-weight:600;">${eur(run)}</td></tr>`;
+    }).reverse().join("");
+    const left = debtLeft(d);
+    openDrawer("🔒 " + d.title, `
+      <div data-vault="detail">
+        <div class="vault-actions" style="margin-bottom:14px;">${vaultBack()}<span style="flex:1"></span>
+          ${left > 0 ? '<button type="button" class="btn-primary btn-sm" id="vdd-pay">Πληρωμή</button>' : ""}
+          <button type="button" class="btn-ghost btn-sm" id="vdd-edit">Επεξεργασία</button>
+          <button type="button" class="btn-danger btn-sm" id="vdd-del">Διαγραφή</button></div>
+        <div class="stat-row" style="padding:0 0 12px;">
+          <div class="stat-tile"><div class="num">${left <= 0 ? "✓ 0,00€" : eur(left)}</div><div class="lbl">Χρωστάω τώρα</div></div>
+          <div class="stat-tile"><div class="num">${eur(d.original_amount)}</div><div class="lbl">Αρχικό ποσό${d.start_date ? " (" + fmtShortDate(d.start_date) + ")" : ""}</div></div>
+          <div class="stat-tile"><div class="num">${eur(d.paid)}</div><div class="lbl">Πλήρωσα</div></div>
+          ${Number(d.increased) ? `<div class="stat-tile"><div class="num">${eur(d.increased)}</div><div class="lbl">Αυξήσεις / τόκοι</div></div>` : ""}
+        </div>
+        ${d.creditor || d.note ? `<div class="cell-sub" style="margin-bottom:10px;">${escapeHtml([d.creditor, d.note].filter(Boolean).join(" · "))}</div>` : ""}
+        <div class="sched-subtitle">Ιστορικό πληρωμών</div>
+        ${list.length === 0 ? '<div class="empty-state">Καμία πληρωμή ακόμα.</div>' : `
+        <table><thead><tr><th>Ημ/νία</th><th>Κίνηση</th><th style="text-align:right;">Ποσό</th><th style="text-align:right;">Χρωστούσα μετά</th></tr></thead>
+        <tbody id="vdd-rows">${rows}</tbody></table>
+        <div class="cell-sub" style="margin-top:8px;">Πάτα μια γραμμή δύο φορές για να τη σβήσεις.</div>`}
+      </div>`, true);
+    wireBack(renderVault);
+    if ($("#vdd-pay")) $("#vdd-pay").addEventListener("click", () => vaultEntryForm(id, () => vaultDebtDetail(id)));
+    $("#vdd-edit").addEventListener("click", () => vaultDebtForm(id));
+    $("#vdd-del").addEventListener("click", async () => {
+      const b = $("#vdd-del");
+      if (!b.dataset.armed) { b.dataset.armed = "1"; b.textContent = list.length ? `Σίγουρα; Σβήνεται και το ιστορικό (${list.length})` : "Σίγουρα; Πάτα ξανά"; return; }
+      const res = await vaultCall("vault_delete_debt", { p_id: id });
+      if (res && res.ok) await loadVault();
+    });
+    $$("#vdd-rows tr").forEach(tr => tr.addEventListener("click", async () => {
+      if (!tr.dataset.armed) {
+        $$("#vdd-rows tr").forEach(o => { delete o.dataset.armed; o.classList.remove("armed"); });
+        tr.dataset.armed = "1"; tr.classList.add("armed");
+        tr.children[1].insertAdjacentHTML("beforeend", '<div class="cell-sub" style="color:var(--red);font-weight:700;">Πάτα ξανά για διαγραφή</div>');
+        return;
+      }
+      const res = await vaultCall("vault_delete_entry", { p_id: tr.dataset.entry });
+      if (res && res.ok) { await loadVault(); vaultDebtDetail(id); }
+    }));
+  }
+
+  function vaultChangePin(){
+    const oldPin = VAULT_PIN;
+    renderPinPad({
+      title: "Νέο PIN",
+      links: '<button type="button" class="add-link pin-link" id="vault-cancel">Άκυρο</button>',
+      onComplete: async (first) => {
+        renderPinPad({
+          title: "Γράψ' το ξανά",
+          onComplete: async (second) => {
+            if (second !== first) { vaultChangePin(); $("#pin-msg").textContent = "Δεν ταίριαξαν — ξεκίνα από την αρχή."; return; }
+            const { data, error } = await sb.rpc("vault_change_pin", { p_old: oldPin, p_new: first });
+            if (error || !data.ok) return { retry:true, message: error ? error.message : vaultErrorText(data.error) };
+            VAULT_PIN = first;
+            renderVault();
+            showToast("Το PIN άλλαξε.");
+          }
+        });
+      }
+    });
+    $("#vault-cancel").addEventListener("click", renderVault);
+  }
+
+  $("#vault-btn").addEventListener("click", () => openVault());
 
 
   // ================= ΤΑΜΕΙΟ (μέσα στα Έξοδα) =================
