@@ -332,6 +332,10 @@
   .money-empty > div{flex:1;min-width:220px;}
   .money-warn{margin:0 20px 18px;background:var(--amber-bg);color:var(--ink);border-radius:10px;padding:11px 14px;font-size:13px;line-height:1.5;}
   .money-warn ul{margin:6px 0;padding-left:20px;}
+  #inc-method .chip .dest-bal{font-weight:400;opacity:.75;font-size:12px;margin-left:4px;}
+  .money-warn-group{margin:8px 0 4px;padding:8px 0 2px;border-top:1px solid rgba(0,0,0,.08);}
+  .money-warn-rows{display:flex;flex-direction:column;gap:2px;margin:4px 0 8px;}
+  .money-warn-rows a{color:inherit;text-decoration:underline;text-decoration-style:dotted;font-size:12.5px;}
   .money-st-head{display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;}
   .money-st-bal .money-bal{margin:2px 0 0;}
   .money-count-diff{border-radius:8px;padding:9px 12px;font-size:13px;margin:-4px 0 14px;}
@@ -4817,6 +4821,11 @@
         ? await sb.from("expenses").update(payload).eq("id", expenseId)
         : await sb.from("expenses").insert(payload);
       if (error) { showMsg($("#ex-msg"), "Σφάλμα: " + error.message, "error"); return; }
+      // αν χρησιμοποιείς το ταμείο και λείπει ο λογαριασμός (μετρητά / αυτή η τράπεζα), φτιάχνεται
+      if (payer === "shop" && MONEY_ACCOUNTS.length && (method === "cash" || method === "bank")) {
+        const acc = await ensureMoneyAccount(method, payload.bank, payload.expense_date);
+        if (acc && acc.created) showToast(`Φτιάχτηκε ο λογαριασμός «${acc.name}» στο ταμείο.`);
+      }
       closeDrawer();
       await loadExpenses();
     });
@@ -4885,21 +4894,73 @@
   async function renderMoneyUnassigned(){
     const box = $("#money-unassigned");
     const since = MONEY_ACCOUNTS.map(a => a.opening_date).sort()[0];
-    const { data } = await sb.from("money_ledger").select("source, amount, method, bank").is("account_id", null).gte("move_date", since);
+    const { data } = await sb.from("money_ledger").select("source, source_id, move_date, amount, method, bank, description, client_id")
+      .is("account_id", null).gte("move_date", since).order("move_date");
     const rows = data || [];
     if (rows.length === 0) { box.innerHTML = ""; return; }
     const groups = {};
     rows.forEach(r => {
-      const key = r.method === "bank" ? "Τράπεζα: " + (r.bank || "χωρίς όνομα")
-                : r.method === "card" ? "Κάρτα (δεν έχει οριστεί λογαριασμός καρτών)"
-                : r.method === "cash" ? "Μετρητά (δεν υπάρχει λογαριασμός μετρητών)"
-                : "Χωρίς τρόπο πληρωμής";
-      const g = groups[key] = groups[key] || { n:0, sum:0 };
-      g.n++; g.sum += Number(r.amount);
+      const key = r.method === "bank" ? "bank:" + (r.bank || "") : r.method === "card" ? "card" : r.method === "cash" ? "cash" : "none";
+      const g = groups[key] = groups[key] || { n:0, sum:0, first:r.move_date, method:r.method, bank:r.bank, rows:[] };
+      g.n++; g.sum += Number(r.amount); g.rows.push(r);
+      if (r.move_date < g.first) g.first = r.move_date;
     });
+    const label = (g) => g.method === "bank" ? "🏦 Τράπεζα: " + (g.bank || "χωρίς όνομα")
+                       : g.method === "card" ? "💳 Κάρτα (δεν έχει οριστεί λογαριασμός καρτών)"
+                       : g.method === "cash" ? "💶 Μετρητά (δεν υπάρχει λογαριασμός μετρητών)"
+                       : "Χωρίς τρόπο πληρωμής";
+    const fixBtn = (key, g) => g.method === "cash" ? `<button type="button" class="btn-primary btn-sm" data-fix="${escapeHtml(key)}">Φτιάξε λογαριασμό «Μετρητά»</button>`
+                             : g.method === "bank" && g.bank ? `<button type="button" class="btn-primary btn-sm" data-fix="${escapeHtml(key)}">Φτιάξε λογαριασμό «${escapeHtml(g.bank)}»</button>`
+                             : g.method === "card" ? `<button type="button" class="btn-ghost btn-sm" data-fix="${escapeHtml(key)}">Διάλεξε λογαριασμό καρτών</button>` : "";
     box.innerHTML = `<div class="money-warn">⚠️ <b>${rows.length === 1 ? "1 κίνηση δεν ανήκει" : rows.length + " κινήσεις δεν ανήκουν"} σε κανέναν λογαριασμό</b> και δεν μετρά${rows.length === 1 ? "" : "νε"} στα υπόλοιπα:
-      <ul>${Object.entries(groups).map(([k, g]) => `<li>${escapeHtml(k)} — ${g.n} κιν., ${g.sum >= 0 ? "+" : ""}${eur(g.sum)}</li>`).join("")}</ul>
-      Φτιάξε τον αντίστοιχο λογαριασμό από το «Λογαριασμοί» ή διόρθωσε τον τρόπο πληρωμής στην κίνηση.</div>`;
+      ${Object.entries(groups).map(([k, g]) => `
+        <div class="money-warn-group">
+          <div><b>${escapeHtml(label(g))}</b> — ${g.n} κιν., ${g.sum >= 0 ? "+" : ""}${eur(g.sum)}</div>
+          <div class="money-warn-rows">${g.rows.slice(0, 8).map(r => `<a href="#" data-src="${r.source}" data-id="${r.source_id}" data-client="${r.client_id || ""}">${fmtShortDate(r.move_date)} · ${escapeHtml(r.description || "")} · ${Number(r.amount) > 0 ? "+" : ""}${eur(r.amount)}</a>`).join("")}${g.rows.length > 8 ? `<span class="cell-sub">… και ${g.rows.length - 8} ακόμα</span>` : ""}</div>
+          ${fixBtn(k, g)}
+        </div>`).join("")}
+      <div class="cell-sub" style="margin-top:6px;">Πάτα τον λογαριασμό για να μπουν στο ταμείο, ή πάτα μια κίνηση για να διορθώσεις πού μπήκαν τα χρήματα.</div></div>`;
+    box.querySelectorAll("[data-fix]").forEach(b => b.addEventListener("click", async () => {
+      const g = groups[b.dataset.fix];
+      if (g.method === "card") { openMoneyAccounts(); return; }
+      b.disabled = true; b.textContent = "Δημιουργία…";
+      const r = await ensureMoneyAccount(g.method, g.bank, g.first);
+      if (r.error) { showMsg($("#money-msg"), "Σφάλμα: " + r.error.message, "error"); b.disabled = false; return; }
+      await loadMoney();
+      showToast(`Φτιάχτηκε ο λογαριασμός «${r.name}» — οι κινήσεις μετράνε πλέον στο ταμείο.`);
+    }));
+    box.querySelectorAll("a[data-src]").forEach(a => a.addEventListener("click", async (e) => {
+      e.preventDefault();
+      const src = a.dataset.src;
+      if (src === "expense") await openExpenseDrawer(a.dataset.id);
+      else if (src === "income") await openIncomeDrawer(a.dataset.id);
+      else if (src === "receipt") { if (CLIENTS_CACHE.length === 0) await loadClients(); await openClientDrawer(a.dataset.client); }
+    }));
+  }
+
+  // Φροντίζει να υπάρχει λογαριασμός στο ταμείο για «μετρητά» ή για τη συγκεκριμένη τράπεζα.
+  // Αν λείπει, τον φτιάχνει με υπόλοιπο έναρξης 0 και ημερομηνία ΟΧΙ μετά την κίνηση,
+  // ώστε η κίνηση να μετρήσει αμέσως. Γυρνά { id, name, created } ή { error }.
+  async function ensureMoneyAccount(method, bank, date){
+    const norm = (x) => String(x || "").trim().toLowerCase();
+    const found = MONEY_ACCOUNTS.find(a => method === "cash" ? a.kind === "cash"
+                                   : method === "bank" ? (a.kind === "bank" && norm(a.bank_name) === norm(bank))
+                                   : method === "card" ? a.card_account : false);
+    if (found) {
+      // υπάρχει αλλά ήταν ανενεργός -> τον ενεργοποιούμε, αλλιώς η κίνηση «χάνεται»
+      if (!found.active) await sb.from("money_accounts").update({ active:true }).eq("id", found.id);
+      return { id: found.id, name: found.name, created:false, opening_date: found.opening_date };
+    }
+    if (method !== "cash" && !(method === "bank" && bank)) return { id:null };
+    const today = isoDay(new Date());
+    const row = method === "cash"
+      ? { name:"Μετρητά", kind:"cash", opening_balance:0, opening_date: (date && date < today) ? date : today, sort_order:0 }
+      : { name: bank, kind:"bank", bank_name: bank, opening_balance:0, opening_date: (date && date < today) ? date : today,
+          sort_order: MONEY_ACCOUNTS.length + 1 };
+    const { data, error } = await sb.from("money_accounts").insert(row).select().single();
+    if (error) return { error };
+    if (data) MONEY_ACCOUNTS.push({ ...data, balance: 0 });
+    return { id: data && data.id, name: row.name, created:true, opening_date: row.opening_date };
   }
 
   // ---- πρώτο στήσιμο: μετρητά + οι τράπεζες που χρησιμοποιείς, με ένα πάτημα ----
@@ -5771,7 +5832,14 @@
       if (data) inc = data;
     }
     if (!MONEY_ACCOUNTS.length) await loadMoney();   // για να φαίνονται και οι τράπεζες του ταμείου
-    const banks = [...new Set([...MONEY_ACCOUNTS.filter(a => a.kind === "bank" && a.active).map(a => a.bank_name).filter(Boolean), ...BANKS])];
+    // προορισμοί = οι λογαριασμοί του ταμείου (μετρητά + κάθε τράπεζα), με το υπόλοιπό τους
+    const cashAcc = MONEY_ACCOUNTS.find(a => a.kind === "cash" && a.active) || MONEY_ACCOUNTS.find(a => a.kind === "cash");
+    const bankAccs = MONEY_ACCOUNTS.filter(a => a.kind === "bank" && a.active && a.bank_name);
+    const accBanks = bankAccs.map(a => a.bank_name.trim().toLowerCase());
+    const otherBanks = BANKS.filter(b => !accBanks.includes(b.trim().toLowerCase()));
+    if (inc.method === "bank" && inc.bank && !accBanks.includes(inc.bank.trim().toLowerCase()) && !otherBanks.includes(inc.bank)) otherBanks.unshift(inc.bank);
+    const curDest = inc.method === "bank" ? (accBanks.includes(String(inc.bank || "").trim().toLowerCase()) ? "bank:" + inc.bank.trim().toLowerCase() : "other") : "cash";
+    const balTxt = (a) => a ? ` <span class="dest-bal">${eur(a.balance)}</span>` : ' <span class="dest-bal">νέος</span>';
     openDrawer(incomeId ? "Έσοδο" : "Νέο έσοδο", `
       <form id="income-form" novalidate>
         <div id="inc-msg"></div>
@@ -5785,22 +5853,24 @@
           <input id="inc-reason" value="${escapeHtml(inc.reason || "")}" placeholder="π.χ. επιστροφή εγγύησης, πώληση παλιού router"></div>
         <div class="field"><label>Πού μπήκαν τα χρήματα</label>
           <div class="kind-picker" id="inc-method">
-            <div class="chip k-task ${inc.method !== "bank" ? "active" : ""}" data-m="cash" role="button" tabindex="0">💶 Μετρητά</div>
-            <div class="chip k-appointment ${inc.method === "bank" ? "active" : ""}" data-m="bank" role="button" tabindex="0">🏦 Τράπεζα</div>
+            <div class="chip k-task ${curDest === "cash" ? "active" : ""}" data-d="cash" role="button" tabindex="0">💶 Μετρητά${balTxt(cashAcc)}</div>
+            ${bankAccs.map(a => `<div class="chip k-appointment ${curDest === "bank:" + a.bank_name.trim().toLowerCase() ? "active" : ""}" data-d="bank:${escapeHtml(a.bank_name.trim().toLowerCase())}" data-bank="${escapeHtml(a.bank_name)}" role="button" tabindex="0">🏦 ${escapeHtml(a.name)}${balTxt(a)}</div>`).join("")}
+            ${otherBanks.length ? `<div class="chip k-study ${curDest === "other" ? "active" : ""}" data-d="other" role="button" tabindex="0">🏦 ${bankAccs.length ? "Άλλη τράπεζα…" : "Τράπεζα…"}</div>` : ""}
           </div></div>
-        <div class="field ${inc.method === "bank" ? "" : "hidden"}" id="inc-bank-field"><label>Τράπεζα</label>
-          <select id="inc-bank">${banks.map(b => `<option ${inc.bank === b ? "selected" : ""}>${escapeHtml(b)}</option>`).join("")}</select></div>
-        <div class="cell-sub">Μπαίνει στα έσοδα της ημέρας και στο «Ταμείο & τράπεζες». Οι εισπράξεις από πελάτες καταχωρούνται από τον λογαριασμό του πελάτη.</div>
+        <div class="field ${curDest === "other" ? "" : "hidden"}" id="inc-bank-field"><label>Τράπεζα</label>
+          <select id="inc-bank">${otherBanks.map(b => `<option ${inc.bank === b ? "selected" : ""}>${escapeHtml(b)}</option>`).join("")}</select>
+          <div class="cell-sub" style="margin-top:4px;">Θα προστεθεί στο «Ταμείο & τράπεζες» σαν νέος λογαριασμός.</div></div>
+        <div class="cell-sub">Μπαίνει στα έσοδα της ημέρας <b>και στο «Ταμείο & τράπεζες»</b>, στον λογαριασμό που διάλεξες. Οι εισπράξεις από πελάτες καταχωρούνται από τον λογαριασμό του πελάτη.</div>
         <div class="drawer-foot" style="margin:22px -22px -20px;">
           ${incomeId ? '<button type="button" class="btn-danger" id="inc-delete">Διαγραφή</button>' : "<span></span>"}
           <button type="submit" class="btn-primary">Αποθήκευση</button>
         </div>
       </form>`);
-    let method = inc.method === "bank" ? "bank" : "cash";
-    const setMethod = (m) => { method = m; $$("#inc-method .chip").forEach(c => c.classList.toggle("active", c.dataset.m === m)); $("#inc-bank-field").classList.toggle("hidden", m !== "bank"); };
+    let dest = curDest;
+    const setDest = (d) => { dest = d; $$("#inc-method .chip").forEach(c => c.classList.toggle("active", c.dataset.d === d)); $("#inc-bank-field").classList.toggle("hidden", d !== "other"); };
     $$("#inc-method .chip").forEach(c => {
-      c.addEventListener("click", () => setMethod(c.dataset.m));
-      c.addEventListener("keydown", (e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); setMethod(c.dataset.m); } });
+      c.addEventListener("click", () => setDest(c.dataset.d));
+      c.addEventListener("keydown", (e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); setDest(c.dataset.d); } });
     });
     if (!incomeId) $("#inc-amount").focus();
     if (incomeId) $("#inc-delete").addEventListener("click", async () => {
@@ -5816,16 +5886,25 @@
       const reason = $("#inc-reason").value.trim();
       if (!(amount > 0)) { showMsg($("#inc-msg"), "Γράψε ένα ποσό.", "error"); return; }
       if (!reason) { showMsg($("#inc-msg"), "Γράψε την αιτιολογία.", "error"); return; }
-      const payload = { income_date: $("#inc-date").value || isoDay(new Date()), category: $("#inc-category").value, reason, amount,
-                        method, bank: method === "bank" ? $("#inc-bank").value : null };
+      const method = dest === "cash" ? "cash" : "bank";
+      const bank = dest === "cash" ? null
+                 : dest === "other" ? $("#inc-bank").value
+                 : $(`#inc-method .chip[data-d="${CSS.escape(dest)}"]`).dataset.bank;
+      if (method === "bank" && !bank) { showMsg($("#inc-msg"), "Διάλεξε τράπεζα.", "error"); return; }
+      const payload = { income_date: $("#inc-date").value || isoDay(new Date()), category: $("#inc-category").value, reason, amount, method, bank };
       const { error } = incomeId ? await sb.from("other_incomes").update(payload).eq("id", incomeId)
                                  : await sb.from("other_incomes").insert(payload);
       if (error) { showMsg($("#inc-msg"), isMissing(error) ? "Για τα έσοδα τρέξε πρώτα το schema_v17.sql στο Supabase." : "Σφάλμα: " + error.message, "error"); return; }
+      // να πάει ΣΙΓΟΥΡΑ στο ταμείο: αν λείπει ο λογαριασμός (μετρητά ή η τράπεζα), φτιάχνεται τώρα
+      const acc = await ensureMoneyAccount(method, bank, payload.income_date);
       closeDrawer();
+      if (acc && acc.opening_date && payload.income_date < acc.opening_date)
+        showToast(`Προσοχή: η ημερομηνία είναι πριν την έναρξη του λογαριασμού «${acc.name}» (${fmtShortDate(acc.opening_date)}), οπότε δεν αλλάζει το υπόλοιπό του.`);
+      else if (acc && acc.created) showToast(`Φτιάχτηκε ο λογαριασμός «${acc.name}» στο ταμείο.`);
       // πάει την περίοδο στη μέρα του εσόδου αν είναι εκτός, για να φαίνεται αμέσως
       if (payload.income_date < CASH_FROM || payload.income_date > CASH_TO) setCashRange(payload.income_date, payload.income_date, null);
       else await loadExpenses();
-      showToast(`Καταχωρήθηκε έσοδο ${eur(amount)}.`);
+      showToast(`Καταχωρήθηκε έσοδο ${eur(amount)} → ${acc && acc.name ? acc.name : (method === "cash" ? "Μετρητά" : bank)}.`);
     });
   }
   $("#new-income-btn").addEventListener("click", () => openIncomeDrawer());
