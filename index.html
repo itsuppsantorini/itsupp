@@ -618,7 +618,7 @@
     <div class="nav-item" data-view="inventory" id="nav-inventory">Αποθήκη</div>
     <div class="nav-item hidden" data-view="suppliers" id="nav-suppliers">Προμηθευτές</div>
     <div class="nav-item" data-view="quotes" id="nav-quotes">Προσφορές</div>
-    <div class="nav-item" data-view="expenses" id="nav-expenses">Έξοδα</div>
+    <div class="nav-item" data-view="expenses" id="nav-expenses">Έσοδα-Έξοδα</div>
     <div class="nav-item hidden" data-view="accounting" id="nav-accounting">Λογιστήριο</div>
     <div class="nav-item" data-view="schedule" id="nav-schedule">Πρόγραμμα<span class="nav-count hidden" id="nav-schedule-count" title="Υπενθυμίσεις που εκκρεμούν"></span></div>
     <div class="nav-item hidden" data-view="technicians" id="nav-technicians"><span id="nav-technicians-label">Τεχνικοί</span></div>
@@ -841,14 +841,17 @@
         <div class="stat-row" id="cashbook-stats"></div>
         <div class="panel-body" style="padding:12px 20px 18px;">
           <table>
-            <thead><tr><th>Τρόπος</th><th style="text-align:right;">Εισπράξεις</th><th style="text-align:right;">Έξοδα</th><th style="text-align:right;">Καθαρό</th></tr></thead>
+            <thead><tr><th>Τρόπος</th><th style="text-align:right;">Έσοδα</th><th style="text-align:right;">Έξοδα</th><th style="text-align:right;">Καθαρό</th></tr></thead>
             <tbody id="cashbook-methods"></tbody>
           </table>
         </div>
       </div>
 
       <div class="panel" style="margin-bottom:16px;">
-        <div class="panel-head"><h2>Εισπράξεις</h2></div>
+        <div class="panel-head">
+          <h2>Έσοδα</h2>
+          <button class="btn-primary btn-sm" id="new-income-btn">+ Νέο έσοδο</button>
+        </div>
         <div class="panel-body" id="cashbook-income" style="padding:6px 0;"></div>
       </div>
 
@@ -1107,6 +1110,10 @@
       ],
       push_subscriptions: [],
       app_settings: [],
+      other_incomes: [
+        { id:"demo-oi1", income_date:day(-3), category:"Επιστροφή χρημάτων", reason:"Επιστροφή εγγύησης κοντέινερ", amount:120, method:"cash", bank:null, created_at:ts(-3,12) },
+        { id:"demo-oi2", income_date:day(0), category:"Πώληση εξοπλισμού", reason:"Πώληση παλιού router", amount:40, method:"bank", bank:"Τράπεζα Πειραιώς", created_at:ts(0,11) }
+      ],
       purchase_invoices: [
         { id:"demo-pi1", supplier_id:S[1], doc_date:day(-2), doc_number:"ΤΔΑ Α-1182", mark:"400000000000001", net:494, vat:118.56, total:612.56, note:null, created_at:ts(-2,11) },
         { id:"demo-pi2", supplier_id:S[0], doc_date:day(-9), doc_number:"ΤΔΑ 3471", mark:"400000000000002", net:570, vat:136.8, total:706.8, note:null, created_at:ts(-9,10) }
@@ -1159,6 +1166,7 @@
       leave_requests: () => ({ kind:"annual", status:"pending", created_at: nowIso() }),
       notifications: () => ({ is_read:false, created_at: nowIso() }),
       expenses: () => ({ expense_date: isoDay(new Date()), amount:0, created_at: nowIso() }),
+      other_incomes: () => ({ income_date: isoDay(new Date()), category:"Διάφορα έσοδα", method:"cash", created_at: nowIso() }),
       ledger_entries: () => ({ entry_date: isoDay(new Date()), charge:0, payment:0, created_at: nowIso() }),
       visit_logs: () => ({ checkin_at: nowIso(), created_at: nowIso() }),
       inventory_items: () => ({ stock:0, max_stock:0, price:0 }),
@@ -1196,6 +1204,8 @@
           out.push({ source:"receipt", source_id:l.id, move_date:l.entry_date, account_id:accFor(l.method, l.bank), amount:Number(l.payment),
                      description:"Είσπραξη — " + (c ? c.name : "") + (l.doc_number ? " · " + l.doc_number : ""), method:l.method, bank:l.bank, client_id:l.client_id, created_at:l.created_at || "" });
         });
+        tbl("other_incomes").forEach(i => out.push({ source:"income", source_id:i.id, move_date:i.income_date, account_id:accFor(i.method, i.bank), amount:Number(i.amount),
+                     description:i.category + " — " + i.reason, method:i.method, bank:i.bank, client_id:null, created_at:i.created_at || "" }));
         tbl("expenses").filter(e => Number(e.amount) !== 0 && (e.payer || "shop") === "shop").forEach(e =>
           out.push({ source:"expense", source_id:e.id, move_date:e.expense_date, account_id:accFor(e.method, e.bank), amount:-Number(e.amount),
                      description:e.category + (e.note ? " — " + e.note : ""), method:e.method, bank:e.bank, client_id:null, created_at:e.created_at || "" }));
@@ -5153,7 +5163,7 @@
       const manual = r.source === "manual" || r.source === "manual_in";
       return `<tr class="clickable" data-src="${r.source}" data-id="${r.source_id}" data-client="${r.client_id || ""}">
         <td>${fmtShortDate(r.move_date)}</td>
-        <td>${escapeHtml(r.description)}${manual ? "" : `<div class="cell-sub">${r.source === "receipt" ? "από Λογαριασμό πελάτη" : "από Έξοδα"}</div>`}</td>
+        <td>${escapeHtml(r.description)}${manual ? "" : `<div class="cell-sub">${r.source === "receipt" ? "από Λογαριασμό πελάτη" : r.source === "income" ? "από Έσοδα" : "από Έξοδα"}</div>`}</td>
         <td style="text-align:right;white-space:nowrap;" class="${Number(r.amount) < 0 ? "amt-out" : "amt-in"}">${Number(r.amount) > 0 ? "+" : ""}${eur(r.amount)}</td>
         <td style="text-align:right;white-space:nowrap;font-weight:600;">${eur(bal)}</td></tr>`;
     }).reverse().join("");   // νεότερα πάνω
@@ -5193,6 +5203,7 @@
       const src = tr.dataset.src;
       if (src === "expense") { await openExpenseDrawer(tr.dataset.id); return; }
       if (src === "receipt") { if (CLIENTS_CACHE.length === 0) await loadClients(); await openClientDrawer(tr.dataset.client); return; }
+      if (src === "income") { await openIncomeDrawer(tr.dataset.id); return; }
       // χειροκίνητη: δεύτερο πάτημα = διαγραφή
       if (!tr.dataset.armed) {
         $$("#st-rows tr").forEach(o => { delete o.dataset.armed; o.classList.remove("armed"); });
@@ -5680,18 +5691,25 @@
     clearMsg($("#cashbook-msg"));
 
     const payments = (ledger || []).filter(l => Number(l.payment || 0) > 0);
-    const income = payments.reduce((s,l) => s + Number(l.payment || 0), 0);
+    // άλλα έσοδα με αιτιολογία (v17) — αν δεν έχει τρέξει το SQL, απλώς δεν υπάρχουν
+    const oiRes = await sb.from("other_incomes").select("*").gte("income_date", CASH_FROM).lte("income_date", CASH_TO)
+      .order("income_date").order("created_at");
+    const others = oiRes.error ? [] : (oiRes.data || []);
+    const receipts = payments.reduce((s,l) => s + Number(l.payment || 0), 0);
+    const otherSum = others.reduce((s,i) => s + Number(i.amount || 0), 0);
+    const income = receipts + otherSum;
     const billed = (ledger || []).reduce((s,l) => s + Number(l.charge || 0), 0);
     const outgo = expenses.reduce((s,e) => s + Number(e.amount || 0), 0);
 
     // ανά τρόπο πληρωμής — τα «μετρητά» λένε τι πρέπει να υπάρχει στο συρτάρι
     const per = { cash:{in:0,out:0}, card:{in:0,out:0}, bank:{in:0,out:0} };
     payments.forEach(l => { per[per[l.method] ? l.method : "cash"].in += Number(l.payment || 0); });
+    others.forEach(i => { per[per[i.method] ? i.method : "cash"].in += Number(i.amount || 0); });
     expenses.forEach(e => { per[per[e.method] ? e.method : "cash"].out += Number(e.amount || 0); });
     const cashNet = per.cash.in - per.cash.out;
 
     $("#cashbook-stats").innerHTML = `
-      <div class="stat-tile"><div class="num">${income.toFixed(2)}€</div><div class="lbl">Εισπράξεις</div></div>
+      <div class="stat-tile"><div class="num">${income.toFixed(2)}€</div><div class="lbl">Έσοδα${otherSum ? ` <span class="cell-sub">(πελάτες ${receipts.toFixed(2)}€ · άλλα ${otherSum.toFixed(2)}€)</span>` : ""}</div></div>
       <div class="stat-tile ${outgo>0?'balance-due':''}"><div class="num">${outgo.toFixed(2)}€</div><div class="lbl">Έξοδα</div></div>
       <div class="stat-tile ${income-outgo<0?'balance-due':''}"><div class="num">${(income-outgo).toFixed(2)}€</div><div class="lbl">${single ? "Διαφορά ημέρας" : "Διαφορά περιόδου"}</div></div>
       <div class="stat-tile ${cashNet<0?'balance-due':''}"><div class="num">${cashNet.toFixed(2)}€</div><div class="lbl">Μετρητά στο ταμείο</div></div>
@@ -5711,9 +5729,22 @@
         <td class="ledger-amt"><strong>${(income-outgo).toFixed(2)}€</strong></td>
       </tr>`;
 
-    $("#cashbook-income").innerHTML = payments.length === 0
-      ? '<div class="empty-state">Καμία είσπραξη σε αυτή την περίοδο.</div>'
-      : `<div style="padding:0 20px;">${payments.map(l => `
+    // εισπράξεις πελατών + άλλα έσοδα, μαζί, με σειρά ημερομηνίας
+    const incomeRows = [
+      ...payments.map(l => ({ d: l.entry_date, at: l.created_at, l })),
+      ...others.map(i => ({ d: i.income_date, at: i.created_at, i }))
+    ].sort((a, b) => a.d < b.d ? -1 : a.d > b.d ? 1 : (a.at < b.at ? -1 : 1));
+    $("#cashbook-income").innerHTML = incomeRows.length === 0
+      ? '<div class="empty-state">Κανένα έσοδο σε αυτή την περίοδο.</div>'
+      : `<div style="padding:0 20px;">${incomeRows.map(({ l, i }) => i ? `
+          <div class="sched-visit" data-income="${i.id}">
+            ${single ? "" : `<div class="sched-time">${i.income_date.split("-").reverse().slice(0,2).join("/")}</div>`}
+            <div class="sched-info">
+              <strong>${escapeHtml(i.category)}</strong> — ${escapeHtml(i.reason)}
+              <div class="sched-tech">${METHOD_LABEL[i.method] || "Μετρητά"}${i.bank ? " · " + escapeHtml(i.bank) : ""}</div>
+            </div>
+            <div class="ledger-amt" style="color:var(--green);font-weight:700;">+${Number(i.amount).toFixed(2)}€</div>
+          </div>` : `
           <div class="sched-visit" ${l.client_id ? `data-client="${l.client_id}"` : ""}>
             ${single ? "" : `<div class="sched-time">${l.entry_date.split("-").reverse().slice(0,2).join("/")}</div>`}
             <div class="sched-info">
@@ -5722,6 +5753,7 @@
             </div>
             <div class="ledger-amt" style="color:var(--green);font-weight:700;">+${Number(l.payment).toFixed(2)}€</div>
           </div>`).join("")}</div>`;
+    $$("#cashbook-income [data-income]").forEach(el => el.addEventListener("click", () => openIncomeDrawer(el.dataset.income)));
     $$("#cashbook-income [data-client]").forEach(el => {
       el.addEventListener("click", async () => {
         if (CLIENTS_CACHE.length === 0) await loadClients();
@@ -5729,6 +5761,74 @@
       });
     });
   }
+
+  // ================= ΑΛΛΑ ΕΣΟΔΑ (με αιτιολογία) =================
+  const INCOME_CATEGORIES = ["Διάφορα έσοδα","Επιστροφή χρημάτων","Κατάθεση ιδιοκτήτη","Επιδότηση / ενίσχυση","Πώληση εξοπλισμού","Τόκοι τράπεζας","Προκαταβολή"];
+  async function openIncomeDrawer(incomeId){
+    let inc = { income_date: isoDay(new Date()), category: INCOME_CATEGORIES[0], reason: "", amount: "", method: "cash", bank: null };
+    if (incomeId) {
+      const { data } = await sb.from("other_incomes").select("*").eq("id", incomeId).single();
+      if (data) inc = data;
+    }
+    if (!MONEY_ACCOUNTS.length) await loadMoney();   // για να φαίνονται και οι τράπεζες του ταμείου
+    const banks = [...new Set([...MONEY_ACCOUNTS.filter(a => a.kind === "bank" && a.active).map(a => a.bank_name).filter(Boolean), ...BANKS])];
+    openDrawer(incomeId ? "Έσοδο" : "Νέο έσοδο", `
+      <form id="income-form" novalidate>
+        <div id="inc-msg"></div>
+        <div class="form-row">
+          <div class="field"><label>Ημερομηνία</label><input type="date" id="inc-date" value="${inc.income_date}"></div>
+          <div class="field"><label>Ποσό (€) *</label><input type="number" step="0.01" min="0" id="inc-amount" value="${inc.amount}" inputmode="decimal"></div>
+        </div>
+        <div class="field"><label>Είδος εσόδου</label>
+          <select id="inc-category">${[...new Set([...INCOME_CATEGORIES, inc.category])].map(c => `<option ${inc.category === c ? "selected" : ""}>${escapeHtml(c)}</option>`).join("")}</select></div>
+        <div class="field"><label>Αιτιολογία *</label>
+          <input id="inc-reason" value="${escapeHtml(inc.reason || "")}" placeholder="π.χ. επιστροφή εγγύησης, πώληση παλιού router"></div>
+        <div class="field"><label>Πού μπήκαν τα χρήματα</label>
+          <div class="kind-picker" id="inc-method">
+            <div class="chip k-task ${inc.method !== "bank" ? "active" : ""}" data-m="cash" role="button" tabindex="0">💶 Μετρητά</div>
+            <div class="chip k-appointment ${inc.method === "bank" ? "active" : ""}" data-m="bank" role="button" tabindex="0">🏦 Τράπεζα</div>
+          </div></div>
+        <div class="field ${inc.method === "bank" ? "" : "hidden"}" id="inc-bank-field"><label>Τράπεζα</label>
+          <select id="inc-bank">${banks.map(b => `<option ${inc.bank === b ? "selected" : ""}>${escapeHtml(b)}</option>`).join("")}</select></div>
+        <div class="cell-sub">Μπαίνει στα έσοδα της ημέρας και στο «Ταμείο & τράπεζες». Οι εισπράξεις από πελάτες καταχωρούνται από τον λογαριασμό του πελάτη.</div>
+        <div class="drawer-foot" style="margin:22px -22px -20px;">
+          ${incomeId ? '<button type="button" class="btn-danger" id="inc-delete">Διαγραφή</button>' : "<span></span>"}
+          <button type="submit" class="btn-primary">Αποθήκευση</button>
+        </div>
+      </form>`);
+    let method = inc.method === "bank" ? "bank" : "cash";
+    const setMethod = (m) => { method = m; $$("#inc-method .chip").forEach(c => c.classList.toggle("active", c.dataset.m === m)); $("#inc-bank-field").classList.toggle("hidden", m !== "bank"); };
+    $$("#inc-method .chip").forEach(c => {
+      c.addEventListener("click", () => setMethod(c.dataset.m));
+      c.addEventListener("keydown", (e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); setMethod(c.dataset.m); } });
+    });
+    if (!incomeId) $("#inc-amount").focus();
+    if (incomeId) $("#inc-delete").addEventListener("click", async () => {
+      const b = $("#inc-delete");
+      if (!b.dataset.armed) { b.dataset.armed = "1"; b.textContent = "Σίγουρα; Πάτα ξανά"; return; }
+      const { error } = await sb.from("other_incomes").delete().eq("id", incomeId);
+      if (error) { showMsg($("#inc-msg"), "Σφάλμα: " + error.message, "error"); return; }
+      closeDrawer(); await loadExpenses();
+    });
+    $("#income-form").addEventListener("submit", async (e) => {
+      e.preventDefault();
+      const amount = parseFloat($("#inc-amount").value);
+      const reason = $("#inc-reason").value.trim();
+      if (!(amount > 0)) { showMsg($("#inc-msg"), "Γράψε ένα ποσό.", "error"); return; }
+      if (!reason) { showMsg($("#inc-msg"), "Γράψε την αιτιολογία.", "error"); return; }
+      const payload = { income_date: $("#inc-date").value || isoDay(new Date()), category: $("#inc-category").value, reason, amount,
+                        method, bank: method === "bank" ? $("#inc-bank").value : null };
+      const { error } = incomeId ? await sb.from("other_incomes").update(payload).eq("id", incomeId)
+                                 : await sb.from("other_incomes").insert(payload);
+      if (error) { showMsg($("#inc-msg"), isMissing(error) ? "Για τα έσοδα τρέξε πρώτα το schema_v17.sql στο Supabase." : "Σφάλμα: " + error.message, "error"); return; }
+      closeDrawer();
+      // πάει την περίοδο στη μέρα του εσόδου αν είναι εκτός, για να φαίνεται αμέσως
+      if (payload.income_date < CASH_FROM || payload.income_date > CASH_TO) setCashRange(payload.income_date, payload.income_date, null);
+      else await loadExpenses();
+      showToast(`Καταχωρήθηκε έσοδο ${eur(amount)}.`);
+    });
+  }
+  $("#new-income-btn").addEventListener("click", () => openIncomeDrawer());
 
   $("#cash-prev").addEventListener("click", () => {
     const n = daysBetween(CASH_FROM, CASH_TO);
