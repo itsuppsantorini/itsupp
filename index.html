@@ -1216,9 +1216,9 @@
         });
         tbl("other_incomes").forEach(i => out.push({ source:"income", source_id:i.id, move_date:i.income_date, account_id:accFor(i.method, i.bank), amount:Number(i.amount),
                      description:i.category + " — " + i.reason, method:i.method, bank:i.bank, client_id:null, created_at:i.created_at || "" }));
-        tbl("expenses").filter(e => Number(e.amount) !== 0 && (e.payer || "shop") === "shop").forEach(e =>
+        tbl("expenses").filter(e => Number(e.amount) !== 0).forEach(e =>
           out.push({ source:"expense", source_id:e.id, move_date:e.expense_date, account_id:accFor(e.method, e.bank), amount:-Number(e.amount),
-                     description:e.category + (e.note ? " — " + e.note : ""), method:e.method, bank:e.bank, client_id:null, created_at:e.created_at || "" }));
+                     description:e.category + (e.payer === "home" ? " (σπίτι)" : "") + (e.note ? " — " + e.note : ""), method:e.method, bank:e.bank, client_id:null, created_at:e.created_at || "" }));
         tbl("money_movements").forEach(m => {
           const t = A.find(a => a.id === m.to_account_id), f = A.find(a => a.id === m.account_id);
           const lbl = { in:"Είσοδος χρημάτων", out:"Έξοδος χρημάτων", adjust:"Καταμέτρηση (διόρθωση)" }[m.kind] || ("Μεταφορά προς " + (t ? t.name : ""));
@@ -4708,6 +4708,7 @@
       if (x.payer === "employee") return "πλήρωσε: " + escapeHtml(staffName(x.payer_id));
       if (x.payer === "other") return "πλήρωσε: " + escapeHtml(x.payer_note || "άλλο");
       if (x.payer === "shop") return "πλήρωσε: το μαγαζί";
+      if (x.payer === "home") return "για: το σπίτι 🏠";
       return "";
     };
     tbody.innerHTML = rows.map(x => `
@@ -4735,8 +4736,7 @@
     }
     if (!MONEY_ACCOUNTS.length) await loadMoney();   // λογαριασμοί ταμείου με τα υπόλοιπά τους
     const pick = moneyPicker({ id:"ex-method", bankId:"ex-bank", sign:-1, allowCard:true, method: ex.method, bank: ex.bank, amountSel:"#ex-amount",
-                               orig: expenseId && (ex.payer || "shop") === "shop" ? { method: ex.method, bank: ex.bank, amount: ex.amount } : null,
-                               active: () => $("#ex-payer").value === "shop",
+                               orig: expenseId ? { method: ex.method, bank: ex.bank, amount: ex.amount } : null,
                                onChange: (d) => $("#ex-txn-field").classList.toggle("hidden", !(d.startsWith("bank:") || d === "other")) });
     openDrawer(expenseId ? "Επεξεργασία εξόδου" : "Νέο έξοδο", `
       <form id="expense-form">
@@ -4761,6 +4761,7 @@
         <div class="field"><label>Ποιος έκανε το έξοδο</label>
           <select id="ex-payer">
             <option value="shop" ${(ex.payer||"shop")==='shop'?'selected':''}>Το μαγαζί</option>
+            <option value="home" ${ex.payer==='home'?'selected':''}>🏠 Σπίτι</option>
             <option value="employee" ${ex.payer==='employee'?'selected':''}>Υπάλληλος</option>
             <option value="other" ${ex.payer==='other'?'selected':''}>Άλλο</option>
           </select>
@@ -4778,7 +4779,8 @@
         </div>
         <div class="field"><label>Σημείωση</label><input id="ex-note" value="${escapeHtml(ex.note || "")}"></div>
         <div class="field"><label>Πληρώθηκε από</label>
-          ${pick.html}</div>
+          ${pick.html}
+          <div class="cell-sub" style="margin-top:6px;">Αφαιρείται από αυτόν τον λογαριασμό, όποιος κι αν έκανε το έξοδο.</div></div>
         <div class="field hidden" id="ex-txn-field"><label>Αριθμός συναλλαγής <span style="font-weight:400;color:var(--ink-soft);">(προαιρετικά)</span></label><input id="ex-txn" value="${escapeHtml(ex.txn_ref || "")}"></div>
         <div class="drawer-foot" style="margin:22px -22px -20px;">
           ${expenseId ? '<button type="button" class="btn-danger" id="ex-delete">Διαγραφή</button>' : '<span></span>'}
@@ -4833,9 +4835,9 @@
       const { error } = expenseId
         ? await sb.from("expenses").update(payload).eq("id", expenseId)
         : await sb.from("expenses").insert(payload);
-      if (error) { showMsg($("#ex-msg"), "Σφάλμα: " + error.message, "error"); return; }
+      if (error) { showMsg($("#ex-msg"), /payer_check/.test(error.message || "") ? "Για την επιλογή «Σπίτι» τρέξε πρώτα το schema_v18.sql στο Supabase." : "Σφάλμα: " + error.message, "error"); return; }
       // αν χρησιμοποιείς το ταμείο και λείπει ο λογαριασμός (μετρητά / αυτή η τράπεζα), φτιάχνεται
-      if (payer === "shop" && MONEY_ACCOUNTS.length && (method === "cash" || method === "bank")) {
+      if (MONEY_ACCOUNTS.length && (method === "cash" || method === "bank")) {
         const acc = await ensureMoneyAccount(method, payload.bank, payload.expense_date);
         if (acc && acc.created) showToast(`Φτιάχτηκε ο λογαριασμός «${acc.name}» στο ταμείο.`);
       }
