@@ -332,6 +332,11 @@
   .money-empty > div{flex:1;min-width:220px;}
   .money-warn{margin:0 20px 18px;background:var(--amber-bg);color:var(--ink);border-radius:10px;padding:11px 14px;font-size:13px;line-height:1.5;}
   .money-warn ul{margin:6px 0;padding-left:20px;}
+  .money-pick .chip .dest-bal{font-weight:400;opacity:.75;font-size:12px;margin-left:4px;}
+  .money-after{margin-top:8px;font-size:13px;padding:7px 10px;border-radius:8px;background:var(--surface-2);}
+  .money-after.neg{background:var(--red-bg);color:var(--red);}
+  @media (max-width:560px){ .form-row.mm-accts{grid-template-columns:1fr !important;display:grid;} }
+  .mm-preview{margin:4px 0 12px;font-size:13px;padding:8px 10px;border-radius:8px;background:var(--surface-2);line-height:1.6;}
   #inc-method .chip .dest-bal{font-weight:400;opacity:.75;font-size:12px;margin-left:4px;}
   .money-warn-group{margin:8px 0 4px;padding:8px 0 2px;border-top:1px solid rgba(0,0,0,.08);}
   .money-warn-rows{display:flex;flex-direction:column;gap:2px;margin:4px 0 8px;}
@@ -812,9 +817,10 @@
       <div class="panel" id="money-panel" style="margin-bottom:16px;">
         <div class="panel-head">
           <h2>Ταμείο &amp; τράπεζες</h2>
-          <div style="display:flex;gap:8px;">
+          <div style="display:flex;gap:8px;flex-wrap:wrap;justify-content:flex-end;">
             <button type="button" class="btn-ghost btn-sm vault-btn" id="vault-btn" title="Ιδιωτικό" aria-label="Ιδιωτικό">🔒</button>
             <button type="button" class="btn-ghost btn-sm" id="money-accounts-btn">Λογαριασμοί</button>
+            <button type="button" class="btn-ghost btn-sm" id="money-transfer-btn">⇄ Μεταφορά</button>
             <button type="button" class="btn-primary btn-sm" id="money-move-btn">+ Κίνηση</button>
           </div>
         </div>
@@ -3564,8 +3570,10 @@
   }
 
   // ---- πληρωμή προμηθευτή = έξοδο (άρα περνάει και στο ταμείο) ----
-  function openSupplierPayment(supplierId, suggest){
+  async function openSupplierPayment(supplierId, suggest){
     const s = SUPPLIERS_CACHE.find(x => x.id === supplierId);
+    if (!MONEY_ACCOUNTS.length) await loadMoney();
+    const pick = moneyPicker({ id:"sp-method", bankId:"sp-bank", sign:-1, allowCard:true, method:"cash", amountSel:"#sp-amount" });
     openDrawer("Πληρωμή — " + (s ? s.name : ""), `
       <form id="sp-form">
         <div id="sp-msg"></div>
@@ -3573,11 +3581,8 @@
           <div class="field"><label>Ποσό (€) *</label><input type="number" step="0.01" min="0" id="sp-amount" value="${suggest ? suggest.toFixed(2) : ""}" inputmode="decimal"></div>
           <div class="field"><label>Ημερομηνία</label><input type="date" id="sp-date" value="${isoDay(new Date())}"></div>
         </div>
-        <div class="form-row">
-          <div class="field"><label>Τρόπος πληρωμής</label>
-            <select id="sp-method"><option value="cash">Μετρητά</option><option value="card">Κάρτα</option><option value="bank">Τραπεζική κατάθεση</option></select></div>
-          <div class="field hidden" id="sp-bank-field"><label>Τράπεζα</label><select id="sp-bank">${BANKS.map(b => `<option>${escapeHtml(b)}</option>`).join("")}</select></div>
-        </div>
+        <div class="field"><label>Πληρώθηκε από</label>
+          ${pick.html}</div>
         <div class="field"><label>Σημείωση</label><input id="sp-note" placeholder="π.χ. εξόφληση ΤΔΑ-551"></div>
         <div class="cell-sub">Γράφεται στα Έξοδα ως «Πληρωμή προμηθευτή» και αφαιρείται από το ταμείο/τράπεζα.</div>
         <div class="drawer-foot" style="margin:22px -22px -20px;">
@@ -3585,18 +3590,22 @@
           <button type="submit" class="btn-primary">Αποθήκευση</button>
         </div>
       </form>`, true);
-    $("#sp-method").addEventListener("change", () => $("#sp-bank-field").classList.toggle("hidden", $("#sp-method").value !== "bank"));
+    pick.attach();
     $("#sp-back").addEventListener("click", () => openSupplierCard(supplierId));
     $("#sp-form").addEventListener("submit", async (e) => {
       e.preventDefault();
       const amount = parseFloat($("#sp-amount").value);
       if (!amount || amount <= 0) { showMsg($("#sp-msg"), "Γράψε ένα ποσό.", "error"); return; }
-      const method = $("#sp-method").value;
+      const { method, bank } = pick.get();
+      if (method === "bank" && !bank) { showMsg($("#sp-msg"), "Διάλεξε τράπεζα.", "error"); return; }
+      const date = $("#sp-date").value || isoDay(new Date());
       const { error } = await sb.from("expenses").insert({
-        expense_date: $("#sp-date").value || isoDay(new Date()), category: "Πληρωμή προμηθευτή", supplier_id: supplierId,
-        amount, method, bank: method === "bank" ? $("#sp-bank").value : null, note: $("#sp-note").value.trim() || null,
+        expense_date: date, category: "Πληρωμή προμηθευτή", supplier_id: supplierId,
+        amount, method, bank, note: $("#sp-note").value.trim() || null,
         payer: "shop", supplier_payment: true });
       if (error) { showMsg($("#sp-msg"), isMissing(error) ? V15_MSG : "Σφάλμα: " + error.message, "error"); return; }
+      if (MONEY_ACCOUNTS.length && method !== "card") await ensureMoneyAccount(method, bank, date);
+      loadMoney();
       await openSupplierCard(supplierId);
       refreshPurchaseViews();
     });
@@ -3616,6 +3625,8 @@
     };
     let supplierId = prefill.supplier_id || "";
     if (!supplierId && prefill.vat) { const m = SUPPLIERS_CACHE.find(s => s.vat_number === prefill.vat); if (m) supplierId = m.id; }
+    if (!MONEY_ACCOUNTS.length) await loadMoney();
+    const piPick = moneyPicker({ id:"pi-method", bankId:"pi-bank", sign:-1, allowCard:true, method:"cash", amountSel:"#pi-total-val" });
     await loadMap(supplierId);
 
     const itemOpts = (sel) => `<option value="">— μόνο στο τιμολόγιο —</option>
@@ -3663,12 +3674,10 @@
         <div class="section-title">Γραμμές</div>
         <div id="pi-lines">${lineHtml({}, 0)}</div>
         <button type="button" class="add-link" id="pi-add">+ Γραμμή</button>
-        <div class="pi-totals" id="pi-totals"></div>
+        <div class="pi-totals" id="pi-totals"></div><input type="hidden" id="pi-total-val" value="0">
         <label class="check-line" style="margin-top:12px;"><input type="checkbox" id="pi-paid"> Το πλήρωσα ήδη</label>
-        <div class="form-row hidden" id="pi-paid-row">
-          <div class="field"><label>Τρόπος</label><select id="pi-method"><option value="cash">Μετρητά</option><option value="card">Κάρτα</option><option value="bank">Τραπεζική κατάθεση</option></select></div>
-          <div class="field hidden" id="pi-bank-field"><label>Τράπεζα</label><select id="pi-bank">${BANKS.map(b => `<option>${escapeHtml(b)}</option>`).join("")}</select></div>
-        </div>
+        <div class="field hidden" id="pi-paid-row"><label>Πληρώθηκε από</label>
+          ${piPick.html}</div>
         <div class="field" style="margin-top:10px;"><label>Σημείωση</label><input id="pi-note"></div>
         <div class="field"><label>Φωτογραφία / PDF τιμολογίου (για το αρχείο και τον λογιστή)</label>
           <div class="pi-file">
@@ -3690,6 +3699,8 @@
         net += n; vat += Math.round(n * Number(el.querySelector(".pl-vat").value) ) / 100;
       });
       $("#pi-totals").innerHTML = `<span>Καθαρή αξία <b>${eur(net)}</b></span><span>ΦΠΑ <b>${eur(vat)}</b></span><span class="pi-total">Σύνολο <b>${eur(net + vat)}</b></span>`;
+      $("#pi-total-val").value = (Math.round((net + vat) * 100) / 100).toFixed(2);
+      if ($("#pi-method-after")) piPick.refresh();
     };
     // αν η περιγραφή ταιριάζει με κάτι που έχει «μάθει» για τον προμηθευτή -> βρίσκει μόνη της το είδος
     const autoMatch = (el) => {
@@ -3733,7 +3744,7 @@
     });
     if (!supplierId && prefill.vat) { $("#pi-sup").value = "__new"; $("#pi-newsup").classList.remove("hidden"); }
     $("#pi-paid").addEventListener("change", () => $("#pi-paid-row").classList.toggle("hidden", !$("#pi-paid").checked));
-    $("#pi-method").addEventListener("change", () => $("#pi-bank-field").classList.toggle("hidden", $("#pi-method").value !== "bank"));
+    piPick.attach();
     $("#pi-scan").addEventListener("click", () => openQrScanner({ supplier_id: $("#pi-sup").value !== "__new" ? $("#pi-sup").value : "" }));
     let invoiceFile = prefill.file || null;
     $("#pi-file").addEventListener("change", (e) => {
@@ -3775,7 +3786,12 @@
         if (!$("#pi-ns-name").value.trim()) { showMsg($("#pi-msg"), "Γράψε την επωνυμία του νέου προμηθευτή.", "error"); return; }
         payload.new_supplier = { name: $("#pi-ns-name").value.trim(), vat_number: normalizeVat($("#pi-ns-vat").value) || "" };
       } else payload.supplier_id = sup;
-      if ($("#pi-paid").checked) payload.paid_now = { method: $("#pi-method").value, bank: $("#pi-method").value === "bank" ? $("#pi-bank").value : "" };
+      if ($("#pi-paid").checked) {
+        const pm = piPick.get();
+        if (pm.method === "bank" && !pm.bank) { showMsg($("#pi-msg"), "Διάλεξε τράπεζα πληρωμής.", "error"); return; }
+        payload.paid_now = { method: pm.method, bank: pm.bank || "" };
+        if (MONEY_ACCOUNTS.length && pm.method !== "card") await ensureMoneyAccount(pm.method, pm.bank, payload.doc_date);
+      }
 
       const { data, error } = await sb.rpc("save_purchase_invoice", { p: payload });
       if (error) { showMsg($("#pi-msg"), isMissing(error) ? V15_MSG : "Σφάλμα: " + error.message, "error"); return; }
@@ -4717,6 +4733,11 @@
     } else if (prefill) {
       ex = { ...ex, ...prefill };   // π.χ. από σημείωση πληρωμής στο πρόγραμμα
     }
+    if (!MONEY_ACCOUNTS.length) await loadMoney();   // λογαριασμοί ταμείου με τα υπόλοιπά τους
+    const pick = moneyPicker({ id:"ex-method", bankId:"ex-bank", sign:-1, allowCard:true, method: ex.method, bank: ex.bank, amountSel:"#ex-amount",
+                               orig: expenseId && (ex.payer || "shop") === "shop" ? { method: ex.method, bank: ex.bank, amount: ex.amount } : null,
+                               active: () => $("#ex-payer").value === "shop",
+                               onChange: (d) => $("#ex-txn-field").classList.toggle("hidden", !(d.startsWith("bank:") || d === "other")) });
     openDrawer(expenseId ? "Επεξεργασία εξόδου" : "Νέο έξοδο", `
       <form id="expense-form">
         <div id="ex-msg"></div>
@@ -4756,27 +4777,18 @@
           <input id="ex-payer-note" value="${escapeHtml(ex.payer_note || "")}" placeholder="π.χ. πληρώθηκε από τον λογιστή">
         </div>
         <div class="field"><label>Σημείωση</label><input id="ex-note" value="${escapeHtml(ex.note || "")}"></div>
-        <div class="field"><label>Τρόπος πληρωμής</label>
-          <select id="ex-method">
-            <option value="cash" ${ex.method==='cash'?'selected':''}>Μετρητά</option>
-            <option value="card" ${ex.method==='card'?'selected':''}>Κάρτα</option>
-            <option value="bank" ${ex.method==='bank'?'selected':''}>Τραπεζική κατάθεση</option>
-          </select>
-        </div>
-        <div class="form-row ${ex.method==='bank'?'':'hidden'}" id="ex-bank-row">
-          <div class="field"><label>Τράπεζα</label><select id="ex-bank">${BANKS.map(b => `<option ${ex.bank===b?"selected":""}>${b}</option>`).join("")}</select></div>
-          <div class="field"><label>Αριθμός συναλλαγής</label><input id="ex-txn" value="${escapeHtml(ex.txn_ref || "")}"></div>
-        </div>
+        <div class="field"><label>Πληρώθηκε από</label>
+          ${pick.html}</div>
+        <div class="field hidden" id="ex-txn-field"><label>Αριθμός συναλλαγής <span style="font-weight:400;color:var(--ink-soft);">(προαιρετικά)</span></label><input id="ex-txn" value="${escapeHtml(ex.txn_ref || "")}"></div>
         <div class="drawer-foot" style="margin:22px -22px -20px;">
           ${expenseId ? '<button type="button" class="btn-danger" id="ex-delete">Διαγραφή</button>' : '<span></span>'}
           <button type="submit" class="btn-primary">Αποθήκευση</button>
         </div>
       </form>
     `);
-    $("#ex-method").addEventListener("change", () => {
-      $("#ex-bank-row").classList.toggle("hidden", $("#ex-method").value !== "bank");
-    });
+    pick.attach();
     $("#ex-payer").addEventListener("change", () => {
+      pick.refresh();
       const v = $("#ex-payer").value;
       $("#ex-payer-who-field").classList.toggle("hidden", v !== "employee");
       $("#ex-payer-note-field").classList.toggle("hidden", v !== "other");
@@ -4795,7 +4807,8 @@
     }
     $("#expense-form").addEventListener("submit", async (e) => {
       e.preventDefault();
-      const method = $("#ex-method").value;
+      const { method, bank } = pick.get();
+      if (method === "bank" && !bank) { showMsg($("#ex-msg"), "Διάλεξε τράπεζα.", "error"); return; }
       const payer = $("#ex-payer").value;
       const category = $("#ex-category").value;
       const isSalary = ["Μισθοδοσία","Πληρωμή υπαλλήλου"].includes(category);
@@ -4810,7 +4823,7 @@
         supplier_id: $("#ex-supplier").value || null,
         note: $("#ex-note").value.trim() || null,
         method,
-        bank: method === "bank" ? $("#ex-bank").value : null,
+        bank,
         txn_ref: method === "bank" ? $("#ex-txn").value.trim() || null : null,
         payer,
         payer_id: payer === "employee" ? ($("#ex-payer-who").value || null) : null,
@@ -4961,6 +4974,72 @@
     if (error) return { error };
     if (data) MONEY_ACCOUNTS.push({ ...data, balance: 0 });
     return { id: data && data.id, name: row.name, created:true, opening_date: row.opening_date };
+  }
+
+  // ---- ΕΠΙΛΟΓΗ ΛΟΓΑΡΙΑΣΜΟΥ (από πού φεύγουν / πού μπαίνουν τα χρήματα) ----
+  // Κουμπιά με τους πραγματικούς λογαριασμούς του ταμείου και το υπόλοιπό τους, και από κάτω
+  // «Υπόλοιπο μετά». sign: -1 για πληρωμή, +1 για έσοδο. orig: η αρχική κίνηση όταν κάνεις
+  // επεξεργασία (για να μη μετρηθεί δύο φορές). Γυρνά { html, attach(), get() }.
+  function moneyPicker(o){
+    const id = o.id, bankId = o.bankId || (o.id + "-bank"), sign = o.sign || -1;
+    const norm = (x) => String(x || "").trim().toLowerCase();
+    const cashAcc = MONEY_ACCOUNTS.find(a => a.kind === "cash" && a.active) || MONEY_ACCOUNTS.find(a => a.kind === "cash");
+    const bankAccs = MONEY_ACCOUNTS.filter(a => a.kind === "bank" && a.active && a.bank_name);
+    const cardAcc = MONEY_ACCOUNTS.find(a => a.card_account && a.active);
+    const accBanks = bankAccs.map(a => norm(a.bank_name));
+    const otherBanks = BANKS.filter(b => !accBanks.includes(norm(b)));
+    if (o.method === "bank" && o.bank && !accBanks.includes(norm(o.bank)) && !otherBanks.includes(o.bank)) otherBanks.unshift(o.bank);
+    const cur = o.method === "card" && o.allowCard ? "card"
+              : o.method === "bank" ? (accBanks.includes(norm(o.bank)) ? "bank:" + norm(o.bank) : (o.bank || !bankAccs.length ? "other" : "bank:" + accBanks[0]))
+              : "cash";
+    const bal = (a) => a ? ` <span class="dest-bal">${eur(a.balance)}</span>` : (MONEY_ACCOUNTS.length ? ' <span class="dest-bal">νέος</span>' : "");
+    const html = `
+      <div class="kind-picker money-pick" id="${id}">
+        <div class="chip k-task ${cur === "cash" ? "active" : ""}" data-d="cash" role="button" tabindex="0">💶 Μετρητά${bal(cashAcc)}</div>
+        ${bankAccs.map(a => `<div class="chip k-appointment ${cur === "bank:" + norm(a.bank_name) ? "active" : ""}" data-d="bank:${escapeHtml(norm(a.bank_name))}" data-bank="${escapeHtml(a.bank_name)}" role="button" tabindex="0">🏦 ${escapeHtml(a.name)}${bal(a)}</div>`).join("")}
+        ${o.allowCard ? `<div class="chip k-payment ${cur === "card" ? "active" : ""}" data-d="card" role="button" tabindex="0">💳 Κάρτα${cardAcc ? ` <span class="dest-bal">από ${escapeHtml(cardAcc.name)}</span>` : ""}</div>` : ""}
+        ${otherBanks.length ? `<div class="chip k-study ${cur === "other" ? "active" : ""}" data-d="other" role="button" tabindex="0">🏦 ${bankAccs.length ? "Άλλη τράπεζα…" : "Τράπεζα…"}</div>` : ""}
+      </div>
+      <div class="field ${cur === "other" ? "" : "hidden"}" id="${bankId}-field" style="margin-top:8px;"><label>Τράπεζα</label>
+        <select id="${bankId}">${otherBanks.map(b => `<option ${o.bank === b ? "selected" : ""}>${escapeHtml(b)}</option>`).join("")}</select>
+        ${MONEY_ACCOUNTS.length ? '<div class="cell-sub" style="margin-top:4px;">Θα προστεθεί στο «Ταμείο & τράπεζες» σαν νέος λογαριασμός.</div>' : ""}</div>
+      <div class="money-after hidden" id="${id}-after"></div>`;
+    let dest = cur;
+    const accOf = (d) => d === "cash" ? cashAcc : d === "card" ? cardAcc : d.startsWith("bank:") ? bankAccs.find(a => "bank:" + norm(a.bank_name) === d) : null;
+    const origAcc = o.orig ? accOf(o.orig.method === "card" ? "card" : o.orig.method === "bank" ? "bank:" + norm(o.orig.bank) : "cash") : null;
+    const refresh = () => {
+      $$(`#${id} .chip`).forEach(c => c.classList.toggle("active", c.dataset.d === dest));
+      $(`#${bankId}-field`).classList.toggle("hidden", dest !== "other");
+      const box = $(`#${id}-after`), a = accOf(dest);
+      const amt = o.amountSel ? parseFloat(($(o.amountSel) || {}).value) : NaN;
+      if (!a || !(amt > 0) || (o.active && !o.active())) { box.classList.add("hidden"); return; }
+      // στην επεξεργασία το υπόλοιπο περιέχει ήδη την παλιά κίνηση -> τη βγάζουμε πρώτα
+      const base = Number(a.balance) - (o.orig && origAcc && origAcc.id === a.id ? sign * Number(o.orig.amount || 0) : 0);
+      const after = Math.round((base + sign * amt) * 100) / 100;
+      box.classList.remove("hidden");
+      box.classList.toggle("neg", after < 0);
+      box.innerHTML = `${escapeHtml(a.name)}: ${eur(base)} → <b>${eur(after)}</b>` + (after < 0 ? " · ⚠️ δεν φτάνουν τα χρήματα, θα βγει αρνητικό" : "");
+    };
+    return {
+      html,
+      attach(){
+        $$(`#${id} .chip`).forEach(c => {
+          const pick = () => { dest = c.dataset.d; refresh(); if (o.onChange) o.onChange(dest); };
+          c.addEventListener("click", pick);
+          c.addEventListener("keydown", (e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); pick(); } });
+        });
+        if (o.amountSel && $(o.amountSel)) $(o.amountSel).addEventListener("input", refresh);
+        refresh();
+        if (o.onChange) o.onChange(dest);
+      },
+      refresh,
+      get(){
+        if (dest === "cash") return { method:"cash", bank:null };
+        if (dest === "card") return { method:"card", bank:null };
+        if (dest === "other") return { method:"bank", bank: $(`#${bankId}`).value || null };
+        return { method:"bank", bank: $(`#${id} .chip[data-d="${CSS.escape(dest)}"]`).dataset.bank };
+      }
+    };
   }
 
   // ---- πρώτο στήσιμο: μετρητά + οι τράπεζες που χρησιμοποιείς, με ένα πάτημα ----
@@ -5118,7 +5197,7 @@
 
   // ---- κίνηση: μεταφορά / είσοδος / έξοδος / καταμέτρηση ----
   const MOVE_TYPES = [
-    ["transfer", "⇄ Μεταφορά", "π.χ. κατάθεση μετρητών στην τράπεζα ή ανάληψη από ATM για το ταμείο"],
+    ["transfer", "⇄ Μεταφορά", "π.χ. από τράπεζα σε τράπεζα, κατάθεση μετρητών στην τράπεζα ή ανάληψη από ATM για το ταμείο"],
     ["count",    "🧮 Καταμέτρηση", "μέτρησε τι υπάρχει πραγματικά — η διαφορά γράφεται ως διόρθωση"],
     ["in",       "＋ Είσοδος χρημάτων", "π.χ. βάζω δικά μου χρήματα. (Οι εισπράξεις πελατών μπαίνουν αυτόματα.)"],
     ["out",      "− Έξοδος χρημάτων", "π.χ. προμήθεια τράπεζας, ανάληψη για προσωπική χρήση. (Τα έξοδα του μαγαζιού μπαίνουν αυτόματα από τα Έξοδα.)"]
@@ -5128,7 +5207,13 @@
     const act = MONEY_ACCOUNTS.filter(a => a.active);
     if (act.length === 0) { openMoneySetup(); return; }
     const opts = (sel) => act.map(a => `<option value="${a.id}" ${a.id === sel ? "selected" : ""}>${MONEY_KIND_ICON[a.kind]} ${escapeHtml(a.name)} (${eur(a.balance)})</option>`).join("");
-    const cashAcc = act.find(a => a.kind === "cash"), bankAcc = act.find(a => a.kind === "bank");
+    const cashAcc = act.find(a => a.kind === "cash");
+    const norm = (x) => String(x || "").trim().toLowerCase();
+    const newBanks = BANKS.filter(b => !MONEY_ACCOUNTS.some(a => a.kind === "bank" && norm(a.bank_name) === norm(b)));
+    const fromId = (preset && preset.account) || (cashAcc || act[0]).id;
+    // «Προς»: προτιμά τράπεζα διαφορετική από το «Από»
+    const defTo = (from) => (act.find(a => a.kind === "bank" && a.id !== from) || act.find(a => a.id !== from) || { id: newBanks.length ? "__new" : "" }).id;
+    const toOpts = (sel) => opts(sel) + (newBanks.length ? `<option value="__new" ${sel === "__new" ? "selected" : ""}>＋ Άλλη τράπεζα (νέος λογαριασμός)…</option>` : "");
     let type = (preset && preset.type) || (act.length > 1 ? "transfer" : "count");
     openDrawer("Κίνηση ταμείου", `
       <form id="mm-form">
@@ -5137,15 +5222,21 @@
           <div class="kind-picker" id="mm-type">${MOVE_TYPES.map(([k, l]) => `<div class="chip ${k === type ? "active" : ""}" data-type="${k}" role="button" tabindex="0">${l}</div>`).join("")}</div>
           <div class="cell-sub" id="mm-hint" style="margin-top:8px;"></div>
         </div>
-        <div class="form-row">
-          <div class="field"><label id="mm-from-label">Από</label><select id="mm-from">${opts((preset && preset.account) || (cashAcc || act[0]).id)}</select></div>
-          <div class="field" id="mm-to-field"><label>Προς</label><select id="mm-to">${opts((bankAcc || act[act.length - 1]).id)}</select></div>
+        <div class="form-row mm-accts">
+          <div class="field"><label id="mm-from-label">Από</label><select id="mm-from">${opts(fromId)}</select></div>
+          <div class="field" id="mm-to-field"><label>Προς</label><select id="mm-to">${toOpts(defTo(fromId))}</select></div>
         </div>
+        <div class="field hidden" id="mm-newbank-field"><label>Ποια τράπεζα</label>
+          <select id="mm-newbank">${newBanks.map(b => `<option>${escapeHtml(b)}</option>`).join("")}</select>
+          <div class="cell-sub" style="margin-top:4px;">Θα προστεθεί στο «Ταμείο & τράπεζες» με υπόλοιπο έναρξης 0.</div></div>
         <div class="form-row">
           <div class="field"><label id="mm-amount-label">Ποσό (€)</label><input type="number" step="0.01" min="0" id="mm-amount" inputmode="decimal"></div>
           <div class="field"><label>Ημερομηνία</label><input type="date" id="mm-date" value="${isoDay(new Date())}"></div>
         </div>
+        <div class="field hidden" id="mm-fee-field"><label>Έξοδα μεταφοράς / προμήθεια τράπεζας (€) <span style="font-weight:400;color:var(--ink-soft);">(αν υπάρχουν)</span></label>
+          <input type="number" step="0.01" min="0" id="mm-fee" inputmode="decimal" placeholder="0,00"></div>
         <div class="money-count-diff hidden" id="mm-diff"></div>
+        <div class="mm-preview hidden" id="mm-preview"></div>
         <div class="field"><label>Σημείωση</label><input id="mm-note" placeholder="προαιρετικά"></div>
         <div class="drawer-foot" style="margin:22px -22px -20px;">
           <span></span>
@@ -5157,11 +5248,30 @@
       $$("#mm-type .chip").forEach(c => c.classList.toggle("active", c.dataset.type === type));
       $("#mm-hint").textContent = MOVE_TYPES.find(t => t[0] === type)[2];
       $("#mm-to-field").classList.toggle("hidden", type !== "transfer");
+      $("#mm-fee-field").classList.toggle("hidden", type !== "transfer");
+      $("#mm-newbank-field").classList.toggle("hidden", !(type === "transfer" && $("#mm-to").value === "__new"));
       $("#mm-from-label").textContent = type === "transfer" ? "Από" : "Λογαριασμός";
       $("#mm-amount-label").textContent = type === "count" ? "Πόσα υπάρχουν πραγματικά (€)" : "Ποσό (€)";
       updateDiff();
     };
+    // «πριν → μετά» για τους λογαριασμούς που αλλάζουν
+    const updatePreview = () => {
+      const box = $("#mm-preview");
+      const amt = parseFloat($("#mm-amount").value), fee = parseFloat($("#mm-fee").value) || 0;
+      if (type === "count" || !(amt > 0)) { box.classList.add("hidden"); return; }
+      const from = act.find(a => a.id === $("#mm-from").value);
+      const line = (name, b, d) => { const after = Math.round((Number(b) + d) * 100) / 100;
+        return `<div class="${after < 0 ? "amt-out" : ""}">${escapeHtml(name)}: ${eur(b)} → <b>${eur(after)}</b>${after < 0 ? " ⚠️" : ""}</div>`; };
+      let html = line(from.name, from.balance, type === "in" ? amt : -(amt + (type === "transfer" ? fee : 0)));
+      if (type === "transfer") {
+        const toV = $("#mm-to").value, to = act.find(a => a.id === toV);
+        if (to && to.id !== from.id) html += line(to.name, to.balance, amt);
+        else if (toV === "__new") html += line($("#mm-newbank").value + " (νέος)", 0, amt);
+      }
+      box.innerHTML = html; box.classList.remove("hidden");
+    };
     const updateDiff = () => {
+      updatePreview();
       const box = $("#mm-diff");
       if (type !== "count" || $("#mm-amount").value === "") { box.classList.add("hidden"); return; }
       const acc = act.find(a => a.id === $("#mm-from").value);
@@ -5176,7 +5286,13 @@
       c.addEventListener("keydown", (e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); type = c.dataset.type; sync(); } });
     });
     $("#mm-amount").addEventListener("input", updateDiff);
-    $("#mm-from").addEventListener("change", updateDiff);
+    $("#mm-fee").addEventListener("input", updatePreview);
+    $("#mm-newbank").addEventListener("change", updatePreview);
+    $("#mm-from").addEventListener("change", () => {
+      if ($("#mm-to").value === $("#mm-from").value) $("#mm-to").innerHTML = toOpts(defTo($("#mm-from").value));
+      sync();
+    });
+    $("#mm-to").addEventListener("change", sync);
     sync();
 
     $("#mm-form").addEventListener("submit", async (e) => {
@@ -5188,9 +5304,21 @@
       if (type === "count") {
         ({ error } = await sb.rpc("money_count", { p_account: account, p_actual: amount, p_date: date, p_note: note }));
       } else if (type === "transfer") {
-        const to = $("#mm-to").value;
+        let to = $("#mm-to").value;
+        const fee = parseFloat($("#mm-fee").value) || 0;
+        if (fee < 0) { showMsg($("#mm-msg"), "Τα έξοδα μεταφοράς δεν μπορεί να είναι αρνητικά.", "error"); return; }
+        if (!to) { showMsg($("#mm-msg"), "Χρειάζεσαι δεύτερο λογαριασμό για μεταφορά — πρόσθεσέ τον από «Λογαριασμοί».", "error"); return; }
+        if (to === "__new") {
+          const r = await ensureMoneyAccount("bank", $("#mm-newbank").value, date);
+          if (r.error || !r.id) { showMsg($("#mm-msg"), "Σφάλμα: " + ((r.error && r.error.message) || "δεν φτιάχτηκε ο λογαριασμός"), "error"); return; }
+          to = r.id;
+        }
         if (to === account) { showMsg($("#mm-msg"), "Διάλεξε διαφορετικό λογαριασμό «Προς».", "error"); return; }
         ({ error } = await sb.from("money_movements").insert({ account_id: account, to_account_id: to, move_date: date, kind: "transfer", amount, note }));
+        if (!error && fee > 0) {
+          const toName = (MONEY_ACCOUNTS.find(a => a.id === to) || {}).name || "";
+          ({ error } = await sb.from("money_movements").insert({ account_id: account, move_date: date, kind: "out", amount: fee, note: "Έξοδα μεταφοράς προς " + toName }));
+        }
       } else {
         ({ error } = await sb.from("money_movements").insert({ account_id: account, move_date: date, kind: type, amount, note }));
       }
@@ -5234,6 +5362,7 @@
         <div class="money-st-bal"><div class="cell-sub">Υπόλοιπο τώρα</div><div class="money-bal">${eur(a.balance)}</div></div>
         <div style="display:flex;gap:8px;flex-wrap:wrap;">
           <button type="button" class="btn-ghost btn-sm" id="st-count">🧮 Καταμέτρηση</button>
+          <button type="button" class="btn-ghost btn-sm" id="st-transfer">⇄ Μεταφορά</button>
           <button type="button" class="btn-ghost btn-sm" id="st-move">+ Κίνηση</button>
           <button type="button" class="btn-ghost btn-sm" id="st-edit">Ρυθμίσεις</button>
         </div>
@@ -5259,6 +5388,7 @@
     $("#st-to").addEventListener("change", reopen);
     $("#st-count").addEventListener("click", () => openMoneyMove({ type:"count", account: accountId }));
     $("#st-move").addEventListener("click", () => openMoneyMove({ type:"in", account: accountId }));
+    $("#st-transfer").addEventListener("click", () => openMoneyMove({ type:"transfer", account: accountId }));
     $("#st-edit").addEventListener("click", () => openMoneyAccountForm(accountId));
     $$("#st-rows tr").forEach(tr => tr.addEventListener("click", async () => {
       const src = tr.dataset.src;
@@ -5280,6 +5410,7 @@
   }
 
   $("#money-move-btn").addEventListener("click", () => openMoneyMove());
+  $("#money-transfer-btn").addEventListener("click", () => openMoneyMove({ type:"transfer" }));
   $("#money-accounts-btn").addEventListener("click", () => MONEY_ACCOUNTS.length ? openMoneyAccounts() : openMoneySetup());
 
 
@@ -5832,14 +5963,8 @@
       if (data) inc = data;
     }
     if (!MONEY_ACCOUNTS.length) await loadMoney();   // για να φαίνονται και οι τράπεζες του ταμείου
-    // προορισμοί = οι λογαριασμοί του ταμείου (μετρητά + κάθε τράπεζα), με το υπόλοιπό τους
-    const cashAcc = MONEY_ACCOUNTS.find(a => a.kind === "cash" && a.active) || MONEY_ACCOUNTS.find(a => a.kind === "cash");
-    const bankAccs = MONEY_ACCOUNTS.filter(a => a.kind === "bank" && a.active && a.bank_name);
-    const accBanks = bankAccs.map(a => a.bank_name.trim().toLowerCase());
-    const otherBanks = BANKS.filter(b => !accBanks.includes(b.trim().toLowerCase()));
-    if (inc.method === "bank" && inc.bank && !accBanks.includes(inc.bank.trim().toLowerCase()) && !otherBanks.includes(inc.bank)) otherBanks.unshift(inc.bank);
-    const curDest = inc.method === "bank" ? (accBanks.includes(String(inc.bank || "").trim().toLowerCase()) ? "bank:" + inc.bank.trim().toLowerCase() : "other") : "cash";
-    const balTxt = (a) => a ? ` <span class="dest-bal">${eur(a.balance)}</span>` : ' <span class="dest-bal">νέος</span>';
+    const pick = moneyPicker({ id:"inc-method", bankId:"inc-bank", sign:+1, method: inc.method, bank: inc.bank, amountSel:"#inc-amount",
+                               orig: incomeId ? { method: inc.method, bank: inc.bank, amount: inc.amount } : null });
     openDrawer(incomeId ? "Έσοδο" : "Νέο έσοδο", `
       <form id="income-form" novalidate>
         <div id="inc-msg"></div>
@@ -5852,26 +5977,14 @@
         <div class="field"><label>Αιτιολογία *</label>
           <input id="inc-reason" value="${escapeHtml(inc.reason || "")}" placeholder="π.χ. επιστροφή εγγύησης, πώληση παλιού router"></div>
         <div class="field"><label>Πού μπήκαν τα χρήματα</label>
-          <div class="kind-picker" id="inc-method">
-            <div class="chip k-task ${curDest === "cash" ? "active" : ""}" data-d="cash" role="button" tabindex="0">💶 Μετρητά${balTxt(cashAcc)}</div>
-            ${bankAccs.map(a => `<div class="chip k-appointment ${curDest === "bank:" + a.bank_name.trim().toLowerCase() ? "active" : ""}" data-d="bank:${escapeHtml(a.bank_name.trim().toLowerCase())}" data-bank="${escapeHtml(a.bank_name)}" role="button" tabindex="0">🏦 ${escapeHtml(a.name)}${balTxt(a)}</div>`).join("")}
-            ${otherBanks.length ? `<div class="chip k-study ${curDest === "other" ? "active" : ""}" data-d="other" role="button" tabindex="0">🏦 ${bankAccs.length ? "Άλλη τράπεζα…" : "Τράπεζα…"}</div>` : ""}
-          </div></div>
-        <div class="field ${curDest === "other" ? "" : "hidden"}" id="inc-bank-field"><label>Τράπεζα</label>
-          <select id="inc-bank">${otherBanks.map(b => `<option ${inc.bank === b ? "selected" : ""}>${escapeHtml(b)}</option>`).join("")}</select>
-          <div class="cell-sub" style="margin-top:4px;">Θα προστεθεί στο «Ταμείο & τράπεζες» σαν νέος λογαριασμός.</div></div>
+          ${pick.html}</div>
         <div class="cell-sub">Μπαίνει στα έσοδα της ημέρας <b>και στο «Ταμείο & τράπεζες»</b>, στον λογαριασμό που διάλεξες. Οι εισπράξεις από πελάτες καταχωρούνται από τον λογαριασμό του πελάτη.</div>
         <div class="drawer-foot" style="margin:22px -22px -20px;">
           ${incomeId ? '<button type="button" class="btn-danger" id="inc-delete">Διαγραφή</button>' : "<span></span>"}
           <button type="submit" class="btn-primary">Αποθήκευση</button>
         </div>
       </form>`);
-    let dest = curDest;
-    const setDest = (d) => { dest = d; $$("#inc-method .chip").forEach(c => c.classList.toggle("active", c.dataset.d === d)); $("#inc-bank-field").classList.toggle("hidden", d !== "other"); };
-    $$("#inc-method .chip").forEach(c => {
-      c.addEventListener("click", () => setDest(c.dataset.d));
-      c.addEventListener("keydown", (e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); setDest(c.dataset.d); } });
-    });
+    pick.attach();
     if (!incomeId) $("#inc-amount").focus();
     if (incomeId) $("#inc-delete").addEventListener("click", async () => {
       const b = $("#inc-delete");
@@ -5886,10 +5999,7 @@
       const reason = $("#inc-reason").value.trim();
       if (!(amount > 0)) { showMsg($("#inc-msg"), "Γράψε ένα ποσό.", "error"); return; }
       if (!reason) { showMsg($("#inc-msg"), "Γράψε την αιτιολογία.", "error"); return; }
-      const method = dest === "cash" ? "cash" : "bank";
-      const bank = dest === "cash" ? null
-                 : dest === "other" ? $("#inc-bank").value
-                 : $(`#inc-method .chip[data-d="${CSS.escape(dest)}"]`).dataset.bank;
+      const { method, bank } = pick.get();
       if (method === "bank" && !bank) { showMsg($("#inc-msg"), "Διάλεξε τράπεζα.", "error"); return; }
       const payload = { income_date: $("#inc-date").value || isoDay(new Date()), category: $("#inc-category").value, reason, amount, method, bank };
       const { error } = incomeId ? await sb.from("other_incomes").update(payload).eq("id", incomeId)
