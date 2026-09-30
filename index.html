@@ -388,7 +388,44 @@
   }
 
   /* ---- αρχείο τιμολογίων ---- */
-  #view-suppliers .panel-head, #view-accounting .panel-head{flex-wrap:wrap;gap:10px;}
+  #view-suppliers .panel-head, #view-accounting .panel-head, #view-invoicing .panel-head{flex-wrap:wrap;gap:10px;}
+  /* ---- τιμολόγηση ---- */
+  .sd-row{display:grid;grid-template-columns:110px minmax(0,1fr) auto 110px;gap:12px;align-items:center;padding:10px 4px;border-bottom:1px solid var(--line);cursor:pointer;}
+  .sd-row:hover{background:var(--surface-2);}
+  .sd-row.cancelled{opacity:.55;}
+  .sd-row.cancelled .sd-amt{text-decoration:line-through;}
+  .sd-row.compact{grid-template-columns:96px minmax(0,1fr) auto;}
+  .sd-who{min-width:0;} .sd-who > div:first-child{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+  .sd-badges{display:flex;gap:6px;flex-wrap:wrap;justify-content:flex-end;}
+  .sd-amt{text-align:right;font-weight:700;white-space:nowrap;}
+  .sd-mark{display:inline-block;padding:3px 8px;border-radius:99px;font-size:11px;font-weight:600;background:var(--amber-bg);color:var(--amber);}
+  .sd-mark.ok{background:var(--green-bg);color:var(--green);}
+  @media (max-width:640px){ .sd-row{grid-template-columns:minmax(0,1fr) auto;} .sd-row .sd-badges{grid-column:1 / -1;justify-content:flex-start;order:3;} .sd-row .sd-no{order:1;} .sd-row .sd-amt{order:2;} .sd-row .sd-who{grid-column:1 / -1;order:2;} }
+  .sdl{border:1px solid var(--line);border-radius:10px;padding:10px;margin-bottom:8px;background:var(--surface);}
+  .sdl-top{display:flex;gap:8px;align-items:center;margin-bottom:8px;}
+  .sdl-top select{flex:1;min-width:0;}
+  .sdl-desc{margin-bottom:8px;}
+  .sdl-nums{display:grid;grid-template-columns:repeat(5,minmax(0,1fr)) auto;gap:8px;align-items:end;}
+  .sdl-nums label{font-size:11px;color:var(--ink-soft);font-weight:600;display:flex;flex-direction:column;gap:3px;min-width:0;}
+  .sdl-nums input, .sdl-nums select{min-width:0;width:100%;}
+  .sdl-total{font-weight:700;white-space:nowrap;padding-bottom:9px;text-align:right;min-width:74px;}
+  .sdl-warn{color:var(--amber);margin-top:4px;}
+  @media (max-width:560px){ .sdl-nums{grid-template-columns:repeat(3,minmax(0,1fr));} .sdl-total{grid-column:1 / -1;padding-bottom:0;} }
+  .sd-totals{margin:10px 0 0 auto;max-width:300px;font-size:13px;}
+  .sd-totals > div{display:flex;justify-content:space-between;gap:10px;padding:3px 0;}
+  .sd-totals .grand{font-weight:700;font-size:16px;border-top:2px solid var(--ink);margin-top:4px;padding-top:6px;}
+  .sd-client-info{margin-top:6px;font-size:13px;}
+  .sd-need-vat{color:var(--red);margin-top:4px;font-size:13px;}
+  .sd-legal{margin:14px 0 8px;background:var(--amber-bg);border-radius:10px;padding:9px 12px;font-size:12.5px;line-height:1.45;}
+  .sdv-head{display:flex;justify-content:space-between;gap:14px;align-items:flex-start;margin-bottom:10px;}
+  .sdv-client{font-weight:700;font-size:15px;}
+  .sdv-lines{margin-top:6px;}
+  .sdv-mark{padding:9px 12px;border-radius:10px;background:var(--surface-2);}
+  .sdv-mark.ok{background:var(--green-bg);color:var(--green);}
+  .sdv-mark-form summary{cursor:pointer;font-weight:600;font-size:13px;margin-top:10px;}
+  .drawer-tabs{display:flex;gap:4px;border-bottom:1px solid var(--line);margin:-4px 0 16px;overflow-x:auto;}
+  .drawer-tabs button{background:none;border:none;border-bottom:2.5px solid transparent;padding:9px 12px;font-weight:600;font-size:13.5px;color:var(--ink-soft);cursor:pointer;white-space:nowrap;}
+  .drawer-tabs button.active{color:var(--teal-dark);border-bottom-color:var(--teal);}
   .arch-tools{display:flex;flex-direction:column;gap:10px;padding:14px 20px 8px;}
   .arch-dates{display:flex;align-items:center;gap:6px;flex-wrap:wrap;}
   .arch-dates input[type=date]{width:auto;min-width:0;flex:0 1 150px;}
@@ -627,6 +664,7 @@
     <div class="nav-item" data-view="inventory" id="nav-inventory">Αποθήκη</div>
     <div class="nav-item hidden" data-view="suppliers" id="nav-suppliers">Προμηθευτές</div>
     <div class="nav-item" data-view="quotes" id="nav-quotes">Προσφορές</div>
+    <div class="nav-item hidden" data-view="invoicing" id="nav-invoicing">Τιμολόγηση</div>
     <div class="nav-item" data-view="expenses" id="nav-expenses">Έσοδα-Έξοδα</div>
     <div class="nav-item hidden" data-view="accounting" id="nav-accounting">Λογιστήριο</div>
     <div class="nav-item" data-view="schedule" id="nav-schedule">Πρόγραμμα<span class="nav-count hidden" id="nav-schedule-count" title="Υπενθυμίσεις που εκκρεμούν"></span></div>
@@ -790,6 +828,43 @@
           <button type="button" class="btn-ghost btn-sm" id="arch-clear-sel">Καμία επιλογή</button>
           <button type="button" class="btn-primary btn-sm" id="arch-send">📤 Στον λογιστή</button>
         </div>
+      </div>
+    </div>
+
+    <!-- τιμολόγηση (owner): σειρές, παραστατικά πωλήσεων, εκτύπωση -->
+    <div id="view-invoicing" class="hidden">
+      <div class="panel" style="margin-bottom:16px;">
+        <div class="panel-head">
+          <h2>Τιμολόγηση</h2>
+          <div style="display:flex;gap:8px;flex-wrap:wrap;justify-content:flex-end;">
+            <button type="button" class="btn-ghost btn-sm" id="inv-biz-btn">Στοιχεία & εκτύπωση</button>
+            <button type="button" class="btn-ghost btn-sm" id="inv-series-btn">Σειρές</button>
+            <button type="button" class="btn-ghost btn-sm" id="inv-quotes-btn">Προσφορές</button>
+            <button type="button" class="btn-primary btn-sm" id="inv-new-btn">+ Νέο παραστατικό</button>
+          </div>
+        </div>
+        <div id="inv-msg" style="padding:12px 20px 0;"></div>
+        <div id="inv-biz-warn"></div>
+        <div class="stat-row" id="inv-stats"></div>
+      </div>
+      <div class="panel">
+        <div class="panel-head"><h2>Παραστατικά</h2><span class="cell-sub" id="inv-count"></span></div>
+        <div class="arch-tools">
+          <input type="search" id="inv-q" placeholder="🔍 Αναζήτηση: αριθμός, πελάτης, ΑΦΜ, ΜΑΡΚ, ποσό…">
+          <div class="arch-dates">
+            <input type="date" id="inv-from" aria-label="Από"><span class="cell-sub">έως</span><input type="date" id="inv-to" aria-label="Έως">
+            <button type="button" class="btn-ghost btn-sm" id="inv-this-month">Αυτός ο μήνας</button>
+            <button type="button" class="btn-ghost btn-sm" id="inv-clear">Καθαρισμός</button>
+          </div>
+          <div class="filterbar" id="inv-series-chips" style="padding:0;"></div>
+          <div class="filterbar" id="inv-status-chips" style="padding:0;">
+            <div class="chip active" data-st="all">Όλα</div>
+            <div class="chip" data-st="open">Ανεξόφλητα</div>
+            <div class="chip" data-st="nomark">Χωρίς ΜΑΡΚ</div>
+            <div class="chip" data-st="cancelled">Ακυρωμένα</div>
+          </div>
+        </div>
+        <div class="panel-body" id="inv-list" style="padding:0 20px 14px;"></div>
       </div>
     </div>
 
@@ -1005,10 +1080,10 @@
         { id:"demo-cu1", role:"client", full_name:"Ελένη Μαρκάκη", email:"eleni@demo.example", client_id: C[0], leave_days_per_year:0, created_at: ts(-60) }
       ],
       clients: [
-        { id:C[0], name:"Ξενοδοχείο Γαλάζιο Κύμα", type:"Ξενοδοχείο", city:"Φηρά", contact:"Ελένη Μαρκάκη", phone:"210 000 0101", email:"info@galazio.demo.example", entity_type:"company", status:"active", address:"Παραλιακή 12", created_at: ts(-120) },
+        { id:C[0], name:"Ξενοδοχείο Γαλάζιο Κύμα", type:"Ξενοδοχείο", city:"Φηρά", contact:"Ελένη Μαρκάκη", phone:"210 000 0101", email:"info@galazio.demo.example", entity_type:"company", status:"active", address:"Παραλιακή 12", vat_number:"000000001", tax_office:"Θήρας", created_at: ts(-120) },
         { id:C[1], name:"Ταβέρνα Το Λιμανάκι", type:"Εστιατόριο", city:"Οία", contact:"Κώστας Ρούσσος", phone:"210 000 0102", email:"limanaki@demo.example", entity_type:"individual", status:"active", created_at: ts(-110) },
         { id:C[2], name:"Καφέ Αστέρι", type:"Επιχείρηση", city:"Καμάρι", contact:"Δήμητρα Λάμπρου", phone:"210 000 0103", status:"active", created_at: ts(-95) },
-        { id:C[3], name:"Βίλες Ηλιοβασίλεμα", type:"Ξενοδοχείο", city:"Ημεροβίγλι", contact:"Αλέξης Νομικός", phone:"210 000 0104", status:"active", created_at: ts(-80) },
+        { id:C[3], name:"Βίλες Ηλιοβασίλεμα", type:"Ξενοδοχείο", city:"Ημεροβίγλι", contact:"Αλέξης Νομικός", phone:"210 000 0104", status:"active", entity_type:"company", vat_number:"000000002", tax_office:"Θήρας", address:"Ημεροβίγλι", created_at: ts(-80) },
         { id:C[4], name:"Mini Market Κεντρικό", type:"Επιχείρηση", city:"Πύργος", contact:"Σοφία Βλάχου", phone:"210 000 0105", status:"active", created_at: ts(-40) },
         { id:C[5], name:"Εστιατόριο Θαλασσινό", type:"Εστιατόριο", city:"Περίσσα", contact:"Πέτρος Ζαχαρίου", phone:"210 000 0106", status:"pending", entity_type:"company", created_at: ts(-1) }
       ],
@@ -1070,7 +1145,19 @@
         { id:"demo-l7", client_id:C[2], entry_date:day(0), description:"Πληρωμή μηνιαίας συντήρησης", charge:0, payment:60, doc_number:"ΑΠΥ-4", method:"cash", created_at:ts(0,9,10) },
         { id:"demo-l8", client_id:C[2], entry_date:day(-30), description:"Μηνιαία συντήρηση", charge:60, payment:0, doc_number:"ΤΠΥ-2", created_at:ts(-30,9) }
       ],
-      doc_counters: [ { key:"TDA", label:"ΤΔΑ", next_number:3 }, { key:"TPY", label:"ΤΠΥ", next_number:3 }, { key:"APY", label:"ΑΠΥ", next_number:5 } ],
+      doc_counters: [ { key:"TDA", label:"ΤΔΑ", next_number:3 }, { key:"TPY", label:"ΤΠΥ", next_number:3 }, { key:"APY", label:"ΑΠΕ", next_number:5 } ],
+      business_info: [ { id:1, legal_name:"ΠΑΠΑΔΟΠΟΥΛΟΣ ΓΙΑΝΝΗΣ (επίδειξη)", trade_name:"ITSUPP", profession:"Υπηρεσίες πληροφορικής & συστήματα ασφαλείας",
+        vat_number:"000000000", tax_office:"Θήρας", address:"Κεντρική πλατεία 1", city:"Φηρά", postal_code:"84700", phone:"210 000 0000", email:"demo@itsupp.gr",
+        website:"app.itsupp.gr", gemi:null, bank_info:"Τράπεζα Πειραιώς GR00 0000 0000 0000 0000 0000 001", footer_note:"Ευχαριστούμε για την προτίμηση!",
+        show_logo:true, quote_terms:"Προκαταβολή 50% με την ανάθεση. Εγγύηση εξοπλισμού 2 έτη.", quote_valid_days:30, quote_prices_with_vat:true, quote_vat_rate:24 } ],
+      doc_series: [
+        { id:"demo-ser1", code:"ΑΠΛ", title:"Απόδειξη Λιανικής Πώλησης", kind:"retail", mydata_type:"11.1", prices_with_vat:true, next_number:1, active:true, sort_order:1, print_note:null, created_at: ts(-200) },
+        { id:"demo-ser2", code:"ΑΠΥ", title:"Απόδειξη Παροχής Υπηρεσιών", kind:"retail", mydata_type:"11.2", prices_with_vat:true, next_number:1, active:true, sort_order:2, print_note:null, created_at: ts(-200) },
+        { id:"demo-ser3", code:"ΤΙΜ", title:"Τιμολόγιο Πώλησης", kind:"invoice", mydata_type:"1.1", prices_with_vat:false, next_number:1, active:true, sort_order:3, print_note:null, created_at: ts(-200) },
+        { id:"demo-ser4", code:"ΤΠΥ", title:"Τιμολόγιο Παροχής Υπηρεσιών", kind:"invoice", mydata_type:"2.1", prices_with_vat:false, next_number:1, active:true, sort_order:4, print_note:null, created_at: ts(-200) },
+        { id:"demo-ser5", code:"ΠΙΣ", title:"Πιστωτικό Τιμολόγιο", kind:"credit", mydata_type:"5.1", prices_with_vat:false, next_number:1, active:true, sort_order:5, print_note:null, created_at: ts(-200) }
+      ],
+      sales_docs: [], sales_doc_lines: [],
       quotes: [
         { id:"demo-q1", quote_no:1, client_id:C[4], quote_date:day(-8), status:"accepted", note:"Κάμερες ταμείου και αποθήκης", created_at:ts(-8) },
         { id:"demo-q2", quote_no:2, client_id:C[5], quote_date:day(-1), status:"sent", note:"Πλήρες σύστημα παραγγελιοληψίας", created_at:ts(-1) }
@@ -1180,7 +1267,8 @@
       ledger_entries: () => ({ entry_date: isoDay(new Date()), charge:0, payment:0, created_at: nowIso() }),
       visit_logs: () => ({ checkin_at: nowIso(), created_at: nowIso() }),
       inventory_items: () => ({ stock:0, max_stock:0, price:0 }),
-      quote_items: () => ({ qty:1, unit_price:0 })
+      quote_items: () => ({ qty:1, unit_price:0 }),
+      doc_series: () => ({ kind:"retail", prices_with_vat:false, next_number:1, active:true, sort_order:0, created_at: nowIso() })
     };
     const afterWrite = (t, r) => {
       if (t === "leave_requests" && r.start_date && r.end_date) r.days = leaveDays(r.start_date, r.end_date);
@@ -1229,6 +1317,9 @@
         });
         return out;
       },
+      sales_docs_view: () => tbl("sales_docs").map(d => ({ ...d,
+        paid_amount: Math.round(tbl("ledger_entries").filter(l => Number(l.payment) > 0 && l.settles_doc === d.doc_no && (l.client_id === d.client_id || l.sales_doc_id === d.id))
+          .reduce((s, l) => s + Number(l.payment), 0) * 100) / 100 })),
       money_balances: () => {
         const L = VIEWS.money_ledger();
         return tbl("money_accounts").map(a => ({ ...a,
@@ -1295,7 +1386,10 @@
           return { data: this.one ? rows[0] : rows, error: null };
         }
         if (this.op === "delete") {
-          const rows = this.match(); DB[t] = tbl(t).filter(r => !rows.includes(r));
+          const rows = this.match();
+          if (t === "doc_series" && tbl("sales_docs").some(d => rows.some(r => r.id === d.series_id)))
+            return { data:null, error:{ message:'update or delete on table "doc_series" violates foreign key constraint' } };
+          DB[t] = tbl(t).filter(r => !rows.includes(r));
           // «on delete cascade» για τα βασικά
           if (t === "tickets") { const ids = rows.map(r => r.id); ["ticket_notes","visit_logs","notifications"].forEach(c => DB[c] = tbl(c).filter(x => !ids.includes(x.ticket_id))); }
           if (t === "clients") { const ids = rows.map(r => r.id); ["tickets","ledger_entries","equipment","remote_access","quotes"].forEach(c => DB[c] = tbl(c).filter(x => !ids.includes(x.client_id))); }
@@ -1411,8 +1505,93 @@
         V.entries.push({ id:newId(), debt_id:p_debt, entry_date:p_date, kind:p_kind || "payment", amount:Math.round(p_amount * 100) / 100, note:p_note || null, created_at:nowIso() });
         return { ok:true };
       }),
-      vault_delete_entry: withPin(({ p_id }) => { V.entries = V.entries.filter(e => e.id !== p_id); return { ok:true }; })
+      vault_delete_entry: withPin(({ p_id }) => { V.entries = V.entries.filter(e => e.id !== p_id); return { ok:true }; }),
+      // ---- τιμολόγηση: ίδια λογική με το schema_v19.sql ----
+      issue_sales_doc: ({ p }) => {
+        const r2 = (x) => Math.round((x + Number.EPSILON) * 100) / 100;
+        const s = tbl("doc_series").find(x => x.id === p.series_id);
+        if (!s) return { ok:false, error:"Διάλεξε σειρά παραστατικού." };
+        if (!s.active) return { ok:false, error:"Η σειρά " + s.code + " είναι ανενεργή." };
+        if (!p.lines || !p.lines.length) return { ok:false, error:"Πρόσθεσε τουλάχιστον μία γραμμή." };
+        let method = p.payment_method || "credit"; if (s.kind === "credit") method = "credit";
+        let clientId = p.client_id || null;
+        if (!clientId) {
+          if (s.kind !== "retail") return { ok:false, error:"Το " + s.title + " θέλει πελάτη με ΑΦΜ." };
+          let w = tbl("clients").find(c => c.is_walkin);
+          if (!w) { w = { id:newId(), name:"Πελάτες λιανικής", type:"Άλλο", is_walkin:true, status:"active", created_at:nowIso() }; tbl("clients").push(w); }
+          clientId = w.id;
+        }
+        const c = tbl("clients").find(x => x.id === clientId);
+        if (!c) return { ok:false, error:"Ο πελάτης δεν βρέθηκε." };
+        if (s.kind !== "retail" && (c.is_walkin || !String(c.vat_number || "").trim())) return { ok:false, error:"Για " + s.title + " ο πελάτης χρειάζεται ΑΦΜ (συμπλήρωσέ το στην καρτέλα του)." };
+        const pwv = p.prices_with_vat != null ? !!p.prices_with_vat : !!s.prices_with_vat;
+        const lines = []; let net = 0, vat = 0, total = 0;
+        for (const [i, l] of p.lines.entries()) {
+          const qty = Number(l.qty ?? 1), price = Number(l.unit_price || 0), disc = Number(l.discount_pct || 0), rate = Number(l.vat_rate ?? 24);
+          if (!(qty > 0)) return { ok:false, error:`Γραμμή ${i + 1}: η ποσότητα πρέπει να είναι πάνω από 0.` };
+          if (price < 0) return { ok:false, error:`Γραμμή ${i + 1}: η τιμή δεν μπορεί να είναι αρνητική.` };
+          if (!String(l.description || "").trim()) return { ok:false, error:`Γραμμή ${i + 1}: γράψε περιγραφή.` };
+          const base = qty * price * (1 - disc / 100); let ln, lv, lt;
+          if (pwv) { lt = r2(base); ln = r2(lt / (1 + rate / 100)); lv = r2(lt - ln); } else { ln = r2(base); lv = r2(ln * rate / 100); lt = r2(ln + lv); }
+          lines.push({ line_no:i + 1, inventory_item_id:l.inventory_item_id || null, sku:l.sku || null, description:String(l.description).trim(), qty, unit:l.unit || "τεμ.",
+                       unit_price:price, discount_pct:disc, vat_rate:rate, line_net:ln, line_vat:lv, line_total:lt });
+          net += ln; vat += lv; total += lt;
+        }
+        const id = newId(), no = s.next_number, docNo = s.code + "-" + no, date = p.doc_date || isoDay(new Date());
+        s.next_number++;
+        const biz = { ...(tbl("business_info")[0] || {}) }; ["id","updated_at","quote_terms","quote_valid_days","quote_prices_with_vat","quote_vat_rate"].forEach(k => delete biz[k]);
+        const stock = p.affect_stock !== false;
+        tbl("sales_docs").push({ id, series_id:s.id, series_code:s.code, kind:s.kind, title:s.title, number:no, doc_no:docNo, doc_date:date, client_id:clientId,
+          client_snapshot:{ name:c.name, trade_name:c.trade_name || null, vat_number:c.vat_number || null, tax_office:c.tax_office || null, address:c.address || null,
+                            city:c.city || null, phone:c.phone || null, email:c.email || null, entity_type:c.entity_type || null, is_walkin:!!c.is_walkin },
+          issuer_snapshot:biz, prices_with_vat:pwv, net:r2(net), vat:r2(vat), total:r2(total), payment_method:method, bank:method === "bank" ? (p.bank || null) : null,
+          stock_applied:stock, status:"issued", cancel_reason:null, cancelled_at:null, mark:null, uid:null, qr_url:null, note:p.note || null,
+          quote_id:p.quote_id || null, ticket_id:p.ticket_id || null, related_doc_id:p.related_doc_id || null, created_by:user.id, created_at:nowIso() });
+        lines.forEach(l => { tbl("sales_doc_lines").push({ id:newId(), doc_id:id, ...l });
+          if (stock && l.inventory_item_id) { const it = tbl("inventory_items").find(x => x.id === l.inventory_item_id); if (it) it.stock = Number(it.stock) + (s.kind === "credit" ? 1 : -1) * Math.round(l.qty); } });
+        const sign = s.kind === "credit" ? -1 : 1;
+        tbl("ledger_entries").push({ id:newId(), client_id:clientId, entry_date:date, description:s.title + " — " + lines[0].description + (lines.length > 1 ? ` (+${lines.length - 1})` : ""),
+          charge:sign * r2(total), payment:0, doc_number:docNo, method:null, bank:null, settles_doc:null, sales_doc_id:id, created_at:nowIso() });
+        if (["cash","card","bank"].includes(method) && total > 0)
+          tbl("ledger_entries").push({ id:newId(), client_id:clientId, entry_date:date, description:"Εξόφληση " + docNo, charge:0, payment:r2(total), doc_number:null,
+            method, bank:method === "bank" ? (p.bank || null) : null, settles_doc:docNo, sales_doc_id:id, created_at:nowIso() });
+        if (p.quote_id) { const q = tbl("quotes").find(x => x.id === p.quote_id); if (q) q.status = "accepted"; }
+        save();
+        return { ok:true, id, doc_no:docNo, total:r2(total), client_id:clientId };
+      },
+      cancel_sales_doc: ({ p_id, p_reason }) => {
+        const d = tbl("sales_docs").find(x => x.id === p_id);
+        if (!d) return { ok:false, error:"Δεν βρέθηκε." };
+        if (d.status === "cancelled") return { ok:false, error:"Είναι ήδη ακυρωμένο." };
+        if (d.mark) return { ok:false, error:"Έχει ΜΑΡΚ — ακυρώνεται μόνο από τον πάροχο ή με πιστωτικό." };
+        if (d.stock_applied) tbl("sales_doc_lines").filter(l => l.doc_id === p_id && l.inventory_item_id).forEach(l => {
+          const it = tbl("inventory_items").find(x => x.id === l.inventory_item_id); if (it) it.stock = Number(it.stock) + (d.kind === "credit" ? -1 : 1) * Math.round(l.qty); });
+        DB.ledger_entries = tbl("ledger_entries").filter(l => l.sales_doc_id !== p_id);
+        Object.assign(d, { status:"cancelled", cancel_reason:(p_reason || "").trim() || null, cancelled_at:nowIso() });
+        save(); return { ok:true };
+      },
+      set_sales_doc_mark: ({ p_id, p_mark, p_uid, p_qr_url }) => {
+        const mark = String(p_mark || "").replace(/\s/g, "") || null;
+        if (mark && !/^[0-9]{6,20}$/.test(mark)) return { ok:false, error:"Ο ΜΑΡΚ είναι μόνο αριθμοί (συνήθως 15 ψηφία)." };
+        if (mark && tbl("sales_docs").some(x => x.mark === mark && x.id !== p_id)) return { ok:false, error:"Αυτός ο ΜΑΡΚ υπάρχει ήδη σε άλλο παραστατικό." };
+        const d = tbl("sales_docs").find(x => x.id === p_id && x.status === "issued");
+        if (!d) return { ok:false, error:"Δεν βρέθηκε (ή είναι ακυρωμένο)." };
+        Object.assign(d, { mark, uid:String(p_uid || "").trim() || null, qr_url:String(p_qr_url || "").trim() || null });
+        save(); return { ok:true };
+      }
     };
+    // δείγματα παραστατικών στην επίδειξη (μία φορά)
+    if (DB.doc_series && !DB.__salesSeeded) {
+      DB.__salesSeeded = true;
+      const dd = (n) => { const d = new Date(); d.setDate(d.getDate() + n); return isoDay(d); };
+      RPC.issue_sales_doc({ p:{ series_id:"demo-ser4", client_id:"demo-c1", doc_date:dd(-12), payment_method:"credit", affect_stock:false,
+        lines:[ { description:"Ετήσια συντήρηση συστήματος καμερών", qty:1, unit:"υπηρ.", unit_price:180, vat_rate:24 },
+                { inventory_item_id:"demo-i1", sku:"CAM-4MP-D", description:"IP κάμερα dome 4MP", qty:2, unit_price:71.77, vat_rate:24 } ] } });
+      const r2d = RPC.issue_sales_doc({ p:{ series_id:"demo-ser3", client_id:"demo-c4", doc_date:dd(-4), payment_method:"credit", affect_stock:false,
+        lines:[ { inventory_item_id:"demo-i7", sku:"AP-WIFI6", description:"Access point Wi-Fi 6", qty:3, unit_price:108.87, vat_rate:24 },
+                { description:"Εγκατάσταση & ρύθμιση δικτύου", qty:2, unit:"ώρ.", unit_price:40, vat_rate:24 } ] } });
+      if (r2d.ok) RPC.set_sales_doc_mark({ p_id:r2d.id, p_mark:"400000000000123", p_uid:null, p_qr_url:null });
+    }
 
     // αρχεία στην επίδειξη: μόνο στη μνήμη (χάνονται με ανανέωση — δεν χωράνε στο sessionStorage)
     const FILES = window.__DEMO_FILES = window.__DEMO_FILES || {};
@@ -2112,6 +2291,7 @@
     $("#view-suppliers").classList.toggle("hidden", view !== "suppliers");
     $("#view-accounting").classList.toggle("hidden", view !== "accounting");
     $("#view-quotes").classList.toggle("hidden", view !== "quotes");
+    $("#view-invoicing").classList.toggle("hidden", view !== "invoicing");
     $("#view-expenses").classList.toggle("hidden", view !== "expenses");
     $("#view-schedule").classList.toggle("hidden", view !== "schedule");
     $("#view-technicians").classList.toggle("hidden", view !== "technicians");
@@ -2123,6 +2303,7 @@
     if (view === "suppliers") loadSuppliersView();
     if (view === "accounting") loadAccountingView();
     if (view === "quotes") loadQuotes();
+    if (view === "invoicing") loadInvoicingView();
     if (view === "expenses") loadExpenses();
     if (view === "schedule") loadSchedule();
     if (view === "technicians") loadTechnicians();
@@ -2143,6 +2324,7 @@
     $("#view-suppliers").classList.add("hidden");
     $("#view-accounting").classList.add("hidden");
     $("#view-quotes").classList.add("hidden");
+    $("#view-invoicing").classList.add("hidden");
     $("#view-expenses").classList.add("hidden");
     $("#view-schedule").classList.add("hidden");
     $("#view-technicians").classList.add("hidden");
@@ -2188,6 +2370,7 @@
       $("#nav-quotes").classList.toggle("hidden", !isOwnerRole);
       $("#nav-suppliers").classList.toggle("hidden", !isOwnerRole);
       $("#nav-accounting").classList.toggle("hidden", !isOwnerRole);
+      $("#nav-invoicing").classList.toggle("hidden", !isOwnerRole);
       document.body.classList.toggle("is-owner", isOwnerRole);
       $("#nav-expenses").classList.toggle("hidden", !isOwnerRole);
       $("#nav-tickets-label").textContent = isOwnerRole ? "Αιτήματα" : "Οι εργασίες μου";
@@ -2481,7 +2664,7 @@
 
   $("#new-client-btn").addEventListener("click", () => openClientDrawer(null));
 
-  async function openClientDrawer(clientId){
+  async function openClientDrawer(clientId, tab){
     let client = { name:"", type:"Άλλο", city:"", contact:"", phone:"", email:"", contract_until:"" };
     let remoteAccess = [];
     let equipment = [];
@@ -2513,6 +2696,12 @@
     openDrawer(clientId ? "Στοιχεία πελάτη" : "Νέος πελάτης", `
       <form id="client-form">
         <div id="client-form-msg"></div>
+        ${clientId ? `<div class="drawer-tabs" id="cl-tabs">
+          <button type="button" data-tab="info" class="active">Στοιχεία</button>
+          <button type="button" data-tab="docs">Παραστατικά <span id="cl-docs-n"></span></button>
+          <button type="button" data-tab="acct">Λογαριασμός ${balance > 0.004 ? `<span class="cell-sub" style="color:var(--red);">${balance.toFixed(2)}€</span>` : ""}</button>
+        </div>` : ""}
+        <div data-pane="info">
         ${clientId && client.status === "pending" ? `
           <div class="vlog-open stale" style="margin-bottom:14px;">
             <strong>Νέα εγγραφή — περιμένει έγκριση.</strong><br>
@@ -2579,6 +2768,13 @@
         <button type="button" class="add-link" id="ra-add">+ Προσθήκη στοιχείου</button>
 
         ${clientId ? `
+        <div class="section-title">Εξοπλισμός</div>
+        ${equipment.length === 0 ? '<div class="cell-sub" style="padding:6px 0 0;">Δεν έχει καταχωρηθεί ακόμα εξοπλισμός (γίνεται από την Αποθήκη).</div>' : equipment.map(e => `
+          <div class="note-item"><div style="font-size:13px;"><strong>${escapeHtml(e.type)}</strong> — ${escapeHtml(e.detail)}</div></div>`).join("")}
+        ` : ""}
+        </div>
+        ${clientId ? `
+        <div data-pane="acct" class="hidden">
         <div class="section-title">Λογαριασμός</div>
         <div class="stat-row" style="padding:0 0 10px;grid-template-columns:1fr 1fr 1fr;">
           <div class="stat-tile"><div class="num">${totalCharge.toFixed(2)}€</div><div class="lbl">Χρεώσεις</div></div>
@@ -2586,21 +2782,20 @@
           <div class="stat-tile ${balance > 0 ? 'balance-due' : ''}"><div class="num">${balance.toFixed(2)}€</div><div class="lbl">Υπόλοιπο</div></div>
         </div>
         ${ledger.length === 0 ? '<div class="cell-sub" style="padding:6px 0;">Δεν υπάρχουν ακόμα κινήσεις.</div>' : ledger.map(l => `
-          <div class="note-item" style="display:flex;justify-content:space-between;gap:10px;">
+          <div class="note-item ${l.sales_doc_id ? "clickable" : ""}" ${l.sales_doc_id ? `data-ledger-sd="${l.sales_doc_id}" role="button" tabindex="0" title="Άνοιγμα παραστατικού"` : ""} style="display:flex;justify-content:space-between;gap:10px;">
             <div>
               <div style="font-size:13px;">${escapeHtml(l.description)}</div>
               <div class="note-meta">${l.entry_date} ${l.doc_number ? '· ' + escapeHtml(l.doc_number) : ''} ${l.settles_doc ? '· εξοφλεί ' + escapeHtml(l.settles_doc) : ''} ${l.method ? '· ' + ({cash:'Μετρητά',card:'Κάρτα',bank:'Τραπεζική κατάθεση'}[l.method]||l.method) + (l.bank ? ' · ' + escapeHtml(l.bank) : '') : ''}</div>
             </div>
-            <div class="ledger-amt ${Number(l.charge)>0 ? 'ledger-row-charge' : 'ledger-row-payment'}">${Number(l.charge)>0 ? '+' + Number(l.charge).toFixed(2) : '−' + Number(l.payment).toFixed(2)}€</div>
+            <div class="ledger-amt ${Number(l.charge)>0 ? 'ledger-row-charge' : 'ledger-row-payment'}">${Number(l.charge)>0 ? '+' + Number(l.charge).toFixed(2) : Number(l.charge)<0 ? '−' + Math.abs(Number(l.charge)).toFixed(2) : '−' + Number(l.payment).toFixed(2)}€</div>
           </div>`).join("")}
         <div style="display:flex;gap:16px;">
           <button type="button" class="add-link" id="cl-new-txn">+ Κίνηση</button>
           <button type="button" class="add-link" id="cl-print">Λήψη για εκτύπωση</button>
         </div>
 
-        <div class="section-title">Εξοπλισμός</div>
-        ${equipment.length === 0 ? '<div class="cell-sub" style="padding:6px 0 0;">Δεν έχει καταχωρηθεί ακόμα εξοπλισμός (γίνεται από την Αποθήκη).</div>' : equipment.map(e => `
-          <div class="note-item"><div style="font-size:13px;"><strong>${escapeHtml(e.type)}</strong> — ${escapeHtml(e.detail)}</div></div>`).join("")}
+        </div>
+        <div data-pane="docs" class="hidden" id="cl-docs-pane"><div class="cell-sub">Φόρτωση…</div></div>
         ` : ""}
 
         <div class="drawer-foot" style="margin:22px -22px -20px;">
@@ -2611,6 +2806,14 @@
     `);
 
     if (clientId) {
+      const showTab = (t) => {
+        $$("#cl-tabs button").forEach(b => b.classList.toggle("active", b.dataset.tab === t));
+        $$("#client-form [data-pane]").forEach(p => p.classList.toggle("hidden", p.dataset.pane !== t));
+      };
+      $$("#cl-tabs button").forEach(b => b.addEventListener("click", () => showTab(b.dataset.tab)));
+      if (tab) showTab(tab);
+      renderClientDocs(clientId);
+      $$("[data-ledger-sd]").forEach(el => el.addEventListener("click", () => openSalesDoc(el.dataset.ledgerSd)));
       $("#cl-new-txn").addEventListener("click", () => openLedgerEntryDrawer(clientId, client.name));
       $("#cl-print").addEventListener("click", () => {
         const w = window.open("", "_blank");
@@ -2754,7 +2957,7 @@
       <tr>
         <td>${l.entry_date}</td>
         <td>${escapeHtml(l.description)}${l.doc_number ? " — " + escapeHtml(l.doc_number) : ""}${l.settles_doc ? " (εξοφλεί " + escapeHtml(l.settles_doc) + ")" : ""}${l.method ? " · " + (methodLabel[l.method] || l.method) + (l.bank ? " · " + escapeHtml(l.bank) : "") : ""}</td>
-        <td style="text-align:right;">${Number(l.charge) > 0 ? Number(l.charge).toFixed(2) + "€" : ""}</td>
+        <td style="text-align:right;">${Number(l.charge) !== 0 ? Number(l.charge).toFixed(2) + "€" : ""}</td>
         <td style="text-align:right;">${Number(l.payment) > 0 ? Number(l.payment).toFixed(2) + "€" : ""}</td>
       </tr>`).join("");
     return `<!doctype html>
@@ -2803,8 +3006,11 @@
     return rows.filter(r => Number(r.charge) > 0 && r.doc_number && !settled.has(r.doc_number)).map(r => r.doc_number);
   }
 
-  async function openLedgerEntryDrawer(clientId, clientName){
+  async function openLedgerEntryDrawer(clientId, clientName, preset){
+    preset = preset || {};
     const outstanding = await outstandingDocs(clientId);
+    if (preset.settles && !outstanding.includes(preset.settles)) outstanding.unshift(preset.settles);
+    await loadSeries();
     openDrawer("Νέα κίνηση — " + clientName, `
       <form id="txn-form">
         <div id="txn-msg"></div>
@@ -2821,13 +3027,16 @@
         <div class="field"><label>Περιγραφή</label><input id="txn-desc" placeholder="π.χ. Εργασία εγκατάστασης"></div>
 
         <div id="txn-charge-fields">
+          ${SERIES ? `<select id="txn-doc-series" class="hidden"><option value="">Χωρίς παραστατικό</option></select>
+          <div class="sd-legal" style="margin-top:0;">Εδώ γράφεται <b>χρέωση χωρίς παραστατικό</b>. Για απόδειξη ή τιμολόγιο με εκτύπωση:
+            <button type="button" class="btn-primary btn-sm" id="txn-new-doc" style="margin-left:4px;">+ Νέο παραστατικό</button></div>` : `
           <div class="field"><label>Παραστατικό</label>
             <select id="txn-doc-series">
               <option value="TDA">ΤΔΑ</option>
               <option value="TPY">ΤΠΥ</option>
               <option value="">Χωρίς παραστατικό</option>
             </select>
-          </div>
+          </div>`}
         </div>
 
         <div id="txn-payment-fields" class="hidden">
@@ -2861,6 +3070,12 @@
       $("#txn-charge-fields").classList.toggle("hidden", !isCharge);
       $("#txn-payment-fields").classList.toggle("hidden", isCharge);
     });
+    if ($("#txn-new-doc")) $("#txn-new-doc").addEventListener("click", () => openSalesDocForm({ client_id: clientId }));
+    if (preset.type === "payment") {
+      $("#txn-type").value = "payment"; $("#txn-type").dispatchEvent(new Event("change"));
+      if (preset.amount) $("#txn-amount").value = Number(preset.amount).toFixed(2);
+      if (preset.settles) { $("#txn-settles").value = preset.settles; $("#txn-desc").value = "Εξόφληση " + preset.settles; }
+    }
     $("#txn-method").addEventListener("change", () => {
       $("#txn-bank-field").classList.toggle("hidden", $("#txn-method").value !== "bank");
     });
@@ -2901,6 +3116,8 @@
         showMsg($("#txn-msg"), "Σφάλμα: " + error.message, "error");
         return;
       }
+      if (!isCharge && payload.method !== "card" && MONEY_ACCOUNTS.length) await ensureMoneyAccount(payload.method, payload.bank, payload.entry_date);
+      if (preset.backToDoc) { await openSalesDoc(preset.backToDoc); refreshSalesViews(); return; }
       await openClientDrawer(clientId);
     });
   }
@@ -3015,6 +3232,7 @@
     const { data: notes } = await sb.from("ticket_notes").select("*").eq("ticket_id", ticketId).order("created_at");
     if (!portalMode && INVENTORY_CACHE.length === 0) await loadInventory();
     if (!portalMode && STAFF_USERS_CACHE.length === 0) await loadStaffUsers();
+    if (!portalMode) await loadSeries();
 
     async function fetchVlogs(){
       if (portalMode) return [];
@@ -3084,11 +3302,7 @@
       <div class="qtotal-row"><span>Συνολική χρέωση επίσκεψης</span><span id="visit-grand-total">0.00€</span></div>
       <div class="form-row">
         <div class="field"><label>Παραστατικό</label>
-          <select id="visit-doc-series">
-            <option value="TDA">ΤΔΑ</option>
-            <option value="TPY">ΤΠΥ</option>
-            <option value="">Χωρίς παραστατικό</option>
-          </select>
+          <select id="visit-doc-series">${seriesOptionsHtml()}</select>
         </div>
         <div class="field"><label>Πληρωμή</label>
           <select id="visit-paid">
@@ -3273,6 +3487,24 @@
           }
         }
         btn.disabled = true; btn.innerHTML = '<span class="spinner"></span>Καταχώρηση...';
+        // νέα τιμολόγηση: το παραστατικό εκδίδεται ΠΡΩΤΟ (αν αποτύχει, δεν πειράζεται τίποτα)
+        let issued = null;
+        const seriesSel = $("#visit-doc-series").value;
+        if (grandTotal > 0 && isSeriesId(seriesSel)) {
+          const paidNow = $("#visit-paid").value === "yes", m = $("#visit-method").value;
+          const docLines = lines.map(l => ({ inventory_item_id: l.itemId, description: l.description, qty: l.qty, unit_price: l.price, vat_rate: 24 }));
+          if (labor > 0) docLines.push({ description: "Εργασία" + (t.title ? " — " + t.title : ""), qty: 1, unit: "υπηρ.", unit_price: labor, vat_rate: 24 });
+          const { data: res, error: isErr } = await sb.rpc("issue_sales_doc", { p: {
+            series_id: seriesSel, client_id: t.client_id, ticket_id: t.id, lines: docLines, prices_with_vat: true, affect_stock: false,
+            payment_method: paidNow ? m : "credit", bank: paidNow && m === "bank" ? $("#visit-bank").value : null,
+            note: "Επίσκεψη " + t.code } });
+          if (isErr || !res || !res.ok) {
+            btn.disabled = false; btn.textContent = "Καταχώρηση επίσκεψης";
+            showMsg($("#visit-msg"), "Το παραστατικό δεν εκδόθηκε: " + (isErr ? isErr.message : res.error), "error");
+            return;
+          }
+          issued = res;
+        }
         try {
           for (const l of lines) {
             if (l.itemId) {
@@ -3288,7 +3520,7 @@
             });
             if (eqErr) throw eqErr;
           }
-          if (grandTotal > 0) {
+          if (grandTotal > 0 && !issued) {
             const series = $("#visit-doc-series").value;
             let docNumber = null;
             if (series) {
@@ -3316,7 +3548,12 @@
               if (payInsErr) throw payInsErr;
             }
           }
-          showMsg($("#visit-msg"), "Καταχωρήθηκε επιτυχώς.", "ok");
+          if (issued) {
+            $("#visit-msg").innerHTML = `<div class="msg msg-ok">Καταχωρήθηκε — εκδόθηκε <b>${escapeHtml(issued.doc_no)}</b> (${eur(issued.total)}). <button type="button" class="add-link" id="visit-print-doc">🖨 Εκτύπωση</button></div>`;
+            const docId = issued.id;
+            $("#visit-print-doc").addEventListener("click", () => { const w = window.open("", "_blank"); printSalesDoc(docId, w); });
+            loadSeries(true).then(() => { const sel = $("#visit-doc-series"); if (sel) { const v = sel.value; sel.innerHTML = seriesOptionsHtml({ selected: v }); } });
+          } else showMsg($("#visit-msg"), "Καταχωρήθηκε επιτυχώς.", "ok");
           $("#visit-lines").innerHTML = visitLineHtml({ itemId:"", description:"", qty:1, price:0 });
           wireVisitLine($("#visit-lines").firstElementChild);
           $("#visit-labor").value = "0";
@@ -4397,9 +4634,10 @@
     });
   }
 
-  function openAssignDrawer(itemId){
+  async function openAssignDrawer(itemId){
     const item = INVENTORY_CACHE.find(i => i.id === itemId);
     if (!item) return;
+    await loadSeries();
     openDrawer("Καταχώρηση σε πελάτη", `
       <form id="assign-form">
         <div id="assign-msg"></div>
@@ -4412,11 +4650,7 @@
         </div>
         <div class="field"><label>Ποσότητα</label><input type="number" id="as-qty" min="1" value="1"></div>
         <div class="field"><label>Παραστατικό</label>
-          <select id="as-doc">
-            <option value="TDA">ΤΔΑ</option>
-            <option value="TPY">ΤΠΥ</option>
-            <option value="">Χωρίς παραστατικό</option>
-          </select>
+          <select id="as-doc">${seriesOptionsHtml()}</select>
         </div>
         <div class="drawer-foot" style="margin:22px -22px -20px;">
           <span></span>
@@ -4431,6 +4665,19 @@
       if (!clientId || qty < 1) { showMsg($("#assign-msg"), "Συμπλήρωσε πελάτη και ποσότητα.", "error"); return; }
       if (qty > item.stock) { showMsg($("#assign-msg"), "Δεν υπάρχει αρκετό απόθεμα.", "error"); return; }
       const series = $("#as-doc").value;
+      if (isSeriesId(series)) {
+        // νέα τιμολόγηση: παραστατικό + αφαίρεση από την αποθήκη + χρέωση, όλα μαζί στη βάση
+        const { data: res, error: isErr } = await sb.rpc("issue_sales_doc", { p: {
+          series_id: series, client_id: clientId, prices_with_vat: true, payment_method: "credit", affect_stock: true,
+          lines: [{ inventory_item_id: item.id, sku: item.sku, description: item.name, qty, unit_price: Number(item.price), vat_rate: 24 }] } });
+        if (isErr || !res || !res.ok) { showMsg($("#assign-msg"), "Το παραστατικό δεν εκδόθηκε: " + (isErr ? isErr.message : res.error), "error"); return; }
+        await sb.from("equipment").insert({ client_id: clientId, type: item.category || "Εξοπλισμός", detail: item.name + (qty > 1 ? " (x" + qty + ")" : "") });
+        await loadSeries(true);
+        await loadInventory();
+        await openSalesDoc(res.id);
+        showToast(`Εκδόθηκε ${res.doc_no} · ${eur(res.total)}`);
+        return;
+      }
       let docNumber = null;
       if (series) {
         const { data, error } = await sb.rpc("next_doc_number", { p_key: series });
@@ -4559,6 +4806,10 @@
 
         <div class="field"><label>Σημείωση</label><textarea id="qt-note">${escapeHtml(quote.note || "")}</textarea></div>
 
+        ${quoteId ? `<div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:6px;">
+          <button type="button" class="btn-ghost btn-sm" id="qt-print">🖨 Εκτύπωση προσφοράς</button>
+          <button type="button" class="btn-ghost btn-sm" id="qt-to-doc">→ Έκδοση παραστατικού</button>
+        </div><div class="cell-sub" style="margin-top:4px;">Η εκτύπωση και η έκδοση χρησιμοποιούν τα <b>αποθηκευμένα</b> στοιχεία — πάτα πρώτα «Αποθήκευση» αν άλλαξες κάτι.</div>` : ""}
         <div class="drawer-foot" style="margin:22px -26px -22px;">
           ${quoteId ? '<span id="qt-delete-wrap"><button type="button" class="btn-danger" id="qt-delete">Διαγραφή</button></span>' : '<span></span>'}
           <button type="submit" class="btn-primary" id="qt-save">Αποθήκευση</button>
@@ -4611,6 +4862,8 @@
     });
 
     if (quoteId) {
+      $("#qt-print").addEventListener("click", () => { const w = window.open("", "_blank"); printQuote(quoteId, w); });
+      $("#qt-to-doc").addEventListener("click", () => quoteToSalesDoc(quoteId));
       $("#qt-delete").addEventListener("click", () => {
         $("#qt-delete-wrap").innerHTML = `Σίγουρα; <button type="button" class="btn-sm btn-ghost" id="qt-del-no">Όχι</button> <button type="button" class="btn-sm btn-danger" id="qt-del-yes">Ναι, διαγραφή</button>`;
         $("#qt-del-no").addEventListener("click", () => closeDrawer());
@@ -4661,6 +4914,830 @@
       await loadQuotes();
     });
   }
+
+  // ================= ΤΙΜΟΛΟΓΗΣΗ (παραστατικά πωλήσεων) =================
+  // Σειρές με δική τους αρίθμηση, στοιχεία επιχείρησης, έκδοση με γραμμές/ΦΠΑ,
+  // εκτύπωση Α4, χρέωση/εξόφληση στον λογαριασμό του πελάτη (-> έσοδα & ταμείο).
+  // Η ΒΑΣΗ κάνει την έκδοση (issue_sales_doc): αρίθμηση, σύνολα, λογαριασμός, αποθήκη — όλα μαζί.
+  const V19_MSG = "Για την Τιμολόγηση τρέξε πρώτα το schema_v19.sql στο Supabase.";
+  const SD_KIND_LABEL = { retail:"Απόδειξη (λιανική)", invoice:"Τιμολόγιο", credit:"Πιστωτικό" };
+  const SD_METHOD_LABEL = { cash:"Μετρητά", card:"Κάρτα", bank:"Τράπεζα", credit:"Επί πιστώσει" };
+  const SD_UNITS = ["τεμ.","ώρ.","υπηρ.","μ.","κιβ.","σετ"];
+  const SD_VATS = [24, 13, 6, 0];
+  const QRGEN_URL = "https://cdn.jsdelivr.net/npm/qrcode-generator@1.4.4/qrcode.min.js";
+  let SERIES = null;      // null = δεν έχουν φορτωθεί / δεν υπάρχει ο πίνακας
+  let SERIES_MISSING = false;
+  let BIZ = null;
+  let SALES_ROWS = [];
+  let SD_FILTER = { q:"", series:"all", status:"all", from:"", to:"" };
+
+  const r2 = (x) => Math.round((Number(x) + Number.EPSILON) * 100) / 100;
+  // ίδιος υπολογισμός με τη βάση (issue_sales_doc)
+  function sdCalcLine(qty, price, disc, rate, pwv){
+    const base = Number(qty || 0) * Number(price || 0) * (1 - Number(disc || 0) / 100);
+    if (pwv) { const total = r2(base), net = r2(total / (1 + rate / 100)); return { net, vat: r2(total - net), total }; }
+    const net = r2(base), vat = r2(net * rate / 100); return { net, vat, total: r2(net + vat) };
+  }
+
+  async function loadSeries(force){
+    if (SERIES && !force) return SERIES;
+    const [sr, br] = await Promise.all([
+      sb.from("doc_series").select("*").order("sort_order").order("created_at"),
+      sb.from("business_info").select("*").eq("id", 1).maybeSingle()
+    ]);
+    if (sr.error) { SERIES_MISSING = isMissing(sr.error) || /doc_series/.test(sr.error.message || ""); SERIES = null; return null; }
+    SERIES_MISSING = false;
+    SERIES = sr.data || [];
+    BIZ = (br && br.data) || {};
+    return SERIES;
+  }
+  // επιλογές σειράς για τις άλλες φόρμες (επίσκεψη, αποθήκη) — με παλιές ΤΔΑ/ΤΠΥ αν δεν έτρεξε το v19
+  function seriesOptionsHtml(opts){
+    opts = opts || {};
+    const none = `<option value="">Χωρίς παραστατικό</option>`;
+    if (!SERIES) return `<option value="TDA">ΤΔΑ</option><option value="TPY">ΤΠΥ</option>` + none;
+    const list = SERIES.filter(s => s.active && s.kind !== "credit");
+    return list.map(s => `<option value="${s.id}" ${opts.selected === s.id ? "selected" : ""}>${escapeHtml(s.code)} — ${escapeHtml(s.title)}</option>`).join("") + none;
+  }
+  const isSeriesId = (v) => !!(v && SERIES && SERIES.some(s => s.id === v));
+
+  function sdStatus(d){
+    if (d.status === "cancelled") return { key:"cancelled", label:"Ακυρωμένο", cls:"st-cancelled" };
+    if (d.kind === "credit") return { key:"credit", label:"Πιστωτικό", cls:"st-waiting" };
+    const open = r2(Number(d.total) - Number(d.paid_amount || 0));
+    if (open <= 0.004) return { key:"paid", label:"Εξοφλημένο", cls:"st-done" };
+    if (Number(d.paid_amount) > 0) return { key:"partial", label:"Μερικώς · υπόλ. " + eur(open), cls:"st-progress" };
+    return { key:"open", label:"Ανεξόφλητο · " + eur(open), cls:"st-new" };
+  }
+
+  // ---------------- κεντρική σελίδα ----------------
+  async function loadInvoicingView(){
+    clearMsg($("#inv-msg"));
+    await loadSeries(true);
+    if (!SERIES) { showMsg($("#inv-msg"), SERIES_MISSING ? V19_MSG : "Σφάλμα φόρτωσης σειρών.", "error"); $("#inv-stats").innerHTML = ""; $("#inv-list").innerHTML = ""; return; }
+    const { data, error } = await sb.from("sales_docs_view").select("*").order("doc_date", { ascending:false }).order("created_at", { ascending:false }).limit(1000);
+    if (error) { showMsg($("#inv-msg"), "Σφάλμα: " + error.message, "error"); return; }
+    SALES_ROWS = data || [];
+    const month = isoDay(new Date()).slice(0, 7);
+    const live = SALES_ROWS.filter(d => d.status === "issued");
+    const inMonth = live.filter(d => d.doc_date.startsWith(month));
+    const sign = (d) => d.kind === "credit" ? -1 : 1;
+    const sales = inMonth.reduce((s, d) => s + sign(d) * Number(d.total), 0);
+    const vat = inMonth.reduce((s, d) => s + sign(d) * Number(d.vat), 0);
+    const open = live.filter(d => d.kind !== "credit" && Number(d.total) - Number(d.paid_amount || 0) > 0.004);
+    const openSum = open.reduce((s, d) => s + Number(d.total) - Number(d.paid_amount || 0), 0);
+    const noMark = live.filter(d => !d.mark).length;
+    $("#inv-stats").innerHTML = `
+      <div class="stat-tile"><div class="num">${eur(sales)}</div><div class="lbl">Πωλήσεις μήνα (${inMonth.length})</div></div>
+      <div class="stat-tile"><div class="num">${eur(vat)}</div><div class="lbl">ΦΠΑ πωλήσεων μήνα</div></div>
+      <div class="stat-tile ${open.length ? "balance-due" : ""}" data-inv-f="open" role="button" tabindex="0"><div class="num">${eur(openSum)}</div><div class="lbl">Ανεξόφλητα (${open.length})</div></div>
+      <div class="stat-tile ${noMark ? "balance-due" : ""}" data-inv-f="nomark" role="button" tabindex="0"><div class="num">${noMark}</div><div class="lbl">Χωρίς ΜΑΡΚ</div></div>`;
+    $$("#inv-stats [data-inv-f]").forEach(t => t.addEventListener("click", () => { SD_FILTER.status = t.dataset.invF; renderInvoicingList(); $("#inv-list").scrollIntoView({ behavior:"smooth", block:"start" }); }));
+    // προειδοποίηση για τα στοιχεία επιχείρησης
+    $("#inv-biz-warn").innerHTML = (!BIZ || !BIZ.vat_number || !(BIZ.legal_name || BIZ.trade_name))
+      ? `<div class="money-warn" style="margin:12px 20px 0;">⚠️ Συμπλήρωσε τα <b>στοιχεία της επιχείρησής σου</b> (επωνυμία, ΑΦΜ, ΔΟΥ, διεύθυνση) — μπαίνουν αυτόματα σε κάθε εκτύπωση.
+          <button type="button" class="btn-primary btn-sm" id="inv-biz-fix" style="margin-left:6px;">Συμπλήρωση</button></div>` : "";
+    if ($("#inv-biz-fix")) $("#inv-biz-fix").addEventListener("click", openBusinessSettings);
+    $("#inv-series-chips").innerHTML = `<div class="chip ${SD_FILTER.series === "all" ? "active" : ""}" data-s="all">Όλες</div>` +
+      SERIES.map(s => `<div class="chip ${SD_FILTER.series === s.id ? "active" : ""}" data-s="${s.id}">${escapeHtml(s.code)}</div>`).join("");
+    renderInvoicingList();
+  }
+
+  function renderInvoicingList(){
+    const norm = (x) => String(x || "").normalize("NFD").replace(/[̀-ͯ]/g, "").toLowerCase();
+    const q = norm(SD_FILTER.q).trim();
+    $$("#inv-series-chips .chip").forEach(c => c.classList.toggle("active", c.dataset.s === SD_FILTER.series));
+    $$("#inv-status-chips .chip").forEach(c => c.classList.toggle("active", c.dataset.st === SD_FILTER.status));
+    const rows = SALES_ROWS.filter(d => {
+      if (SD_FILTER.series !== "all" && d.series_id !== SD_FILTER.series) return false;
+      if (SD_FILTER.from && d.doc_date < SD_FILTER.from) return false;
+      if (SD_FILTER.to && d.doc_date > SD_FILTER.to) return false;
+      const st = sdStatus(d).key;
+      if (SD_FILTER.status === "open" && !(st === "open" || st === "partial")) return false;
+      if (SD_FILTER.status === "nomark" && !(d.status === "issued" && !d.mark)) return false;
+      if (SD_FILTER.status === "cancelled" && st !== "cancelled") return false;
+      if (q) {
+        const c = d.client_snapshot || {};
+        const hay = norm([d.doc_no, d.title, c.name, c.vat_number, d.mark, d.note, Number(d.total).toFixed(2), eur(d.total)].join(" "));
+        if (!q.split(/\s+/).every(w => hay.includes(w))) return false;
+      }
+      return true;
+    });
+    $("#inv-count").textContent = rows.length === SALES_ROWS.length ? `${rows.length} παραστατικά` : `${rows.length} από ${SALES_ROWS.length}`;
+    $("#inv-list").innerHTML = rows.length === 0
+      ? `<div class="empty-state">${SALES_ROWS.length ? "Κανένα παραστατικό με αυτά τα φίλτρα." : "Δεν έχεις εκδώσει ακόμα παραστατικό. Πάτα «+ Νέο παραστατικό»."}</div>`
+      : rows.map(d => {
+          const st = sdStatus(d), c = d.client_snapshot || {};
+          return `<div class="sd-row ${d.status === "cancelled" ? "cancelled" : ""}" data-sd="${d.id}" role="button" tabindex="0">
+            <div class="sd-no"><b>${escapeHtml(d.doc_no)}</b><div class="cell-sub">${fmtShortDate(d.doc_date)}</div></div>
+            <div class="sd-who"><div>${escapeHtml(c.is_walkin ? "Πελάτης λιανικής" : (c.name || "—"))}</div><div class="cell-sub">${escapeHtml(d.title)}${c.vat_number ? " · ΑΦΜ " + escapeHtml(c.vat_number) : ""}</div></div>
+            <div class="sd-badges"><span class="status-pill ${st.cls}">${escapeHtml(st.label)}</span>${d.status === "issued" ? (d.mark ? '<span class="sd-mark ok">ΜΑΡΚ ✓</span>' : '<span class="sd-mark">χωρίς ΜΑΡΚ</span>') : ""}</div>
+            <div class="sd-amt">${d.kind === "credit" ? "−" : ""}${eur(d.total)}</div>
+          </div>`;
+        }).join("");
+    $$("#inv-list [data-sd]").forEach(el => {
+      el.addEventListener("click", () => openSalesDoc(el.dataset.sd));
+      el.addEventListener("keydown", (e) => { if (e.key === "Enter") openSalesDoc(el.dataset.sd); });
+    });
+  }
+
+  // ---------------- νέο παραστατικό ----------------
+  // prefill: { client_id, series_code, lines:[{inventory_item_id, sku, description, qty, unit, unit_price, discount_pct, vat_rate}],
+  //            prices_with_vat, quote_id, ticket_id, related_doc_id, note }
+  async function openSalesDocForm(prefill){
+    prefill = prefill || {};
+    await loadSeries(true);
+    if (!SERIES) { showToast(V19_MSG); return; }
+    const active = SERIES.filter(s => s.active);
+    if (!active.length) { showToast("Δεν υπάρχει ενεργή σειρά παραστατικών — φτιάξε μία από «Σειρές»."); return; }
+    if (CLIENTS_CACHE.length === 0) await loadClients();
+    if (INVENTORY_CACHE.length === 0) await loadInventory();
+    if (PROFILE && PROFILE.role === "owner" && !MONEY_ACCOUNTS.length) await loadMoney();
+    let series = (prefill.series_code && active.find(s => s.code === prefill.series_code))
+              || (prefill.related_doc_id && active.find(s => s.kind === "credit")) || active.find(s => s.kind !== "credit") || active[0];
+    let pwv = prefill.prices_with_vat != null ? !!prefill.prices_with_vat : series.prices_with_vat;
+    const clients = CLIENTS_CACHE.filter(c => !c.is_walkin && c.status !== "rejected");
+    const itemOpts = (sel) => `<option value="">— Ελεύθερη γραμμή —</option>` + INVENTORY_CACHE.map(it =>
+      `<option value="${it.id}" ${sel === it.id ? "selected" : ""}>${escapeHtml(it.name)} · ${eur(it.price)} · απόθ. ${it.stock}</option>`).join("");
+    const lineHtml = (l) => `
+      <div class="sdl" data-sdl>
+        <div class="sdl-top">
+          <select class="sdl-item">${itemOpts(l.inventory_item_id)}</select>
+          <button type="button" class="remove-x sdl-del" title="Αφαίρεση γραμμής">✕</button>
+        </div>
+        <input class="sdl-desc" placeholder="Περιγραφή *" value="${escapeHtml(l.description || "")}" data-sku="${escapeHtml(l.sku || "")}">
+        <div class="sdl-nums">
+          <label>Ποσότητα<input class="sdl-qty" type="number" step="0.001" min="0" inputmode="decimal" value="${l.qty ?? 1}"></label>
+          <label>Μον.<select class="sdl-unit">${[...new Set([...SD_UNITS, l.unit || "τεμ."])].map(u => `<option ${u === (l.unit || "τεμ.") ? "selected" : ""}>${escapeHtml(u)}</option>`).join("")}</select></label>
+          <label><span class="sdl-price-lbl">Τιμή</span><input class="sdl-price" type="number" step="0.01" min="0" inputmode="decimal" value="${l.unit_price ?? ""}"></label>
+          <label>Έκπτ. %<input class="sdl-disc" type="number" step="0.01" min="0" max="100" inputmode="decimal" value="${l.discount_pct || 0}"></label>
+          <label>ΦΠΑ<select class="sdl-vat">${SD_VATS.map(v => `<option value="${v}" ${Number(l.vat_rate ?? 24) === v ? "selected" : ""}>${v}%</option>`).join("")}</select></label>
+          <div class="sdl-total">0,00€</div>
+        </div>
+        <div class="sdl-warn cell-sub"></div>
+      </div>`;
+    const startLines = (prefill.lines && prefill.lines.length) ? prefill.lines : [{ qty:1, vat_rate:24 }];
+    const pick = moneyPicker({ id:"sd-method", bankId:"sd-bank", sign:+1, allowCard:true, method:"cash", amountSel:"#sd-total-val" });
+
+    openDrawer(prefill.related_doc_id ? "Πιστωτικό παραστατικό" : "Νέο παραστατικό", `
+      <form id="sd-form" novalidate>
+        <div id="sd-msg"></div>
+        <div class="field"><label>Παραστατικό</label>
+          <div class="kind-picker" id="sd-series">${active.map(s => `<div class="chip ${s.kind === "credit" ? "k-payment" : s.kind === "invoice" ? "k-appointment" : "k-task"} ${s.id === series.id ? "active" : ""}" data-id="${s.id}" role="button" tabindex="0" title="${escapeHtml(s.title)}">${escapeHtml(s.code)} <span class="dest-bal">${escapeHtml(s.title)}</span></div>`).join("")}</div>
+        </div>
+        <div class="form-row">
+          <div class="field"><label>Ημερομηνία</label><input type="date" id="sd-date" value="${isoDay(new Date())}"></div>
+          <div class="field"><label>Αριθμός</label><input id="sd-next" disabled></div>
+        </div>
+        <div class="field"><label>Πελάτης</label>
+          <input type="search" id="sd-client-q" placeholder="🔍 Αναζήτηση πελάτη (όνομα ή ΑΦΜ)" style="margin-bottom:6px;">
+          <select id="sd-client"></select>
+          <div id="sd-client-info" class="sd-client-info"></div>
+        </div>
+        <div class="section-title" style="display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap;">
+          <span>Γραμμές</span>
+          <label class="check-line" style="margin:0;font-weight:400;text-transform:none;letter-spacing:0;"><input type="checkbox" id="sd-pwv" ${pwv ? "checked" : ""}> Οι τιμές περιλαμβάνουν ΦΠΑ</label>
+        </div>
+        <div id="sd-lines">${startLines.map(lineHtml).join("")}</div>
+        <button type="button" class="add-link" id="sd-add">+ Γραμμή</button>
+        <div class="sd-totals" id="sd-totals"></div><input type="hidden" id="sd-total-val" value="0">
+        <label class="check-line hidden" id="sd-stock-line"><input type="checkbox" id="sd-stock" ${prefill.affect_stock === false ? "" : "checked"}> Αφαίρεση των ειδών από την αποθήκη</label>
+        <div id="sd-pay-wrap">
+          <div class="field" style="margin-top:12px;"><label>Πληρωμή</label>
+            <div class="kind-picker" id="sd-pay">
+              <div class="chip k-task" data-p="now" role="button" tabindex="0">✅ Πληρώθηκε τώρα</div>
+              <div class="chip k-reminder" data-p="credit" role="button" tabindex="0">📒 Επί πιστώσει (μένει υπόλοιπο)</div>
+            </div></div>
+          <div class="field" id="sd-pay-now"><label>Πού μπήκαν τα χρήματα</label>${pick.html}</div>
+        </div>
+        <div class="cell-sub hidden" id="sd-credit-note" style="margin-top:10px;">Το πιστωτικό μειώνει το υπόλοιπο του πελάτη (και επιστρέφει τα είδη στην αποθήκη).</div>
+        <div class="field" style="margin-top:12px;"><label>Σημείωση (τυπώνεται)</label><textarea id="sd-note" rows="2">${escapeHtml(prefill.note || "")}</textarea></div>
+        <div class="sd-legal">Χωρίς ΜΑΡΚ από πάροχο ηλεκτρονικής τιμολόγησης το παραστατικό <b>δεν είναι ακόμα νόμιμο φορολογικό στοιχείο</b> — η εκτύπωση το γράφει. Τον ΜΑΡΚ τον περνάς μετά, από το ίδιο το παραστατικό.</div>
+        <label class="check-line"><input type="checkbox" id="sd-print" checked> Άνοιγμα εκτύπωσης μετά την έκδοση</label>
+        <div class="drawer-foot" style="margin:22px -22px -20px;">
+          <button type="button" class="btn-ghost" id="sd-cancel">Άκυρο</button>
+          <button type="submit" class="btn-primary" id="sd-submit">Έκδοση</button>
+        </div>
+      </form>`, true);
+
+    let payNow = series.kind === "retail";
+    const clientOpts = (q) => {
+      const n = (x) => String(x || "").normalize("NFD").replace(/[̀-ͯ]/g, "").toLowerCase();
+      const words = n(q).trim().split(/\s+/).filter(Boolean);
+      const cur = $("#sd-client").value || prefill.client_id || "";
+      const list = clients.filter(c => !words.length || c.id === cur || words.every(w => n(c.name + " " + (c.vat_number || "") + " " + (c.trade_name || "")).includes(w)));
+      $("#sd-client").innerHTML = (series.kind === "retail" ? `<option value="">— Πελάτης λιανικής (χωρίς στοιχεία) —</option>` : `<option value="">— Διάλεξε πελάτη —</option>`)
+        + list.map(c => `<option value="${c.id}" ${c.id === cur ? "selected" : ""}>${escapeHtml(c.name)}${c.vat_number ? " · " + escapeHtml(c.vat_number) : ""}</option>`).join("");
+      showClientInfo();
+    };
+    const showClientInfo = () => {
+      const c = clients.find(x => x.id === $("#sd-client").value);
+      const box = $("#sd-client-info");
+      if (!c) { box.innerHTML = series.kind === "retail" ? '<span class="cell-sub">Απόδειξη χωρίς στοιχεία πελάτη — γράφεται στους «Πελάτες λιανικής».</span>' : ""; return; }
+      const needVat = series.kind !== "retail" && !c.vat_number;
+      box.innerHTML = `<div>${[c.vat_number ? "ΑΦΜ " + escapeHtml(c.vat_number) : "", c.tax_office ? "ΔΟΥ " + escapeHtml(c.tax_office) : "", [c.address, c.city].filter(Boolean).map(escapeHtml).join(", ")].filter(Boolean).join(" · ") || '<span class="cell-sub">Χωρίς φορολογικά στοιχεία</span>'}</div>
+        ${needVat ? `<div class="sd-need-vat">⚠️ Για ${escapeHtml(series.title)} χρειάζεται ΑΦΜ πελάτη. <button type="button" class="add-link" id="sd-edit-client">Άνοιγμα καρτέλας πελάτη</button></div>` : ""}`;
+      if ($("#sd-edit-client")) $("#sd-edit-client").addEventListener("click", () => openClientDrawer(c.id));
+    };
+    const recalc = () => {
+      pwv = $("#sd-pwv").checked;
+      const byRate = {}; let net = 0, vat = 0, total = 0, anyItem = false;
+      $$("#sd-lines [data-sdl]").forEach(el => {
+        const rate = Number(el.querySelector(".sdl-vat").value);
+        const c = sdCalcLine(parseFloat(el.querySelector(".sdl-qty").value), parseFloat(el.querySelector(".sdl-price").value), parseFloat(el.querySelector(".sdl-disc").value), rate, pwv);
+        el.querySelector(".sdl-total").textContent = eur(c.total);
+        el.querySelector(".sdl-price-lbl").textContent = pwv ? "Τιμή με ΦΠΑ" : "Τιμή χωρίς ΦΠΑ";
+        const b = byRate[rate] = byRate[rate] || { net:0, vat:0 }; b.net += c.net; b.vat += c.vat;
+        net += c.net; vat += c.vat; total += c.total;
+        const itemId = el.querySelector(".sdl-item").value;
+        const warn = el.querySelector(".sdl-warn");
+        if (itemId) {
+          anyItem = true;
+          const it = INVENTORY_CACHE.find(i => i.id === itemId), q = parseFloat(el.querySelector(".sdl-qty").value) || 0;
+          warn.textContent = it && series.kind !== "credit" && q > Number(it.stock) ? `⚠️ Στην αποθήκη υπάρχουν ${it.stock}` : "";
+        } else warn.textContent = "";
+      });
+      $("#sd-totals").innerHTML = `
+        ${Object.keys(byRate).length > 1 ? Object.entries(byRate).sort((a, b) => b[0] - a[0]).map(([r, b]) => `<div class="cell-sub"><span>ΦΠΑ ${r}% σε ${eur(b.net)}</span><span>${eur(b.vat)}</span></div>`).join("") : ""}
+        <div><span>Καθαρή αξία</span><span>${eur(net)}</span></div>
+        <div><span>ΦΠΑ</span><span>${eur(vat)}</span></div>
+        <div class="grand"><span>${series.kind === "credit" ? "Σύνολο πίστωσης" : "Πληρωτέο"}</span><span>${eur(total)}</span></div>`;
+      $("#sd-total-val").value = r2(total).toFixed(2);
+      $("#sd-stock-line").classList.toggle("hidden", !anyItem);
+      pick.refresh();
+    };
+    const syncSeries = () => {
+      $$("#sd-series .chip").forEach(c => c.classList.toggle("active", c.dataset.id === series.id));
+      $("#sd-next").value = series.code + "-" + series.next_number;
+      $("#sd-submit").textContent = "Έκδοση " + series.code + "-" + series.next_number;
+      const credit = series.kind === "credit";
+      $("#sd-pay-wrap").classList.toggle("hidden", credit);
+      $("#sd-credit-note").classList.toggle("hidden", !credit);
+      $$("#sd-pay .chip").forEach(c => c.classList.toggle("active", (c.dataset.p === "now") === payNow));
+      $("#sd-pay-now").classList.toggle("hidden", !payNow);
+      clientOpts($("#sd-client-q").value);
+      recalc();
+    };
+    const wireLine = (el) => {
+      el.querySelector(".sdl-item").addEventListener("change", () => {
+        const it = INVENTORY_CACHE.find(i => i.id === el.querySelector(".sdl-item").value);
+        if (it) {
+          el.querySelector(".sdl-desc").value = it.name;
+          el.querySelector(".sdl-desc").dataset.sku = it.sku || "";
+          const rate = Number(el.querySelector(".sdl-vat").value);
+          // η τιμή της αποθήκης είναι η τελική (με ΦΠΑ)
+          el.querySelector(".sdl-price").value = pwv ? Number(it.price).toFixed(2) : r2(Number(it.price) / (1 + rate / 100)).toFixed(2);
+          el.querySelector(".sdl-unit").value = "τεμ.";
+        } else el.querySelector(".sdl-desc").dataset.sku = "";
+        recalc();
+      });
+      el.querySelectorAll("input, select").forEach(x => x.addEventListener("input", recalc));
+      el.querySelector(".sdl-del").addEventListener("click", () => { if ($$("#sd-lines [data-sdl]").length > 1) { el.remove(); recalc(); } });
+    };
+    $$("#sd-lines [data-sdl]").forEach(wireLine);
+    $("#sd-add").addEventListener("click", () => {
+      $("#sd-lines").insertAdjacentHTML("beforeend", lineHtml({ qty:1, vat_rate:24 }));
+      wireLine($("#sd-lines").lastElementChild);
+      $("#sd-lines").lastElementChild.querySelector(".sdl-desc").focus();
+      recalc();
+    });
+    $("#sd-pwv").addEventListener("change", recalc);
+    $$("#sd-series .chip").forEach(c => {
+      const go = () => {
+        series = active.find(s => s.id === c.dataset.id);
+        if (prefill.prices_with_vat == null) $("#sd-pwv").checked = series.prices_with_vat;
+        payNow = series.kind === "retail";
+        syncSeries();
+      };
+      c.addEventListener("click", go);
+      c.addEventListener("keydown", (e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); go(); } });
+    });
+    $$("#sd-pay .chip").forEach(c => {
+      const go = () => { payNow = c.dataset.p === "now"; syncSeries(); };
+      c.addEventListener("click", go);
+      c.addEventListener("keydown", (e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); go(); } });
+    });
+    $("#sd-client-q").addEventListener("input", () => clientOpts($("#sd-client-q").value));
+    $("#sd-client").addEventListener("change", showClientInfo);
+    $("#sd-cancel").addEventListener("click", closeDrawer);
+    pick.attach();
+    syncSeries();
+
+    $("#sd-form").addEventListener("submit", async (e) => {
+      e.preventDefault();
+      clearMsg($("#sd-msg"));
+      const clientId = $("#sd-client").value || null;
+      const client = clients.find(c => c.id === clientId);
+      if (series.kind !== "retail" && !client) { showMsg($("#sd-msg"), "Διάλεξε πελάτη.", "error"); return; }
+      if (series.kind !== "retail" && !client.vat_number) { showMsg($("#sd-msg"), `Για ${series.title} ο πελάτης χρειάζεται ΑΦΜ — συμπλήρωσέ το στην καρτέλα του.`, "error"); return; }
+      const lines = [];
+      for (const [i, el] of $$("#sd-lines [data-sdl]").entries()) {
+        const desc = el.querySelector(".sdl-desc").value.trim();
+        const qty = parseFloat(el.querySelector(".sdl-qty").value), price = parseFloat(el.querySelector(".sdl-price").value);
+        const disc = parseFloat(el.querySelector(".sdl-disc").value) || 0;
+        if (!desc && !(price > 0)) continue;   // εντελώς κενή γραμμή
+        if (!desc) { showMsg($("#sd-msg"), `Γραμμή ${i + 1}: γράψε περιγραφή.`, "error"); return; }
+        if (!(qty > 0)) { showMsg($("#sd-msg"), `Γραμμή ${i + 1}: η ποσότητα πρέπει να είναι πάνω από 0.`, "error"); return; }
+        if (isNaN(price) || price < 0) { showMsg($("#sd-msg"), `Γραμμή ${i + 1}: γράψε τιμή.`, "error"); return; }
+        if (disc < 0 || disc > 100) { showMsg($("#sd-msg"), `Γραμμή ${i + 1}: λάθος έκπτωση.`, "error"); return; }
+        lines.push({ inventory_item_id: el.querySelector(".sdl-item").value || null, sku: el.querySelector(".sdl-desc").dataset.sku || null,
+                     description: desc, qty, unit: el.querySelector(".sdl-unit").value, unit_price: price, discount_pct: disc,
+                     vat_rate: Number(el.querySelector(".sdl-vat").value) });
+      }
+      if (!lines.length) { showMsg($("#sd-msg"), "Πρόσθεσε τουλάχιστον μία γραμμή.", "error"); return; }
+      let method = "credit", bank = null;
+      if (series.kind !== "credit" && payNow) {
+        ({ method, bank } = pick.get());
+        if (method === "bank" && !bank) { showMsg($("#sd-msg"), "Διάλεξε τράπεζα.", "error"); return; }
+      }
+      const btn = $("#sd-submit"); btn.disabled = true; btn.innerHTML = '<span class="spinner"></span>Έκδοση…';
+      // το παράθυρο εκτύπωσης ανοίγει ΤΩΡΑ (πάνω στο πάτημα), αλλιώς το μπλοκάρει ο browser
+      let w = null;
+      if ($("#sd-print").checked) { try { w = window.open("", "_blank"); if (w) w.document.write('<p style="font-family:Arial;padding:30px;">Έκδοση παραστατικού…</p>'); } catch (err) { w = null; } }
+      const payload = { series_id: series.id, doc_date: $("#sd-date").value || isoDay(new Date()), client_id: clientId, lines,
+                        prices_with_vat: $("#sd-pwv").checked, payment_method: method, bank, note: $("#sd-note").value.trim() || null,
+                        quote_id: prefill.quote_id || null, ticket_id: prefill.ticket_id || null, related_doc_id: prefill.related_doc_id || null,
+                        affect_stock: $("#sd-stock").checked };
+      const { data, error } = await sb.rpc("issue_sales_doc", { p: payload });
+      if (error || !data || !data.ok) {
+        if (w) w.close();
+        btn.disabled = false; syncSeries();
+        showMsg($("#sd-msg"), error ? (isMissing(error) ? V19_MSG : "Σφάλμα: " + error.message) : data.error, "error");
+        return;
+      }
+      if ((method === "cash" || method === "bank") && MONEY_ACCOUNTS.length) await ensureMoneyAccount(method, bank, payload.doc_date);
+      await loadSeries(true);
+      if (INVENTORY_CACHE.length && payload.affect_stock) loadInventory();
+      showToast(`Εκδόθηκε ${data.doc_no} · ${eur(data.total)}`);
+      if (w) await printSalesDoc(data.id, w);
+      await openSalesDoc(data.id);
+      refreshSalesViews();
+    });
+  }
+
+  function refreshSalesViews(){
+    if (!$("#view-invoicing").classList.contains("hidden")) loadInvoicingView();
+    if (!$("#view-expenses").classList.contains("hidden")) loadExpenses();
+    if (!$("#view-quotes").classList.contains("hidden")) loadQuotes();
+  }
+
+  // ---------------- προβολή παραστατικού ----------------
+  async function openSalesDoc(id){
+    const [dr, lr] = await Promise.all([
+      sb.from("sales_docs_view").select("*").eq("id", id).single(),
+      sb.from("sales_doc_lines").select("*").eq("doc_id", id).order("line_no")
+    ]);
+    if (dr.error || !dr.data) { showToast("Σφάλμα: " + ((dr.error && dr.error.message) || "δεν βρέθηκε")); return; }
+    const d = dr.data, lines = lr.data || [], c = d.client_snapshot || {}, st = sdStatus(d);
+    const owner = PROFILE && PROFILE.role === "owner";
+    const open = r2(Number(d.total) - Number(d.paid_amount || 0));
+    let related = null;
+    if (d.related_doc_id) { const { data: rd } = await sb.from("sales_docs").select("id, doc_no").eq("id", d.related_doc_id).maybeSingle(); related = rd; }
+    const { data: credits } = await sb.from("sales_docs").select("id, doc_no, status").eq("related_doc_id", id);
+    openDrawer(`${d.doc_no} — ${d.title}`, `
+      <div id="sdv-msg"></div>
+      <div class="sdv-head">
+        <div>
+          <div class="sdv-client">${escapeHtml(c.is_walkin ? "Πελάτης λιανικής" : (c.name || "—"))}</div>
+          <div class="cell-sub">${[c.vat_number ? "ΑΦΜ " + escapeHtml(c.vat_number) : "", c.tax_office ? "ΔΟΥ " + escapeHtml(c.tax_office) : "", fmtShortDate(d.doc_date), SD_METHOD_LABEL[d.payment_method] + (d.bank ? " · " + escapeHtml(d.bank) : "")].filter(Boolean).join(" · ")}</div>
+          ${related ? `<div class="cell-sub">Πιστώνει το <a href="#" data-open-sd="${related.id}">${escapeHtml(related.doc_no)}</a></div>` : ""}
+          ${(credits || []).filter(x => x.status === "issued").map(x => `<div class="cell-sub">Πιστωτικό: <a href="#" data-open-sd="${x.id}">${escapeHtml(x.doc_no)}</a></div>`).join("")}
+        </div>
+        <div style="text-align:right;"><div class="money-bal">${d.kind === "credit" ? "−" : ""}${eur(d.total)}</div><span class="status-pill ${st.cls}">${escapeHtml(st.label)}</span></div>
+      </div>
+      <table class="sdv-lines"><thead><tr><th>Περιγραφή</th><th style="text-align:right;">Ποσ.</th><th style="text-align:right;">Τιμή</th><th style="text-align:right;">ΦΠΑ</th><th style="text-align:right;">Σύνολο</th></tr></thead>
+        <tbody>${lines.map(l => `<tr><td>${escapeHtml(l.description)}${Number(l.discount_pct) ? `<div class="cell-sub">έκπτωση ${Number(l.discount_pct)}%</div>` : ""}</td>
+          <td style="text-align:right;white-space:nowrap;">${fmtQty(l.qty)} ${escapeHtml(l.unit)}</td><td style="text-align:right;">${eur(l.unit_price)}</td>
+          <td style="text-align:right;">${Number(l.vat_rate)}%</td><td style="text-align:right;">${eur(l.line_total)}</td></tr>`).join("")}</tbody></table>
+      <div class="sd-totals"><div><span>Καθαρή αξία</span><span>${eur(d.net)}</span></div><div><span>ΦΠΑ</span><span>${eur(d.vat)}</span></div>
+        <div class="grand"><span>Σύνολο</span><span>${eur(d.total)}</span></div>
+        ${d.kind !== "credit" && d.status === "issued" ? `<div><span>Εξοφλήθηκαν</span><span>${eur(d.paid_amount)}</span></div>` : ""}</div>
+      ${d.note ? `<div class="cell-sub" style="margin-top:8px;">Σημείωση: ${escapeHtml(d.note)}</div>` : ""}
+      ${d.status === "cancelled" ? `<div class="msg msg-error" style="margin-top:12px;">Ακυρώθηκε ${d.cancelled_at ? new Date(d.cancelled_at).toLocaleDateString("el-GR") : ""}${d.cancel_reason ? " — " + escapeHtml(d.cancel_reason) : ""}. Ο αριθμός δεν ξαναδίνεται.</div>` : `
+      <div class="section-title">ΜΑΡΚ (ΑΑΔΕ / πάροχος)</div>
+      ${d.mark ? `<div class="sdv-mark ok">✓ ΜΑΡΚ <b>${escapeHtml(d.mark)}</b>${d.uid ? `<div class="cell-sub">UID ${escapeHtml(d.uid)}</div>` : ""}</div>`
+               : `<div class="sd-legal" style="margin-top:0;">Δεν έχει ΜΑΡΚ — <b>δεν είναι ακόμα νόμιμο φορολογικό στοιχείο</b>. Όταν το εκδώσεις στον πάροχο, πέρασε εδώ τον ΜΑΡΚ.</div>`}
+      ${owner ? `<details class="sdv-mark-form" ${d.mark ? "" : "open"}><summary>${d.mark ? "Αλλαγή ΜΑΡΚ" : "Καταχώρηση ΜΑΡΚ"}</summary>
+        <div class="form-row" style="margin-top:8px;">
+          <div class="field"><label>ΜΑΡΚ</label><input id="sdv-mark" inputmode="numeric" value="${escapeHtml(d.mark || "")}" placeholder="15 ψηφία"></div>
+          <div class="field"><label>UID <span style="font-weight:400;color:var(--ink-soft);">(προαιρετικά)</span></label><input id="sdv-uid" value="${escapeHtml(d.uid || "")}"></div>
+        </div>
+        <div class="field"><label>Σύνδεσμος QR από τον πάροχο <span style="font-weight:400;color:var(--ink-soft);">(προαιρετικά)</span></label><input id="sdv-qr" value="${escapeHtml(d.qr_url || "")}" placeholder="https://…"></div>
+        <button type="button" class="btn-primary btn-sm" id="sdv-mark-save">Αποθήκευση ΜΑΡΚ</button></details>` : ""}`}
+      <div class="drawer-foot" style="margin:22px -22px -20px;flex-wrap:wrap;gap:8px;">
+        <div style="display:flex;gap:8px;flex-wrap:wrap;">
+          ${owner && d.status === "issued" && !d.mark ? '<button type="button" class="btn-danger btn-sm" id="sdv-cancel">Ακύρωση</button>' : ""}
+          ${d.status === "issued" && d.kind !== "credit" && SERIES && SERIES.some(s => s.kind === "credit" && s.active) ? '<button type="button" class="btn-ghost btn-sm" id="sdv-credit">Πιστωτικό</button>' : ""}
+          ${d.client_id ? '<button type="button" class="btn-ghost btn-sm" id="sdv-client">Πελάτης</button>' : ""}
+        </div>
+        <div style="display:flex;gap:8px;flex-wrap:wrap;">
+          ${d.status === "issued" && d.kind !== "credit" && open > 0.004 && d.client_id ? `<button type="button" class="btn-ghost btn-sm" id="sdv-pay">Εξόφληση ${eur(open)}</button>` : ""}
+          <button type="button" class="btn-primary btn-sm" id="sdv-print">🖨 Εκτύπωση</button>
+        </div>
+      </div>`, true);
+    $$("[data-open-sd]").forEach(a => a.addEventListener("click", (e) => { e.preventDefault(); openSalesDoc(a.dataset.openSd); }));
+    $("#sdv-print").addEventListener("click", () => { const w = window.open("", "_blank"); printSalesDoc(id, w); });
+    if ($("#sdv-client")) $("#sdv-client").addEventListener("click", async () => { if (CLIENTS_CACHE.length === 0) await loadClients(); openClientDrawer(d.client_id, "docs"); });
+    if ($("#sdv-pay")) $("#sdv-pay").addEventListener("click", () => openLedgerEntryDrawer(d.client_id, c.name || "", { type:"payment", settles: d.doc_no, amount: open, backToDoc: id }));
+    if ($("#sdv-credit")) $("#sdv-credit").addEventListener("click", () => openSalesDocForm({
+      client_id: d.client_id, related_doc_id: id, prices_with_vat: d.prices_with_vat, note: "Πίστωση του " + d.doc_no,
+      series_code: (SERIES.find(s => s.kind === "credit" && s.active) || {}).code,
+      lines: lines.map(l => ({ inventory_item_id: l.inventory_item_id, sku: l.sku, description: l.description, qty: Number(l.qty), unit: l.unit,
+                               unit_price: Number(l.unit_price), discount_pct: Number(l.discount_pct), vat_rate: Number(l.vat_rate) })) }));
+    if ($("#sdv-mark-save")) $("#sdv-mark-save").addEventListener("click", async () => {
+      const { data, error } = await sb.rpc("set_sales_doc_mark", { p_id: id, p_mark: $("#sdv-mark").value, p_uid: $("#sdv-uid").value, p_qr_url: $("#sdv-qr").value });
+      if (error || !data.ok) { showMsg($("#sdv-msg"), error ? "Σφάλμα: " + error.message : data.error, "error"); $("#sdv-msg").scrollIntoView({ block:"nearest" }); return; }
+      showToast("Ο ΜΑΡΚ αποθηκεύτηκε.");
+      await openSalesDoc(id); refreshSalesViews();
+    });
+    if ($("#sdv-cancel")) $("#sdv-cancel").addEventListener("click", async () => {
+      const b = $("#sdv-cancel");
+      if (!b.dataset.armed) {
+        b.dataset.armed = "1"; b.textContent = "Σίγουρα; Πάτα ξανά";
+        $("#sdv-msg").innerHTML = `<div class="field"><label>Λόγος ακύρωσης</label><input id="sdv-reason" placeholder="π.χ. λάθος ποσό"></div><div class="cell-sub" style="margin:-4px 0 10px;">Φεύγουν οι κινήσεις από τον λογαριασμό του πελάτη και τα είδη γυρνούν στην αποθήκη. Ο αριθμός δεν ξαναδίνεται.</div>`;
+        return;
+      }
+      const { data, error } = await sb.rpc("cancel_sales_doc", { p_id: id, p_reason: ($("#sdv-reason") || {}).value || "" });
+      if (error || !data.ok) { showMsg($("#sdv-msg"), error ? "Σφάλμα: " + error.message : data.error, "error"); return; }
+      showToast(`Το ${d.doc_no} ακυρώθηκε.`);
+      await openSalesDoc(id); refreshSalesViews();
+    });
+  }
+  const fmtQty = (q) => Number(q).toLocaleString("el-GR", { maximumFractionDigits:3 });
+
+  // ---------------- εκτύπωση Α4 ----------------
+  function brandLogoSrc(){ const im = document.querySelector(".brand-mark img"); return im ? im.src : ""; }
+  async function qrSvg(text){
+    try { const qrcode = await loadScript(QRGEN_URL, "qrcode"); const q = qrcode(0, "M"); q.addData(text); q.make(); return q.createSvgTag({ cellSize:3, margin:0, scalable:true }); }
+    catch (e) { return ""; }
+  }
+  function writePrintWindow(w, html){
+    if (!w) { w = window.open("", "_blank"); if (!w) { showToast("Ο browser μπλόκαρε την εκτύπωση — επίτρεψε τα pop-ups για αυτή τη σελίδα."); return; } }
+    w.document.open(); w.document.write(html); w.document.close();
+  }
+  async function printSalesDoc(id, w){
+    const [dr, lr] = await Promise.all([
+      sb.from("sales_docs_view").select("*").eq("id", id).single(),
+      sb.from("sales_doc_lines").select("*").eq("doc_id", id).order("line_no")
+    ]);
+    if (dr.error) { if (w) w.close(); showToast("Σφάλμα: " + dr.error.message); return; }
+    let related = null;
+    if (dr.data.related_doc_id) { const { data } = await sb.from("sales_docs").select("doc_no, doc_date").eq("id", dr.data.related_doc_id).maybeSingle(); related = data; }
+    const qr = dr.data.qr_url ? await qrSvg(dr.data.qr_url) : "";
+    writePrintWindow(w, buildSalesDocHtml(dr.data, lr.data || [], { qr, related }));
+  }
+
+  const PRINT_CSS = `
+    @page{size:A4;margin:12mm;}
+    *{box-sizing:border-box;}
+    body{font-family:Arial,Helvetica,sans-serif;color:#1A2426;font-size:11.5px;margin:0;padding:24px;max-width:820px;margin:0 auto;position:relative;}
+    .top{display:flex;justify-content:space-between;gap:20px;align-items:flex-start;}
+    .issuer{display:flex;gap:12px;align-items:flex-start;max-width:58%;}
+    .issuer img{width:62px;height:62px;border-radius:50%;object-fit:cover;flex:none;}
+    .issuer .n{font-size:15px;font-weight:700;margin-bottom:2px;}
+    .issuer div{line-height:1.45;}
+    .docbox{border:2px solid #1A2426;border-radius:8px;padding:10px 14px;min-width:230px;text-align:right;}
+    .docbox .t{font-size:15px;font-weight:700;text-transform:uppercase;letter-spacing:.02em;}
+    .docbox .no{font-size:18px;font-weight:700;margin:4px 0;}
+    .grid2{display:flex;gap:14px;margin-top:16px;}
+    .box{border:1px solid #bbb;border-radius:6px;padding:9px 12px;flex:1;line-height:1.5;}
+    .box h4{margin:0 0 4px;font-size:10px;text-transform:uppercase;letter-spacing:.05em;color:#666;}
+    table{width:100%;border-collapse:collapse;margin-top:16px;}
+    th{background:#EEF3F4;text-align:left;font-size:9.5px;text-transform:uppercase;letter-spacing:.03em;padding:6px 6px;border-bottom:1.5px solid #1A2426;}
+    td{padding:6px;border-bottom:1px solid #ddd;vertical-align:top;}
+    .r{text-align:right;white-space:nowrap;}
+    .bottom{display:flex;gap:16px;margin-top:16px;align-items:flex-start;}
+    .vat{flex:1;}
+    .vat table{margin-top:0;}
+    .totals{width:260px;border:2px solid #1A2426;border-radius:8px;padding:8px 12px;}
+    .totals div{display:flex;justify-content:space-between;padding:3px 0;}
+    .totals .g{font-size:15px;font-weight:700;border-top:1.5px solid #1A2426;margin-top:4px;padding-top:6px;}
+    .notes{margin-top:14px;line-height:1.5;white-space:pre-line;}
+    .legal{margin-top:14px;border:2px solid #C0392B;color:#C0392B;border-radius:6px;padding:8px 12px;font-weight:700;text-align:center;}
+    .mark{margin-top:14px;display:flex;gap:14px;align-items:center;border:1px solid #bbb;border-radius:6px;padding:8px 12px;}
+    .mark svg{width:96px;height:96px;}
+    .wm{position:fixed;top:40%;left:0;right:0;text-align:center;font-size:84px;font-weight:700;color:rgba(192,57,43,.10);transform:rotate(-24deg);pointer-events:none;z-index:0;}
+    .foot{margin-top:18px;font-size:9.5px;color:#666;text-align:center;}
+    .sign{display:flex;justify-content:space-between;margin-top:34px;font-size:10px;color:#555;}
+    .sign div{width:40%;border-top:1px solid #999;padding-top:4px;text-align:center;}
+    .print-btn{margin:22px 0 0;padding:9px 16px;font-size:13px;font-weight:600;border-radius:8px;border:none;background:#0E7C86;color:#fff;cursor:pointer;}
+    @media print{ .print-btn{display:none;} body{padding:0;} }`;
+
+  function issuerHtml(b){
+    b = b || {};
+    const logo = b.show_logo !== false ? brandLogoSrc() : "";
+    return `<div class="issuer">${logo ? `<img src="${logo}" alt="">` : ""}<div>
+      <div class="n">${escapeHtml(b.legal_name || b.trade_name || "")}</div>
+      ${b.legal_name && b.trade_name ? `<div><b>${escapeHtml(b.trade_name)}</b></div>` : ""}
+      ${b.profession ? `<div>${escapeHtml(b.profession)}</div>` : ""}
+      ${b.address || b.city ? `<div>${escapeHtml([b.address, [b.postal_code, b.city].filter(Boolean).join(" ")].filter(Boolean).join(", "))}</div>` : ""}
+      ${b.vat_number ? `<div>ΑΦΜ ${escapeHtml(b.vat_number)}${b.tax_office ? " · ΔΟΥ " + escapeHtml(b.tax_office) : ""}</div>` : ""}
+      ${[b.phone ? "Τηλ. " + escapeHtml(b.phone) : "", b.email ? escapeHtml(b.email) : "", b.website ? escapeHtml(b.website) : ""].filter(Boolean).length ? `<div>${[b.phone ? "Τηλ. " + escapeHtml(b.phone) : "", b.email ? escapeHtml(b.email) : "", b.website ? escapeHtml(b.website) : ""].filter(Boolean).join(" · ")}</div>` : ""}
+      ${b.gemi ? `<div>ΓΕΜΗ ${escapeHtml(b.gemi)}</div>` : ""}
+    </div></div>`;
+  }
+  function clientBoxHtml(c){
+    c = c || {};
+    if (c.is_walkin) return `<div class="box"><h4>Πελάτης</h4><div><b>Πελάτης λιανικής</b></div></div>`;
+    return `<div class="box"><h4>Στοιχεία πελάτη</h4>
+      <div><b>${escapeHtml(c.name || "")}</b></div>
+      ${c.trade_name && c.trade_name !== c.name ? `<div>${escapeHtml(c.trade_name)}</div>` : ""}
+      ${c.vat_number ? `<div>ΑΦΜ ${escapeHtml(c.vat_number)}${c.tax_office ? " · ΔΟΥ " + escapeHtml(c.tax_office) : ""}</div>` : ""}
+      ${c.address || c.city ? `<div>${escapeHtml([c.address, c.city].filter(Boolean).join(", "))}</div>` : ""}
+      ${c.phone || c.email ? `<div>${escapeHtml([c.phone, c.email].filter(Boolean).join(" · "))}</div>` : ""}
+    </div>`;
+  }
+
+  function buildSalesDocHtml(d, lines, opts){
+    opts = opts || {};
+    const b = d.issuer_snapshot && Object.keys(d.issuer_snapshot).length ? d.issuer_snapshot : (BIZ || {});
+    const series = SERIES && SERIES.find(s => s.id === d.series_id);
+    const retail = d.kind === "retail";
+    const pwv = !!d.prices_with_vat;
+    const unitShown = (l) => {   // τιμολόγια: τιμή μονάδας ΧΩΡΙΣ ΦΠΑ · αποδείξεις: ΜΕ ΦΠΑ
+      const p = Number(l.unit_price), rate = Number(l.vat_rate);
+      if (retail) return pwv ? p : p * (1 + rate / 100);
+      return pwv ? p / (1 + rate / 100) : p;
+    };
+    const byRate = {};
+    lines.forEach(l => { const k = Number(l.vat_rate); const x = byRate[k] = byRate[k] || { net:0, vat:0 }; x.net += Number(l.line_net); x.vat += Number(l.line_vat); });
+    const hasDisc = lines.some(l => Number(l.discount_pct));
+    const noMark = !d.mark;
+    const legalText = "ΧΩΡΙΣ ΜΑΡΚ — ΔΕΝ ΕΧΕΙ ΔΙΑΒΙΒΑΣΤΕΙ ΣΤΗΝ ΑΑΔΕ · ΔΕΝ ΑΠΟΤΕΛΕΙ ΦΟΡΟΛΟΓΙΚΟ ΣΤΟΙΧΕΙΟ";
+    return `<!doctype html><html lang="el"><head><meta charset="UTF-8"><title>${escapeHtml(d.doc_no)} — ${escapeHtml(d.title)}</title>
+<meta name="viewport" content="width=device-width, initial-scale=1"><style>${PRINT_CSS}</style></head><body>
+  ${d.status === "cancelled" ? '<div class="wm">ΑΚΥΡΩΜΕΝΟ</div>' : noMark ? '<div class="wm">ΠΡΟΣΧΕΔΙΟ</div>' : ""}
+  <div class="top">
+    ${issuerHtml(b)}
+    <div class="docbox"><div class="t">${escapeHtml(d.title)}</div>
+      <div class="no">${escapeHtml(d.series_code)} ${escapeHtml(String(d.number))}</div>
+      <div>Ημερομηνία: <b>${new Date(d.doc_date + "T00:00:00").toLocaleDateString("el-GR")}</b></div>
+      ${opts.related ? `<div>Συσχετιζόμενο: ${escapeHtml(opts.related.doc_no)}</div>` : ""}
+    </div>
+  </div>
+  <div class="grid2">
+    ${clientBoxHtml(d.client_snapshot)}
+    <div class="box" style="max-width:40%;"><h4>Πληρωμή</h4>
+      <div><b>${escapeHtml(SD_METHOD_LABEL[d.payment_method] || "")}</b>${d.bank ? " · " + escapeHtml(d.bank) : ""}</div>
+      ${d.payment_method === "credit" && d.kind !== "credit" && b.bank_info ? `<div style="white-space:pre-line;margin-top:4px;">${escapeHtml(b.bank_info)}</div>` : ""}
+    </div>
+  </div>
+  <table>
+    <thead><tr><th style="width:26px;">#</th><th>Περιγραφή</th><th class="r">Ποσ.</th><th>Μ.Μ.</th><th class="r">Τιμή ${retail ? "(με ΦΠΑ)" : "μον."}</th>${hasDisc ? '<th class="r">Έκπτ.</th>' : ""}<th class="r">ΦΠΑ</th><th class="r">${retail ? "Σύνολο" : "Αξία"}</th></tr></thead>
+    <tbody>${lines.map((l, i) => `<tr><td>${i + 1}</td><td>${escapeHtml(l.description)}${l.sku ? `<div style="color:#777;font-size:10px;">${escapeHtml(l.sku)}</div>` : ""}</td>
+      <td class="r">${fmtQty(l.qty)}</td><td>${escapeHtml(l.unit)}</td><td class="r">${eur(unitShown(l))}</td>${hasDisc ? `<td class="r">${Number(l.discount_pct) ? Number(l.discount_pct) + "%" : ""}</td>` : ""}
+      <td class="r">${Number(l.vat_rate)}%</td><td class="r">${eur(retail ? l.line_total : l.line_net)}</td></tr>`).join("")}</tbody>
+  </table>
+  <div class="bottom">
+    <div class="vat"><table><thead><tr><th>ΦΠΑ %</th><th class="r">Καθαρή αξία</th><th class="r">ΦΠΑ</th><th class="r">Σύνολο</th></tr></thead>
+      <tbody>${Object.entries(byRate).sort((a, b) => b[0] - a[0]).map(([r, x]) => `<tr><td>${r}%</td><td class="r">${eur(x.net)}</td><td class="r">${eur(x.vat)}</td><td class="r">${eur(x.net + x.vat)}</td></tr>`).join("")}</tbody></table></div>
+    <div class="totals"><div><span>Καθαρή αξία</span><span>${eur(d.net)}</span></div><div><span>ΦΠΑ</span><span>${eur(d.vat)}</span></div>
+      <div class="g"><span>${d.kind === "credit" ? "ΣΥΝΟΛΟ ΠΙΣΤΩΣΗΣ" : "ΠΛΗΡΩΤΕΟ"}</span><span>${eur(d.total)}</span></div></div>
+  </div>
+  ${d.note || (series && series.print_note) ? `<div class="notes">${d.note ? `<b>Σημειώσεις:</b> ${escapeHtml(d.note)}` : ""}${d.note && series && series.print_note ? "\n" : ""}${series && series.print_note ? escapeHtml(series.print_note) : ""}</div>` : ""}
+  ${d.mark ? `<div class="mark">${opts.qr || ""}<div><div>ΜΑΡΚ: <b>${escapeHtml(d.mark)}</b></div>${d.uid ? `<div>UID: ${escapeHtml(d.uid)}</div>` : ""}${d.qr_url && !opts.qr ? `<div style="word-break:break-all;">${escapeHtml(d.qr_url)}</div>` : ""}</div></div>`
+           : d.status === "issued" ? `<div class="legal">${legalText}</div>` : ""}
+  ${d.status === "cancelled" ? `<div class="legal">ΑΚΥΡΩΜΕΝΟ${d.cancel_reason ? " — " + escapeHtml(d.cancel_reason) : ""}</div>` : ""}
+  ${!retail ? `<div class="sign"><div>Ο εκδότης</div><div>Ο παραλαβών</div></div>` : ""}
+  ${b.footer_note ? `<div class="foot">${escapeHtml(b.footer_note)}</div>` : ""}
+  <button class="print-btn" onclick="window.print()">🖨 Εκτύπωση / Αποθήκευση ως PDF</button>
+</body></html>`;
+  }
+
+  // ---------------- προσφορά: εκτύπωση + μετατροπή σε παραστατικό ----------------
+  async function printQuote(quoteId, w){
+    await loadSeries();
+    const [qr, ir] = await Promise.all([
+      sb.from("quotes_view").select("*").eq("id", quoteId).single(),
+      sb.from("quote_items").select("*").eq("quote_id", quoteId)
+    ]);
+    if (qr.error) { if (w) w.close(); showToast("Σφάλμα: " + qr.error.message); return; }
+    const q = qr.data;
+    const { data: c } = await sb.from("clients").select("*").eq("id", q.client_id).maybeSingle();
+    writePrintWindow(w, buildQuoteHtml(q, ir.data || [], c || {}, BIZ || {}));
+  }
+  function buildQuoteHtml(q, items, c, b){
+    const pwv = b.quote_prices_with_vat !== false, rate = Number(b.quote_vat_rate ?? 24);
+    const sum = r2(items.reduce((s, l) => s + Number(l.qty) * Number(l.unit_price), 0));
+    const net = pwv ? r2(sum / (1 + rate / 100)) : sum, vat = pwv ? r2(sum - net) : r2(sum * rate / 100), total = r2(net + vat);
+    const valid = Number(b.quote_valid_days || 0);
+    const until = valid ? new Date(new Date(q.quote_date + "T00:00:00").getTime() + valid * 86400000).toLocaleDateString("el-GR") : "";
+    return `<!doctype html><html lang="el"><head><meta charset="UTF-8"><title>${escapeHtml(q.code)} — Προσφορά</title>
+<meta name="viewport" content="width=device-width, initial-scale=1"><style>${PRINT_CSS}</style></head><body>
+  <div class="top">${issuerHtml(b)}
+    <div class="docbox"><div class="t">Προσφορά</div><div class="no">${escapeHtml(q.code)}</div>
+      <div>Ημερομηνία: <b>${new Date(q.quote_date + "T00:00:00").toLocaleDateString("el-GR")}</b></div>
+      ${until ? `<div>Ισχύει έως: <b>${until}</b></div>` : ""}</div>
+  </div>
+  <div class="grid2">${clientBoxHtml({ ...c, is_walkin:false })}</div>
+  <table><thead><tr><th style="width:26px;">#</th><th>Περιγραφή</th><th class="r">Ποσ.</th><th class="r">Τιμή ${pwv ? "(με ΦΠΑ)" : "(χωρίς ΦΠΑ)"}</th><th class="r">Σύνολο</th></tr></thead>
+    <tbody>${items.map((l, i) => `<tr><td>${i + 1}</td><td>${escapeHtml(l.description)}${l.sku ? `<div style="color:#777;font-size:10px;">${escapeHtml(l.sku)}</div>` : ""}</td><td class="r">${fmtQty(l.qty)}</td><td class="r">${eur(l.unit_price)}</td><td class="r">${eur(Number(l.qty) * Number(l.unit_price))}</td></tr>`).join("")}</tbody></table>
+  <div class="bottom"><div class="vat"></div>
+    <div class="totals"><div><span>Καθαρή αξία</span><span>${eur(net)}</span></div><div><span>ΦΠΑ ${rate}%</span><span>${eur(vat)}</span></div>
+      <div class="g"><span>ΣΥΝΟΛΟ</span><span>${eur(total)}</span></div></div></div>
+  ${q.note ? `<div class="notes"><b>Σημειώσεις:</b> ${escapeHtml(q.note)}</div>` : ""}
+  ${b.quote_terms ? `<div class="notes"><b>Όροι:</b>\n${escapeHtml(b.quote_terms)}</div>` : ""}
+  ${b.bank_info ? `<div class="notes"><b>Τραπεζικοί λογαριασμοί:</b>\n${escapeHtml(b.bank_info)}</div>` : ""}
+  <div class="sign"><div>Για την ${escapeHtml(b.trade_name || b.legal_name || "επιχείρηση")}</div><div>Αποδοχή πελάτη</div></div>
+  ${b.footer_note ? `<div class="foot">${escapeHtml(b.footer_note)}</div>` : ""}
+  <button class="print-btn" onclick="window.print()">🖨 Εκτύπωση / Αποθήκευση ως PDF</button>
+</body></html>`;
+  }
+  async function quoteToSalesDoc(quoteId){
+    await loadSeries();
+    if (!SERIES) { showToast(V19_MSG); return; }
+    const [qr, ir] = await Promise.all([sb.from("quotes").select("*").eq("id", quoteId).single(), sb.from("quote_items").select("*").eq("quote_id", quoteId)]);
+    if (qr.error) { showToast("Σφάλμα: " + qr.error.message); return; }
+    if (INVENTORY_CACHE.length === 0) await loadInventory();
+    const b = BIZ || {};
+    openSalesDocForm({ client_id: qr.data.client_id, quote_id: quoteId, prices_with_vat: b.quote_prices_with_vat !== false,
+      note: "Βάσει της προσφοράς ΠΡ-" + qr.data.quote_no,
+      lines: (ir.data || []).map(l => { const it = l.sku ? INVENTORY_CACHE.find(i => i.sku === l.sku) : null;
+        return { inventory_item_id: it ? it.id : null, sku: l.sku, description: l.description, qty: Number(l.qty), unit_price: Number(l.unit_price), vat_rate: Number(b.quote_vat_rate ?? 24) }; }) });
+  }
+
+  // ---------------- στοιχεία επιχείρησης & εκτύπωσης ----------------
+  async function openBusinessSettings(){
+    await loadSeries(true);
+    if (!SERIES) { showToast(V19_MSG); return; }
+    const b = BIZ || {};
+    const f = (id, label, val, ph, type) => `<div class="field"><label>${label}</label><input id="bz-${id}" ${type ? `type="${type}"` : ""} value="${escapeHtml(val ?? "")}" placeholder="${escapeHtml(ph || "")}"></div>`;
+    openDrawer("Στοιχεία επιχείρησης & εκτύπωσης", `
+      <form id="bz-form" novalidate>
+        <div id="bz-msg"></div>
+        <p class="sub" style="margin-top:0;">Μπαίνουν αυτόματα σε κάθε παραστατικό και προσφορά. Κάθε παραστατικό κρατά τα στοιχεία που ίσχυαν τη στιγμή της έκδοσης.</p>
+        ${f("legal_name", "Επωνυμία *", b.legal_name, "π.χ. ΤΟΜΟΡΙ ΗΛΙΑΣ")}
+        <div class="form-row">${f("trade_name", "Διακριτικός τίτλος", b.trade_name, "ITSUPP")}${f("profession", "Δραστηριότητα", b.profession, "π.χ. Υπηρεσίες πληροφορικής")}</div>
+        <div class="form-row">${f("vat_number", "ΑΦΜ *", b.vat_number, "")}${f("tax_office", "ΔΟΥ", b.tax_office, "π.χ. Θήρας")}</div>
+        <div class="form-row">${f("address", "Διεύθυνση", b.address, "")}${f("city", "Πόλη", b.city, "")}</div>
+        <div class="form-row">${f("postal_code", "Τ.Κ.", b.postal_code, "")}${f("gemi", "ΓΕΜΗ", b.gemi, "")}</div>
+        <div class="form-row">${f("phone", "Τηλέφωνο", b.phone, "")}${f("email", "Email", b.email, "", "email")}</div>
+        ${f("website", "Ιστοσελίδα", b.website, "app.itsupp.gr")}
+        <div class="field"><label>Τραπεζικοί λογαριασμοί (για «επί πιστώσει» και προσφορές)</label><textarea id="bz-bank_info" rows="2" placeholder="Πειραιώς GR.. ">${escapeHtml(b.bank_info || "")}</textarea></div>
+        <div class="field"><label>Κείμενο στο κάτω μέρος κάθε εκτύπωσης</label><input id="bz-footer_note" value="${escapeHtml(b.footer_note || "")}" placeholder="π.χ. Ευχαριστούμε για την προτίμηση!"></div>
+        <label class="check-line"><input type="checkbox" id="bz-show_logo" ${b.show_logo !== false ? "checked" : ""}> Να φαίνεται το λογότυπο</label>
+        <div class="section-title">Προσφορές</div>
+        <div class="form-row">
+          <div class="field"><label>Ισχύς προσφοράς (ημέρες)</label><input type="number" min="0" id="bz-quote_valid_days" value="${b.quote_valid_days ?? 30}"></div>
+          <div class="field"><label>ΦΠΑ προσφορών</label><select id="bz-quote_vat_rate">${SD_VATS.map(v => `<option value="${v}" ${Number(b.quote_vat_rate ?? 24) === v ? "selected" : ""}>${v}%</option>`).join("")}</select></div>
+        </div>
+        <label class="check-line"><input type="checkbox" id="bz-quote_prices_with_vat" ${b.quote_prices_with_vat !== false ? "checked" : ""}> Οι τιμές των προσφορών περιλαμβάνουν ΦΠΑ</label>
+        <div class="field"><label>Όροι προσφοράς (τυπώνονται)</label><textarea id="bz-quote_terms" rows="3" placeholder="π.χ. Προκαταβολή 50% με την ανάθεση. Εγγύηση εξοπλισμού 2 έτη.">${escapeHtml(b.quote_terms || "")}</textarea></div>
+        <div class="drawer-foot" style="margin:22px -22px -20px;">
+          <button type="button" class="btn-ghost" id="bz-preview">👁 Δείγμα εκτύπωσης</button>
+          <button type="submit" class="btn-primary">Αποθήκευση</button>
+        </div>
+      </form>`, true);
+    const read = () => {
+      const o = {};
+      ["legal_name","trade_name","profession","vat_number","tax_office","address","city","postal_code","gemi","phone","email","website","bank_info","footer_note","quote_terms"]
+        .forEach(k => { o[k] = $("#bz-" + k).value.trim() || null; });
+      o.vat_number = o.vat_number ? normalizeVat(o.vat_number) : null;
+      o.show_logo = $("#bz-show_logo").checked;
+      o.quote_valid_days = parseInt($("#bz-quote_valid_days").value || "0", 10) || 0;
+      o.quote_vat_rate = Number($("#bz-quote_vat_rate").value);
+      o.quote_prices_with_vat = $("#bz-quote_prices_with_vat").checked;
+      return o;
+    };
+    $("#bz-preview").addEventListener("click", () => {
+      const o = read();
+      const lines = [{ description:"Κάμερα IP 4MP", sku:"CAM-4MP", qty:2, unit:"τεμ.", unit_price:124, discount_pct:0, vat_rate:24, line_net:200, line_vat:48, line_total:248 },
+                     { description:"Εργασία εγκατάστασης", qty:1.5, unit:"ώρ.", unit_price:62, discount_pct:0, vat_rate:24, line_net:75, line_vat:18, line_total:93 }];
+      const s = SERIES.find(x => x.kind === "invoice") || SERIES[0] || { code:"ΤΙΜ", title:"Τιμολόγιο", kind:"invoice" };
+      writePrintWindow(null, buildSalesDocHtml({ doc_no: s.code + "-0", series_code: s.code, number: 0, title: s.title, kind: s.kind, series_id: s.id, status:"issued",
+        doc_date: isoDay(new Date()), prices_with_vat: true, net:275, vat:66, total:341, payment_method:"credit", issuer_snapshot:o,
+        client_snapshot:{ name:"Δείγμα Πελάτη Α.Ε.", vat_number:"000000000", tax_office:"Θήρας", address:"Φηρά", city:"Σαντορίνη" }, note:"Δείγμα εκτύπωσης" }, lines, {}));
+    });
+    $("#bz-form").addEventListener("submit", async (e) => {
+      e.preventDefault();
+      const o = read();
+      if (!o.legal_name) { showMsg($("#bz-msg"), "Γράψε την επωνυμία.", "error"); return; }
+      if (!o.vat_number) { showMsg($("#bz-msg"), "Γράψε το ΑΦΜ.", "error"); return; }
+      o.updated_at = new Date().toISOString();
+      const { error } = await sb.from("business_info").update(o).eq("id", 1);
+      if (error) { showMsg($("#bz-msg"), "Σφάλμα: " + error.message, "error"); return; }
+      await loadSeries(true);
+      closeDrawer();
+      showToast("Τα στοιχεία αποθηκεύτηκαν.");
+      refreshSalesViews();
+    });
+  }
+
+  // ---------------- σειρές παραστατικών ----------------
+  async function openSeriesManager(){
+    await loadSeries(true);
+    if (!SERIES) { showToast(V19_MSG); return; }
+    const { data: used } = await sb.from("sales_docs").select("series_id");
+    const count = {}; (used || []).forEach(r => count[r.series_id] = (count[r.series_id] || 0) + 1);
+    openDrawer("Σειρές παραστατικών", `
+      <p class="sub" style="margin-top:0;">Κάθε σειρά έχει δική της αρίθμηση (π.χ. ΑΠΛ-1, ΑΠΛ-2 …). Οι προσφορές έχουν τη δική τους αρίθμηση (ΠΡ-).</p>
+      <table><thead><tr><th>Σειρά</th><th>Είδος</th><th style="text-align:right;">Επόμενος</th><th style="text-align:right;">Εκδόθηκαν</th></tr></thead><tbody>
+      ${SERIES.map(s => `<tr class="clickable" data-ser="${s.id}" style="${s.active ? "" : "opacity:.5;"}">
+        <td><b>${escapeHtml(s.code)}</b> — ${escapeHtml(s.title)}${s.active ? "" : ' <span class="cell-sub">(ανενεργή)</span>'}<div class="cell-sub">${s.prices_with_vat ? "τιμές με ΦΠΑ" : "τιμές χωρίς ΦΠΑ"}${s.mydata_type ? " · myDATA " + escapeHtml(s.mydata_type) : ""}</div></td>
+        <td>${SD_KIND_LABEL[s.kind]}</td><td style="text-align:right;">${escapeHtml(s.code)}-${s.next_number}</td><td style="text-align:right;">${count[s.id] || 0}</td></tr>`).join("")}
+      </tbody></table>
+      <div class="drawer-foot" style="margin:22px -22px -20px;"><span></span><button type="button" class="btn-primary" id="ser-new">+ Νέα σειρά</button></div>`, true);
+    $$("[data-ser]").forEach(tr => tr.addEventListener("click", () => openSeriesForm(tr.dataset.ser, count[tr.dataset.ser] || 0)));
+    $("#ser-new").addEventListener("click", () => openSeriesForm(null, 0));
+  }
+  function openSeriesForm(id, used){
+    const s = id ? SERIES.find(x => x.id === id) : { code:"", title:"", kind:"retail", mydata_type:"", prices_with_vat:true, next_number:1, active:true, print_note:"", sort_order: SERIES.length + 1 };
+    openDrawer(id ? "Σειρά " + s.code : "Νέα σειρά", `
+      <form id="ser-form" novalidate>
+        <div id="ser-msg"></div>
+        <div class="form-row">
+          <div class="field"><label>Κωδικός *</label><input id="ser-code" maxlength="12" value="${escapeHtml(s.code)}" placeholder="π.χ. ΑΠΛ" ${used ? "disabled" : ""}></div>
+          <div class="field"><label>Είδος</label><select id="ser-kind">${Object.entries(SD_KIND_LABEL).map(([k, l]) => `<option value="${k}" ${s.kind === k ? "selected" : ""}>${l}</option>`).join("")}</select></div>
+        </div>
+        ${used ? '<div class="cell-sub" style="margin:-6px 0 10px;">Ο κωδικός δεν αλλάζει γιατί έχουν ήδη εκδοθεί παραστατικά.</div>' : ""}
+        <div class="field"><label>Τίτλος (όπως τυπώνεται) *</label><input id="ser-title" value="${escapeHtml(s.title)}" placeholder="π.χ. Απόδειξη Λιανικής Πώλησης"></div>
+        <div class="form-row">
+          <div class="field"><label>Επόμενος αριθμός</label><input type="number" min="1" id="ser-next" value="${s.next_number}"></div>
+          <div class="field"><label>Τύπος myDATA <span style="font-weight:400;color:var(--ink-soft);">(για τον πάροχο)</span></label><input id="ser-mydata" value="${escapeHtml(s.mydata_type || "")}" placeholder="π.χ. 11.1"></div>
+        </div>
+        <div class="cell-sub" style="margin:-6px 0 10px;">Άλλαξε τον επόμενο αριθμό μόνο αν συνεχίζεις αρίθμηση από αλλού — δύο παραστατικά δεν μπορούν να έχουν τον ίδιο αριθμό.</div>
+        <label class="check-line"><input type="checkbox" id="ser-pwv" ${s.prices_with_vat ? "checked" : ""}> Οι τιμές γράφονται με ΦΠΑ (λιανική)</label>
+        <label class="check-line"><input type="checkbox" id="ser-active" ${s.active ? "checked" : ""}> Ενεργή</label>
+        <div class="field"><label>Σημείωση στην εκτύπωση αυτής της σειράς</label><input id="ser-note" value="${escapeHtml(s.print_note || "")}" placeholder="π.χ. Η εγγύηση ισχύει με την επίδειξη της απόδειξης"></div>
+        <div class="drawer-foot" style="margin:22px -22px -20px;">
+          ${id && !used ? '<button type="button" class="btn-danger" id="ser-del">Διαγραφή</button>' : '<button type="button" class="btn-ghost" id="ser-back">‹ Πίσω</button>'}
+          <button type="submit" class="btn-primary">Αποθήκευση</button>
+        </div>
+      </form>`, true);
+    if ($("#ser-back")) $("#ser-back").addEventListener("click", openSeriesManager);
+    if ($("#ser-del")) $("#ser-del").addEventListener("click", async () => {
+      const b = $("#ser-del"); if (!b.dataset.armed) { b.dataset.armed = "1"; b.textContent = "Σίγουρα; Πάτα ξανά"; return; }
+      const { error } = await sb.from("doc_series").delete().eq("id", id);
+      if (error) { showMsg($("#ser-msg"), "Δεν διαγράφεται (έχει παραστατικά) — κάν' την ανενεργή.", "error"); return; }
+      openSeriesManager();
+    });
+    $("#ser-form").addEventListener("submit", async (e) => {
+      e.preventDefault();
+      const payload = { title: $("#ser-title").value.trim(), kind: $("#ser-kind").value, next_number: parseInt($("#ser-next").value || "1", 10),
+                        mydata_type: $("#ser-mydata").value.trim() || null, prices_with_vat: $("#ser-pwv").checked, active: $("#ser-active").checked,
+                        print_note: $("#ser-note").value.trim() || null };
+      if (!used) payload.code = $("#ser-code").value.trim().toUpperCase();
+      if (!used && !payload.code) { showMsg($("#ser-msg"), "Γράψε κωδικό σειράς.", "error"); return; }
+      if (!payload.title) { showMsg($("#ser-msg"), "Γράψε τίτλο.", "error"); return; }
+      if (!(payload.next_number >= 1)) { showMsg($("#ser-msg"), "Ο επόμενος αριθμός πρέπει να είναι 1 ή μεγαλύτερος.", "error"); return; }
+      if (!id) payload.sort_order = s.sort_order;
+      // προστασία: να μη «γυρίσει πίσω» η αρίθμηση σε αριθμό που έχει ήδη δοθεί
+      if (id && used) {
+        const { data: mx } = await sb.from("sales_docs").select("number").eq("series_id", id).order("number", { ascending:false }).limit(1);
+        const max = mx && mx[0] ? mx[0].number : 0;
+        if (payload.next_number <= max) { showMsg($("#ser-msg"), `Έχει ήδη εκδοθεί το ${s.code}-${max}. Ο επόμενος πρέπει να είναι τουλάχιστον ${max + 1}.`, "error"); return; }
+      }
+      const { error } = id ? await sb.from("doc_series").update(payload).eq("id", id) : await sb.from("doc_series").insert(payload);
+      if (error) { showMsg($("#ser-msg"), /unique|duplicate/i.test(error.message) ? "Υπάρχει ήδη σειρά με αυτόν τον κωδικό." : "Σφάλμα: " + error.message, "error"); return; }
+      await openSeriesManager();
+    });
+  }
+
+  // ---------------- καρτέλα «Παραστατικά» μέσα στον πελάτη ----------------
+  async function renderClientDocs(clientId){
+    const box = $("#cl-docs-pane"); if (!box) return;
+    const { data, error } = await sb.from("sales_docs_view").select("*").eq("client_id", clientId).order("doc_date", { ascending:false }).order("created_at", { ascending:false });
+    if (error) { box.innerHTML = `<div class="cell-sub" style="padding:8px 0;">${isMissing(error) || /sales_docs/.test(error.message) ? V19_MSG : "Σφάλμα: " + escapeHtml(error.message)}</div>`; return; }
+    const rows = data || [];
+    const n = $("#cl-docs-n"); if (n) n.textContent = rows.length ? `(${rows.length})` : "";
+    const live = rows.filter(d => d.status === "issued");
+    const openSum = live.filter(d => d.kind !== "credit").reduce((s, d) => s + Math.max(0, Number(d.total) - Number(d.paid_amount || 0)), 0);
+    const total = live.reduce((s, d) => s + (d.kind === "credit" ? -1 : 1) * Number(d.total), 0);
+    box.innerHTML = `
+      <div class="stat-row" style="padding:0 0 10px;grid-template-columns:1fr 1fr;">
+        <div class="stat-tile"><div class="num">${eur(total)}</div><div class="lbl">Σύνολο παραστατικών (${live.length})</div></div>
+        <div class="stat-tile ${openSum > 0.004 ? "balance-due" : ""}"><div class="num">${eur(openSum)}</div><div class="lbl">Ανεξόφλητα</div></div>
+      </div>
+      <button type="button" class="btn-primary btn-sm" id="cl-new-doc" style="margin-bottom:10px;">+ Νέο παραστατικό</button>
+      ${rows.length === 0 ? '<div class="cell-sub" style="padding:6px 0;">Δεν έχουν εκδοθεί παραστατικά σε αυτόν τον πελάτη.</div>' : rows.map(d => {
+        const st = sdStatus(d);
+        return `<div class="sd-row compact ${d.status === "cancelled" ? "cancelled" : ""}" data-cl-sd="${d.id}" role="button" tabindex="0">
+          <div class="sd-no"><b>${escapeHtml(d.doc_no)}</b><div class="cell-sub">${fmtShortDate(d.doc_date)}</div></div>
+          <div class="sd-who"><div>${escapeHtml(d.title)}</div><div class="cell-sub"><span class="status-pill ${st.cls}">${escapeHtml(st.label)}</span> ${d.status === "issued" ? (d.mark ? '<span class="sd-mark ok">ΜΑΡΚ ✓</span>' : '<span class="sd-mark">χωρίς ΜΑΡΚ</span>') : ""}</div></div>
+          <div class="sd-amt">${d.kind === "credit" ? "−" : ""}${eur(d.total)}</div></div>`; }).join("")}`;
+    $("#cl-new-doc").addEventListener("click", () => openSalesDocForm({ client_id: clientId }));
+    $$("[data-cl-sd]").forEach(el => el.addEventListener("click", () => openSalesDoc(el.dataset.clSd)));
+  }
+
+  // ---------------- κουμπιά σελίδας ----------------
+  $("#inv-new-btn").addEventListener("click", () => openSalesDocForm());
+  $("#inv-series-btn").addEventListener("click", openSeriesManager);
+  $("#inv-biz-btn").addEventListener("click", openBusinessSettings);
+  $("#inv-quotes-btn").addEventListener("click", () => goToView("quotes"));
+  $("#inv-q").addEventListener("input", () => { SD_FILTER.q = $("#inv-q").value; renderInvoicingList(); });
+  $("#inv-from").addEventListener("change", () => { SD_FILTER.from = $("#inv-from").value; renderInvoicingList(); });
+  $("#inv-to").addEventListener("change", () => { SD_FILTER.to = $("#inv-to").value; renderInvoicingList(); });
+  $("#inv-this-month").addEventListener("click", () => {
+    const t = isoDay(new Date()); SD_FILTER.from = t.slice(0, 8) + "01"; SD_FILTER.to = t;
+    $("#inv-from").value = SD_FILTER.from; $("#inv-to").value = SD_FILTER.to; renderInvoicingList();
+  });
+  $("#inv-clear").addEventListener("click", () => {
+    SD_FILTER = { q:"", series:"all", status:"all", from:"", to:"" };
+    $("#inv-q").value = ""; $("#inv-from").value = ""; $("#inv-to").value = ""; renderInvoicingList();
+  });
+  $("#inv-series-chips").addEventListener("click", (e) => { const c = e.target.closest("[data-s]"); if (c) { SD_FILTER.series = c.dataset.s; renderInvoicingList(); } });
+  $("#inv-status-chips").addEventListener("click", (e) => { const c = e.target.closest("[data-st]"); if (c) { SD_FILTER.status = c.dataset.st; renderInvoicingList(); } });
+
 
   // ================= EXPENSES (staff) =================
   const EXPENSE_CATEGORIES = ["Προμήθεια εξοπλισμού","Ενοίκιο","ΔΕΗ/Ρεύμα","Νερό","Τηλέφωνο/Internet","Καύσιμα","Συντήρηση οχήματος","Μισθοδοσία","Πληρωμή υπαλλήλου","Πληρωμή προμηθευτή","Λογιστής/Φόρος","Διαφήμιση","Διάφορα"];
