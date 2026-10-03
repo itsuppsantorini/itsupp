@@ -421,6 +421,10 @@
   .afm-row .btn-sm{white-space:nowrap;flex:none;}
   .afm-ok{color:var(--green);font-size:12px;}
   .afm-bad{color:var(--red);font-size:12px;margin-top:3px;}
+  .aade-diag{margin-top:6px;line-height:1.45;}
+  .aade-secs{display:flex;flex-wrap:wrap;gap:6px;margin-top:4px;}
+  .aade-sec{font-size:11px;padding:3px 8px;border-radius:99px;background:var(--red-bg);color:var(--red);}
+  .aade-sec.on{background:var(--green-bg);color:var(--green);}
   .afm-quick{background:var(--teal-light);border:1px solid var(--tile-line);border-radius:12px;padding:12px 14px;margin-bottom:16px;display:flex;flex-direction:column;gap:8px;}
   .afm-quick .afm-row input{font-size:16px;letter-spacing:.06em;}
   .sd-legal{margin:14px 0 8px;background:var(--amber-bg);border-radius:10px;padding:9px 12px;font-size:12.5px;line-height:1.45;}
@@ -1633,7 +1637,8 @@
                     { line_no:2, description:null, qty:null, net:35.5, vat_category:"1", vat_rate:24, vat_amount:8.52 } ],
             totals:{ net:243.5, vat:58.44, gross:301.94 } } }, error:null };
         }
-        if (b.action === "status") return { data:{ ok:true, afm:{ ok:true }, mydata:{ ok:true } }, error:null };
+        if (b.action === "status") return { data:{ ok:true, version:"aade-2", afm:{ ok:true }, mydata:{ ok:true },
+          secrets:{ AADE_WS_USER:{ set:true, len:8 }, AADE_WS_PASS:{ set:true, len:10 }, MYDATA_USER_ID:{ set:true, len:12 }, MYDATA_SUBSCRIPTION_KEY:{ set:true, len:32 }, MYDATA_URL:{ set:false, len:0 } } }, error:null };
         return { data:{ ok:false, error:"Άγνωστη ενέργεια." }, error:null };
       }
     };
@@ -1730,8 +1735,16 @@
     try {
       const { data, error } = await sb.functions.invoke("aade", { body });
       if (error) {
-        try { const j = error.context && typeof error.context.json === "function" ? await error.context.json() : null; if (j && j.error) return j; } catch (e) {}
-        return { ok:false, setup: /Failed to send|not found|404|FunctionsFetchError|FunctionsRelayError/i.test((error.name || "") + " " + (error.message || "")), error: AADE_SETUP_MSG };
+        const st = error.context && error.context.status;
+        let j = null;
+        try { j = error.context && typeof error.context.json === "function" ? await error.context.json() : null; } catch (e) {}
+        if (j && j.error) return { ...j, http: st };
+        // σφάλματα ΠΡΙΝ φτάσει στον κώδικα της function (στήσιμο στο Supabase)
+        if (st === 404) return { ok:false, setup:true, http:st, error:"Δεν βρέθηκε Edge Function με όνομα «aade». Έλεγξε στο Supabase → Edge Functions ότι το όνομα είναι ακριβώς aade (μικρά λατινικά)." };
+        if (st === 401) return { ok:false, setup:true, http:st, error:"Το Supabase απέρριψε την κλήση πριν φτάσει στη function (401 " + ((j && (j.message || j.msg)) || "Invalid JWT") + "). Άνοιξε τη function «aade» → Details και κλείσε το «Verify JWT / Enforce JWT verification» — ο έλεγχος διαχειριστή γίνεται μέσα στη function." };
+        if (st >= 500) return { ok:false, setup:true, http:st, error:"Η Edge Function «aade» δεν ξεκινά (σφάλμα " + st + "). Ξαναεπικόλλησε ΟΛΟ τον κώδικα του aade.ts και πάτα Deploy." };
+        if (/FetchError|Relay/i.test(error.name || "")) return { ok:false, setup:true, error:"Δεν έγινε σύνδεση με την Edge Function «aade» (" + (error.message || error.name) + "). Έχει γίνει Deploy;" };
+        return { ok:false, http:st, error: (j && (j.message || j.msg)) || error.message || AADE_SETUP_MSG };
       }
       return data || { ok:false, error:"Κενή απάντηση." };
     } catch (e) { return { ok:false, error: "Σφάλμα: " + e.message }; }
@@ -5835,9 +5848,12 @@
     $("#bz-aade-check").addEventListener("click", async () => {
       const box = $("#bz-aade-result"); box.innerHTML = '<span class="cell-sub">Έλεγχος…</span>';
       const r = await aadeCall({ action:"status", afm: normalizeVat($("#bz-vat_number").value) });
-      if (!r.ok) { box.innerHTML = `<div class="afm-bad">${escapeHtml(r.error || AADE_SETUP_MSG)}</div>`; return; }
-      const line = (label, x) => `<div class="${x && x.ok ? "afm-ok" : "afm-bad"}">${x && x.ok ? "✓" : "✗"} ${label}${x && !x.ok && x.error ? " — " + escapeHtml(x.error) : ""}</div>`;
-      box.innerHTML = line("Στοιχεία από ΑΦΜ (ειδικοί κωδικοί ΑΑΔΕ)", r.afm) + line("myDATA (τιμολόγια αγορών με ΜΑΡΚ)", r.mydata);
+      if (!r.ok) { box.innerHTML = `<div class="afm-bad">✗ ${escapeHtml(r.error || AADE_SETUP_MSG)}</div>`; return; }
+      const line = (label, x) => `<div class="aade-diag ${x && x.ok ? "afm-ok" : "afm-bad"}">${x && x.ok ? "✓" : "✗"} <b>${label}</b>${x && !x.ok && x.error ? "<div>" + escapeHtml(x.error) + "</div>" : ""}</div>`;
+      const sec = r.secrets ? Object.entries(r.secrets).map(([k, v]) => `<span class="aade-sec ${v.set ? "on" : ""}">${k}: ${v.set ? "✓ (" + v.len + " χαρ.)" : k === "MYDATA_URL" ? "— (κανονικό)" : "✗ λείπει"}</span>`).join("") : "";
+      box.innerHTML = line("Στοιχεία από ΑΦΜ (ειδικοί κωδικοί ΑΑΔΕ)", r.afm) + line("myDATA (τιμολόγια αγορών με ΜΑΡΚ)", r.mydata)
+        + (sec ? `<div class="cell-sub" style="margin-top:8px;">Secrets που βλέπει η function:</div><div class="aade-secs">${sec}</div>` : "")
+        + (r.version ? "" : '<div class="afm-bad" style="margin-top:6px;">Η Edge Function «aade» είναι παλιά έκδοση — ξαναεπικόλλησε το νέο aade.ts και Deploy για πλήρη διάγνωση.</div>');
     });
     $("#bz-preview").addEventListener("click", () => {
       const o = read();
