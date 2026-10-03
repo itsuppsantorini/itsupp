@@ -102,6 +102,7 @@
   .pill-staff{background:var(--teal-light);color:var(--teal-dark);}
   .pill-client{background:var(--amber-bg);color:var(--amber);}
   .pill-external{background:var(--blue-bg);color:var(--blue);}
+  .pill-supplier{background:var(--purple-bg);color:var(--purple);}
   .theme-btn{font-size:15px;line-height:1;padding:7px 9px;}
   .theme-btn-float{position:fixed;top:16px;right:16px;z-index:60;}
   .notif-wrap{position:relative;}
@@ -425,6 +426,16 @@
   .aade-secs{display:flex;flex-wrap:wrap;gap:6px;margin-top:4px;}
   .aade-sec{font-size:11px;padding:3px 8px;border-radius:99px;background:var(--red-bg);color:var(--red);}
   .aade-sec.on{background:var(--green-bg);color:var(--green);}
+  .rq-nums{display:grid;grid-template-columns:120px 120px minmax(0,1fr);gap:8px;align-items:end;}
+  .rq-nums label, .pq-nums label{font-size:11px;color:var(--ink-soft);font-weight:600;display:flex;flex-direction:column;gap:3px;min-width:0;}
+  .rq-hint{padding-bottom:9px;}
+  .pq-nums{display:grid;grid-template-columns:minmax(0,1.3fr) 90px minmax(0,1.3fr) auto;gap:8px;align-items:end;margin-top:8px;}
+  @media (max-width:560px){ .rq-nums{grid-template-columns:1fr 1fr;} .rq-hint{grid-column:1 / -1;padding:0;} .pq-nums{grid-template-columns:1fr 90px;} .pq-nums .pq-total{grid-column:1 / -1;padding:0;} }
+  .rv-times span{margin-right:4px;}
+  .rv-na td{opacity:.55;}
+  .rv-supnote{margin-top:12px;background:var(--surface-2);border-radius:10px;padding:9px 12px;font-size:13px;line-height:1.55;}
+  .sa-share{display:flex;flex-wrap:wrap;gap:8px;margin:10px 0 4px;}
+  .sa-share a{text-decoration:none;display:inline-flex;align-items:center;}
   .afm-quick{background:var(--teal-light);border:1px solid var(--tile-line);border-radius:12px;padding:12px 14px;margin-bottom:16px;display:flex;flex-direction:column;gap:8px;}
   .afm-quick .afm-row input{font-size:16px;letter-spacing:.06em;}
   .sd-legal{margin:14px 0 8px;background:var(--amber-bg);border-radius:10px;padding:9px 12px;font-size:12.5px;line-height:1.45;}
@@ -568,7 +579,8 @@
 
     <form id="signup-form" class="hidden">
       <h1>Νέος λογαριασμός</h1>
-      <p class="sub">Διάλεξε τι είσαι, για να σου ζητήσουμε τα σωστά στοιχεία.</p>
+      <div class="afm-quick hidden" id="su-invite"><div><b>🏭 Πρόσκληση προμηθευτή</b><div class="cell-sub" id="su-invite-text"></div></div></div>
+      <p class="sub" id="su-sub">Διάλεξε τι είσαι, για να σου ζητήσουμε τα σωστά στοιχεία.</p>
 
       <div class="filterbar" id="signup-kind" style="margin-bottom:18px;">
         <div class="chip active" data-kind="individual">Ιδιώτης</div>
@@ -800,6 +812,14 @@
           </table>
         </div>
       </div>
+      <div class="panel">
+        <div class="panel-head">
+          <h2>Αιτήματα τιμών &amp; παραγγελίες</h2>
+          <button type="button" class="btn-primary btn-sm" id="new-sreq-btn">+ Νέο αίτημα</button>
+        </div>
+        <div class="filterbar" id="sreq-chips" style="padding:12px 20px 0;"></div>
+        <div class="panel-body" id="sreq-list" style="padding:4px 20px 14px;"></div>
+      </div>
     </div>
 
     <!-- λογιστήριο (owner): τιμολόγια αγοράς, αρχείο, αποστολή στον λογιστή -->
@@ -1023,6 +1043,19 @@
     </div>
 
     <!-- client portal -->
+    <!-- ΠΥΛΗ ΠΡΟΜΗΘΕΥΤΗ: μόνο τα αιτήματα που του στάλθηκαν -->
+    <div id="view-supplier-portal" class="hidden">
+      <div class="panel" style="padding:20px 24px;margin-bottom:18px;">
+        <h1 id="supportal-name" style="margin-bottom:2px;">—</h1>
+        <p class="sub" id="supportal-sub" style="margin:0;">&nbsp;</p>
+      </div>
+      <div class="panel">
+        <div class="panel-head"><h2>Αιτήματα τιμών &amp; παραγγελίες</h2></div>
+        <div class="filterbar" id="supportal-chips" style="padding:12px 20px 0;"></div>
+        <div class="panel-body" id="supportal-list" style="padding:4px 20px 14px;"></div>
+      </div>
+    </div>
+
     <div id="view-portal" class="hidden">
       <div class="panel" style="padding:20px 24px;margin-bottom:18px;">
         <h1 id="portal-client-name" style="margin-bottom:2px;">—</h1>
@@ -1088,7 +1121,22 @@
         { id: NIKOS, role:"staff", full_name:"Νίκος Αντωνίου", email:"nikos@demo.example", client_id:null, leave_days_per_year:22, created_at: ts(-180) },
         { id: MARIA, role:"staff", full_name:"Μαρία Κωνσταντίνου", email:"maria@demo.example", client_id:null, leave_days_per_year:20, created_at: ts(-150) },
         { id: STELIOS, role:"external", full_name:"Στέλιος Δημητρίου", email:"stelios@demo.example", client_id:null, leave_days_per_year:0, created_at: ts(-90) },
-        { id:"demo-cu1", role:"client", full_name:"Ελένη Μαρκάκη", email:"eleni@demo.example", client_id: C[0], leave_days_per_year:0, created_at: ts(-60) }
+        { id:"demo-cu1", role:"client", full_name:"Ελένη Μαρκάκη", email:"eleni@demo.example", client_id: C[0], leave_days_per_year:0, created_at: ts(-60) },
+        { id:"demo-su1", role:"supplier", full_name:"Γιώργος Βασιλείου", email:"orders@technonet.demo.example", client_id:null, supplier_id: S[0], leave_days_per_year:0, created_at: ts(-20) },
+        { id:"demo-su2", role:"supplier", full_name:"Άννα Σταύρου", email:"sales@asfaleia.demo.example", client_id:null, supplier_id: S[1], leave_days_per_year:0, created_at: ts(-15) }
+      ],
+      supplier_requests: [
+        { id:"demo-rq1", req_no:1, supplier_id: S[1], status:"quoted", title:"Κάμερες για Βίλες Ηλιοβασίλεμα", note:"Χρειάζομαι και βάσεις τοίχου αν έχετε.", needed_by: day(5),
+          buyer_name:"ITSUPP", supplier_note:"Οι τιμές ισχύουν για πληρωμή εντός 30 ημερών.", delivery_text:"2-3 εργάσιμες", valid_until: day(14),
+          sent_at: ts(-2, 9), quoted_at: ts(-1, 16), created_at: ts(-2, 9) },
+        { id:"demo-rq2", req_no:2, supplier_id: S[0], status:"sent", title:"Δικτυακά για Mini Market", note:null, needed_by: day(10), buyer_name:"ITSUPP", sent_at: ts(-1, 11), created_at: ts(-1, 11) }
+      ],
+      supplier_request_lines: [
+        { id:"demo-rl1", request_id:"demo-rq1", line_no:1, inventory_item_id:"demo-i2", sku:"CAM-8MP-B", description:"IP κάμερα bullet 8MP", qty:6, unit:"τεμ.", unit_price:84.5, vat_rate:24, availability:"in_stock", supplier_comment:null },
+        { id:"demo-rl2", request_id:"demo-rq1", line_no:2, inventory_item_id:"demo-i3", sku:"NVR-16", description:"NVR 16 καναλιών", qty:1, unit:"τεμ.", unit_price:198, vat_rate:24, availability:"on_order", supplier_comment:"Έρχεται σε 5 μέρες" },
+        { id:"demo-rl3", request_id:"demo-rq1", line_no:3, inventory_item_id:null, sku:null, description:"Βάση τοίχου για bullet", qty:6, unit:"τεμ.", unit_price:6.9, vat_rate:24, availability:"in_stock", supplier_comment:null },
+        { id:"demo-rl4", request_id:"demo-rq2", line_no:1, inventory_item_id:"demo-i6", sku:"CAT6-305", description:"Καλώδιο Cat6 305m", qty:3, unit:"κιβ.", unit_price:null, vat_rate:24, availability:null, supplier_comment:null },
+        { id:"demo-rl5", request_id:"demo-rq2", line_no:2, inventory_item_id:"demo-i5", sku:"SW-POE-8", description:"Switch PoE 8 θυρών", qty:2, unit:"τεμ.", unit_price:null, vat_rate:24, availability:null, supplier_comment:null }
       ],
       clients: [
         { id:C[0], name:"Ξενοδοχείο Γαλάζιο Κύμα", type:"Ξενοδοχείο", city:"Φηρά", contact:"Ελένη Μαρκάκη", phone:"210 000 0101", email:"info@galazio.demo.example", entity_type:"company", status:"active", address:"Παραλιακή 12", vat_number:"000000001", tax_office:"Θήρας", created_at: ts(-120) },
@@ -1279,12 +1327,32 @@
       visit_logs: () => ({ checkin_at: nowIso(), created_at: nowIso() }),
       inventory_items: () => ({ stock:0, max_stock:0, price:0 }),
       quote_items: () => ({ qty:1, unit_price:0 }),
-      doc_series: () => ({ kind:"retail", prices_with_vat:false, next_number:1, active:true, sort_order:0, created_at: nowIso() })
+      doc_series: () => ({ kind:"retail", prices_with_vat:false, next_number:1, active:true, sort_order:0, created_at: nowIso() }),
+      supplier_requests: () => ({ status:"draft", req_no: maxOf("supplier_requests", "req_no") + 1, created_by: user.id, created_at: nowIso() }),
+      supplier_request_lines: () => ({ line_no:1, unit:"τεμ.", vat_rate:24, unit_price:null, availability:null })
     };
     const afterWrite = (t, r) => {
       if (t === "leave_requests" && r.start_date && r.end_date) r.days = leaveDays(r.start_date, r.end_date);
       if (t === "calendar_notes") r.done_at = r.done ? (r.done_at || nowIso()) : null;
       if (t === "tickets") r.updated_at = nowIso();
+      // επίδειξη: ο «προμηθευτής» απαντά μόνος του λίγα δευτερόλεπτα μετά την αποστολή
+      if (t === "supplier_requests" && r.status === "sent" && !r.__sim && tbl("profiles").some(p => p.role === "supplier" && p.supplier_id === r.supplier_id)) {
+        r.__sim = true;
+        setTimeout(() => {
+          const rq = tbl("supplier_requests").find(x => x.id === r.id);
+          if (!rq || rq.status !== "sent") return;
+          tbl("supplier_request_lines").filter(l => l.request_id === rq.id).forEach(l => {
+            const it = l.inventory_item_id ? tbl("inventory_items").find(i => i.id === l.inventory_item_id) : null;
+            l.unit_price = Math.round(((it && (it.last_cost || it.price * 0.62)) || 25) * 100) / 100; l.availability = "in_stock";
+          });
+          Object.assign(rq, { status:"quoted", quoted_at: nowIso(), delivery_text:"1-2 εργάσιμες", supplier_note:"Ευχαριστούμε! (απάντηση επίδειξης)" });
+          const sup = tbl("suppliers").find(x => x.id === rq.supplier_id);
+          tbl("notifications").unshift({ id:newId(), user_id:user.id, message:`💶 Έτοιμη η προσφορά #${rq.req_no} από ${sup ? sup.name : ""}`, supplier_request_id: rq.id, is_read:false, created_at:nowIso() });
+          save();
+          if (typeof loadNotifications === "function") loadNotifications();
+          if (typeof refreshSreqViews === "function") refreshSreqViews();
+        }, 4000);
+      }
     };
 
     // ---- «views», ίδια λογική με τη βάση ----
@@ -1345,7 +1413,7 @@
     const parseSel = (s) => splitTop(s || "*").map(p => { const m = p.match(/^(\w+)\((.*)\)$/s); return m ? { embed:m[1], sub:m[2] } : null; }).filter(Boolean);
     const MANY_TO_ONE = { clients:"client_id", suppliers:"supplier_id", tickets:"ticket_id", quotes:"quote_id" };
     const PROFILE_FK = { visit_logs:"tech_id", leave_requests:"tech_id", notifications:"user_id" };
-    const ONE_TO_MANY = { quote_items:"quote_id", ticket_notes:"ticket_id", visit_logs:"ticket_id", equipment:"client_id", purchase_invoice_lines:"invoice_id" };
+    const ONE_TO_MANY = { supplier_request_lines:"request_id", quote_items:"quote_id", ticket_notes:"ticket_id", visit_logs:"ticket_id", equipment:"client_id", purchase_invoice_lines:"invoice_id" };
     const project = (row, table, sel) => {
       const out = { ...row };
       for (const { embed, sub } of parseSel(sel)) {
@@ -1517,6 +1585,28 @@
         return { ok:true };
       }),
       vault_delete_entry: withPin(({ p_id }) => { V.entries = V.entries.filter(e => e.id !== p_id); return { ok:true }; }),
+      // ---- προμηθευτές ----
+      supplier_invite_code: ({ p_supplier, p_renew }) => { const s = tbl("suppliers").find(x => x.id === p_supplier); if (!s) throw new Error("Ο προμηθευτής δεν βρέθηκε");
+        if (!s.invite_code || p_renew) s.invite_code = Math.random().toString(16).slice(2, 14) + Math.random().toString(16).slice(2, 14); save(); return s.invite_code; },
+      supplier_invite_info: ({ p_code }) => { const s = tbl("suppliers").find(x => x.invite_code && x.invite_code === p_code); return s ? { ok:true, name:s.name } : { ok:false }; },
+      supplier_me: () => { const s = tbl("suppliers")[1] || tbl("suppliers")[0]; return s ? { id:s.id, name:s.name } : null; },
+      supplier_submit_quote: ({ p_id, p_lines, p_note, p_delivery, p_valid_until }) => {
+        const r = tbl("supplier_requests").find(x => x.id === p_id); if (!r) return { ok:false, error:"Το αίτημα δεν βρέθηκε." };
+        if (!["sent","quoted"].includes(r.status)) return { ok:false, error:"Το αίτημα δεν δέχεται πλέον τιμές." };
+        (p_lines || []).forEach(l => { const x = tbl("supplier_request_lines").find(y => y.id === l.id && y.request_id === p_id); if (!x) return;
+          Object.assign(x, { unit_price: l.unit_price === "" || l.unit_price == null ? null : Number(l.unit_price), vat_rate: l.vat_rate !== "" && l.vat_rate != null ? Number(l.vat_rate) : x.vat_rate,
+                             availability: l.availability || null, supplier_comment: (l.supplier_comment || "").trim() || null }); });
+        if (tbl("supplier_request_lines").some(l => l.request_id === p_id && l.unit_price == null && l.availability !== "unavailable")) return { ok:false, error:"Συμπλήρωσε τιμή σε όλα τα είδη (ή σημείωσέ τα «Μη διαθέσιμο»)." };
+        Object.assign(r, { status:"quoted", quoted_at:nowIso(), supplier_note:(p_note || "").trim() || null, delivery_text:(p_delivery || "").trim() || null, valid_until:p_valid_until || null });
+        save(); return { ok:true };
+      },
+      supplier_set_status: ({ p_id, p_status, p_note }) => {
+        const r = tbl("supplier_requests").find(x => x.id === p_id); if (!r) return { ok:false, error:"Το αίτημα δεν βρέθηκε." };
+        if (p_status === "declined" && ["sent","quoted"].includes(r.status)) Object.assign(r, { status:"declined", supplier_note:(p_note || "").trim() || r.supplier_note });
+        else if (p_status === "shipped" && r.status === "ordered") Object.assign(r, { status:"shipped", shipped_at:nowIso(), supplier_note:(p_note || "").trim() || r.supplier_note });
+        else return { ok:false, error:"Δεν γίνεται αυτή η αλλαγή τώρα." };
+        save(); return { ok:true };
+      },
       // ---- τιμολόγηση: ίδια λογική με το schema_v19.sql ----
       issue_sales_doc: ({ p }) => {
         const r2 = (x) => Math.round((x + Number.EPSILON) * 100) / 100;
@@ -1854,6 +1944,27 @@
   });
   wireVatHint("#su-vat", "#su-vat-note");
 
+  // ---- πρόσκληση προμηθευτή: ?sinv=<κωδικός> ----
+  let SUPPLIER_INVITE = null;
+  (async function checkSupplierInvite(){
+    const code = new URLSearchParams(location.search).get("sinv");
+    if (!code) return;
+    SUPPLIER_INVITE = code;
+    $("#su-invite").classList.remove("hidden");
+    $("#su-invite-text").textContent = "Έλεγχος πρόσκλησης…";
+    $("#signup-kind").classList.add("hidden");
+    $("#su-sub").textContent = "Φτιάξε τον λογαριασμό σου με email και κωδικό.";
+    applySignupKind("staff");
+    $$(".tab").forEach(t => t.classList.toggle("active", t.dataset.tab === "signup"));
+    $("#login-form").classList.add("hidden"); $("#signup-form").classList.remove("hidden");
+    try {
+      const { data } = await sb.rpc("supplier_invite_info", { p_code: code });
+      $("#su-invite-text").textContent = data && data.ok ? `Λογαριασμός για «${data.name}». Εδώ θα βλέπεις τα αιτήματα τιμών και τις παραγγελίες μας και θα σου έρχεται ειδοποίηση.`
+        : "Ο σύνδεσμος πρόσκλησης δεν ισχύει πια — ζήτα καινούργιο.";
+      if (!(data && data.ok)) SUPPLIER_INVITE = null;
+    } catch (e) { $("#su-invite-text").textContent = ""; }
+  })();
+
   $("#signup-form").addEventListener("submit", async (e) => {
     e.preventDefault();
     const kind = SIGNUP_KIND;
@@ -1880,6 +1991,7 @@
     } else {
       if (!val("#su-staff-name")) return void fail("Συμπλήρωσε το ονοματεπώνυμό σου.");
       meta.full_name = val("#su-staff-name");
+      if (SUPPLIER_INVITE) { meta.signup_kind = "supplier"; meta.supplier_invite = SUPPLIER_INVITE; }
     }
 
     if (isClient) {
@@ -1970,7 +2082,8 @@
   async function openNotification(n){
     $("#notif-panel").classList.add("hidden");
     if (!n.is_read) await sb.from("notifications").update({ is_read: true }).eq("id", n.id);
-    if (n.ticket_id) await openTicketDrawer(n.ticket_id, false);
+    if (n.supplier_request_id) { if (PROFILE && PROFILE.role === "supplier") await openSupplierPortalRequest(n.supplier_request_id); else await openSupplierRequest(n.supplier_request_id); }
+    else if (n.ticket_id) await openTicketDrawer(n.ticket_id, false);
     else if (n.note_id) await openNoteDrawer(n.note_id);
     else if (n.client_id) { if (CLIENTS_CACHE.length === 0) await loadClients(); await openClientDrawer(n.client_id); }
     else if (n.profile_id) goToView("technicians");
@@ -2210,7 +2323,7 @@
     const st = await pushState();
     if (dismissed || !["off","ios-install"].includes(st)) { el.classList.add("hidden"); return; }
     el.innerHTML = `
-      <div class="push-prompt-text">🔔 <b>Θέλεις να σε ειδοποιεί το κινητό;</b> Για νέα αιτήματα πελατών, ραντεβού και υπενθυμίσεις — και με κλειστή εφαρμογή.
+      <div class="push-prompt-text">🔔 <b>Θέλεις να σε ειδοποιεί το κινητό;</b> ${PROFILE && PROFILE.role === "supplier" ? "Για νέα αιτήματα τιμών και παραγγελίες" : "Για νέα αιτήματα πελατών, ραντεβού και υπενθυμίσεις"} — και με κλειστή εφαρμογή.
         ${st === "ios-install" ? `<div class="push-prompt-sub">${PUSH_ERRORS.IOS_INSTALL}</div>` : ""}</div>
       <div class="push-prompt-actions">
         ${st === "off" ? '<button type="button" class="btn-primary btn-sm" id="push-prompt-yes">Ναι, ενεργοποίηση</button>' : ""}
@@ -2401,7 +2514,7 @@
     if (view === "clients") loadClients();
     if (view === "tickets") loadTickets();
     if (view === "inventory") loadInventory();
-    if (view === "suppliers") loadSuppliersView();
+    if (view === "suppliers") { loadSuppliersView(); loadSupplierRequests(); }
     if (view === "accounting") loadAccountingView();
     if (view === "quotes") loadQuotes();
     if (view === "invoicing") loadInvoicingView();
@@ -2431,13 +2544,14 @@
     $("#view-technicians").classList.add("hidden");
     $("#view-users").classList.add("hidden");
     $("#view-portal").classList.add("hidden");
+    $("#view-supplier-portal").classList.add("hidden");
 
     const { data: { user } } = await sb.auth.getUser();
     if (!user) return;
     USER = user;
 
     const { data: profile, error } = await sb
-      .from("profiles").select("role, client_id, full_name, email, leave_days_per_year").eq("id", user.id).single();
+      .from("profiles").select("*").eq("id", user.id).single();
 
     if (error || !profile) {
       $("#who-label").textContent = user.email;
@@ -2446,8 +2560,8 @@
     }
     PROFILE = profile;
 
-    const roleLabel = { owner:"Διαχειριστής", staff:"Τεχνικός", external:"Εξωτερικός συνεργάτης", client:"Πελάτης" }[profile.role] || profile.role;
-    const pillClass = { owner:"pill-owner", staff:"pill-staff", external:"pill-external", client:"pill-client" }[profile.role] || "";
+    const roleLabel = { owner:"Διαχειριστής", staff:"Τεχνικός", external:"Εξωτερικός συνεργάτης", client:"Πελάτης", supplier:"Προμηθευτής" }[profile.role] || profile.role;
+    const pillClass = { owner:"pill-owner", staff:"pill-staff", external:"pill-external", client:"pill-client", supplier:"pill-supplier" }[profile.role] || "";
     $("#who-label").innerHTML = `${escapeHtml(profile.full_name || user.email)} <span class="pill ${pillClass}">${roleLabel}</span>`
       + (DEMO ? ' <button type="button" class="pill demo-pill" id="demo-reset" title="Εικονικά στοιχεία — πάτα δύο φορές για επαναφορά">Επίδειξη</button>' : "");
     if (DEMO) $("#demo-reset").addEventListener("click", async () => {
@@ -2501,6 +2615,19 @@
         history.replaceState(null, "", location.pathname);
         await openNotificationById(openId);
       }
+    } else if (profile.role === "supplier") {
+      if (!profile.supplier_id) { $("#no-role-msg").classList.remove("hidden"); return; }
+      $("#notif-wrap").classList.remove("hidden");
+      $("#view-supplier-portal").classList.remove("hidden");
+      await loadNotifications();
+      await loadSupplierPortal();
+      if (!NOTIF_POLL_STARTED) {
+        NOTIF_POLL_STARTED = true;
+        setInterval(async () => { await loadNotifications(); if (!$("#view-supplier-portal").classList.contains("hidden")) loadSupplierPortal(); }, 60000);
+      }
+      subscribeThisDevice(false).catch(() => {}).finally(maybeShowPushPrompt);
+      const openId = new URLSearchParams(location.search).get("notif");
+      if (openId) { history.replaceState(null, "", location.pathname); await openNotificationById(openId); }
     } else if (profile.role === "client") {
       if (!profile.client_id) { $("#no-role-msg").classList.remove("hidden"); return; }
       // ο πελάτης μπαίνει μόνο αφού τον εγκρίνει ο διαχειριστής
@@ -2682,14 +2809,10 @@
       <div class="stat-tile" data-goto="expenses"><div class="num">${monthExpenses.toFixed(2)}€</div><div class="lbl">Έξοδα μήνα</div></div>
       <div class="stat-tile ${lowStock>0?'balance-due':''}" data-goto="inventory"><div class="num">${lowStock}</div><div class="lbl">Χαμηλό απόθεμα</div></div>
     `;
-    // ταμείο & τράπεζες (αν έχει στηθεί — v13)
-    const { data: mb, error: mbErr } = await sb.from("money_balances").select("balance, active");
-    const liveAcc = (!mbErr && mb) ? mb.filter(a => a.active) : [];
-    if (liveAcc.length) {
-      const tot = liveAcc.reduce((s, a) => s + Number(a.balance || 0), 0);
-      $("#dashboard-stats").insertAdjacentHTML("afterbegin",
-        `<div class="stat-tile" data-goto="expenses"><div class="num">${tot.toFixed(2)}€</div><div class="lbl">Ταμείο + τράπεζες</div></div>`);
-    }
+    // έτοιμες προσφορές από προμηθευτές (αν έχει στηθεί — v21)
+    const { count: quotedN, error: qErr } = await sb.from("supplier_requests").select("id", { count:"exact", head:true }).eq("status", "quoted");
+    if (!qErr && quotedN) $("#dashboard-stats").insertAdjacentHTML("afterbegin",
+      `<div class="stat-tile balance-due" data-goto="suppliers"><div class="num">${quotedN}</div><div class="lbl">Έτοιμες προσφορές προμηθευτών</div></div>`);
     $$("#dashboard-stats [data-goto]").forEach(tile => {
       tile.addEventListener("click", () => goToView(tile.dataset.goto));
     });
@@ -3951,6 +4074,8 @@
           <button type="button" class="btn-primary btn-sm" id="sc-inv">+ Τιμολόγιο</button>
           <button type="button" class="btn-ghost btn-sm" id="sc-scan">📷 QR</button>
           <button type="button" class="btn-ghost btn-sm" id="sc-pay">Πληρωμή</button>
+          <button type="button" class="btn-ghost btn-sm" id="sc-req">📩 Αίτημα τιμών</button>
+          <button type="button" class="btn-ghost btn-sm" id="sc-access">🔑 Πρόσβαση</button>
           <button type="button" class="btn-ghost btn-sm" id="sc-edit">Στοιχεία</button>
         </div>
       </div>
@@ -3962,7 +4087,17 @@
       ${Number(s.opening_balance) ? `<div class="cell-sub">Περιλαμβάνει παλιό υπόλοιπο ${eur(s.opening_balance)}.</div>` : ""}
       ${moves.length === 0 ? '<div class="empty-state">Δεν υπάρχουν τιμολόγια ή πληρωμές ακόμα.</div>' : `
       <table style="margin-top:10px;"><thead><tr><th>Ημ/νία</th><th>Κίνηση</th><th style="text-align:right;">Χρέωση</th><th style="text-align:right;">Πληρωμή</th><th style="text-align:right;">Υπόλοιπο</th></tr></thead>
-      <tbody id="sc-rows">${lines}</tbody></table>`}`, true);
+      <tbody id="sc-rows">${lines}</tbody></table>`}
+      <div id="sc-reqs"></div>`, true);
+    $("#sc-req").addEventListener("click", () => openSupplierRequestForm({ supplier_id: supplierId }));
+    $("#sc-access").addEventListener("click", () => openSupplierAccess(supplierId));
+    sb.from("supplier_requests").select("id, req_no, title, status, created_at").eq("supplier_id", supplierId).order("created_at", { ascending:false }).limit(10).then(({ data, error }) => {
+      const box = $("#sc-reqs"); if (!box || error || !data || !data.length) return;
+      box.innerHTML = `<div class="section-title">Αιτήματα τιμών / παραγγελίες</div>` + data.map(r => `<div class="sd-row compact" data-scr="${r.id}" role="button" tabindex="0">
+        <div class="sd-no"><b>#${r.req_no}</b><div class="cell-sub">${fmtShortDate(isoDay(new Date(r.created_at)))}</div></div>
+        <div class="sd-who"><div>${escapeHtml(r.title || "Αίτημα τιμών")}</div></div><div>${sreqPill(r.status)}</div></div>`).join("");
+      $$("[data-scr]").forEach(el => el.addEventListener("click", () => openSupplierRequest(el.dataset.scr)));
+    });
     $("#sc-inv").addEventListener("click", () => openPurchaseInvoiceForm({ supplier_id: supplierId }));
     $("#sc-scan").addEventListener("click", () => openQrScanner({ supplier_id: supplierId }));
     $("#sc-pay").addEventListener("click", () => openSupplierPayment(supplierId, Math.max(0, Number(s.balance))));
@@ -4076,13 +4211,13 @@
             <div style="display:flex;gap:6px;"><input id="pi-mark" inputmode="numeric" value="${escapeHtml(prefill.mark || "")}"><button type="button" class="btn-ghost btn-sm" id="pi-scan" title="Σκανάρισμα QR">📷</button><button type="button" class="btn-ghost btn-sm" id="pi-mydata" title="Φέρε το τιμολόγιο από το myDATA" style="white-space:nowrap;">⬇ myDATA</button></div></div>
         </div>
         <div class="section-title">Γραμμές</div>
-        <div id="pi-lines">${lineHtml({}, 0)}</div>
+        <div id="pi-lines">${(prefill.lines && prefill.lines.length ? prefill.lines : [{}]).map((l, i) => lineHtml(l, i)).join("")}</div>
         <button type="button" class="add-link" id="pi-add">+ Γραμμή</button>
         <div class="pi-totals" id="pi-totals"></div><input type="hidden" id="pi-total-val" value="0">
         <label class="check-line" style="margin-top:12px;"><input type="checkbox" id="pi-paid"> Το πλήρωσα ήδη</label>
         <div class="field hidden" id="pi-paid-row"><label>Πληρώθηκε από</label>
           ${piPick.html}</div>
-        <div class="field" style="margin-top:10px;"><label>Σημείωση</label><input id="pi-note"></div>
+        <div class="field" style="margin-top:10px;"><label>Σημείωση</label><input id="pi-note" value="${escapeHtml(prefill.note || "")}"></div>
         <div class="field"><label>Φωτογραφία / PDF τιμολογίου (για το αρχείο και τον λογιστή)</label>
           <div class="pi-file">
             <label class="btn-ghost btn-sm qr-photo-btn">📎 ${prefill.file ? "Αλλαγή" : "Επισύναψη"}<input type="file" id="pi-file" accept="image/*,application/pdf" hidden></label>
@@ -4094,7 +4229,7 @@
         </div>
       </form>`, true);
 
-    let lineN = 1;
+    let lineN = Math.max(1, (prefill.lines || []).length);
     const recalc = () => {
       let net = 0, vat = 0;
       $$("#pi-lines .pl-line").forEach(el => {
@@ -4276,6 +4411,7 @@
         await loadSuppliers();
       }
       if (fromMydata) await sb.from("purchase_invoices").update({ from_mydata: true }).eq("id", data.id);
+      if (prefill.request_id) { await sb.from("supplier_requests").update({ status:"received", received_at: new Date().toISOString(), purchase_invoice_id: data.id }).eq("id", prefill.request_id); refreshSreqViews(); }
       showToast(`Το τιμολόγιο καταχωρήθηκε (${eur(data.total)}).`);
       refreshPurchaseViews();
       if (!$("#view-inventory").classList.contains("hidden")) loadInventory();
@@ -5850,7 +5986,7 @@
       const r = await aadeCall({ action:"status", afm: normalizeVat($("#bz-vat_number").value) });
       if (!r.ok) { box.innerHTML = `<div class="afm-bad">✗ ${escapeHtml(r.error || AADE_SETUP_MSG)}</div>`; return; }
       const line = (label, x) => `<div class="aade-diag ${x && x.ok ? "afm-ok" : "afm-bad"}">${x && x.ok ? "✓" : "✗"} <b>${label}</b>${x && !x.ok && x.error ? "<div>" + escapeHtml(x.error) + "</div>" : ""}</div>`;
-      const sec = r.secrets ? Object.entries(r.secrets).map(([k, v]) => `<span class="aade-sec ${v.set ? "on" : ""}">${k}: ${v.set ? "✓ (" + v.len + " χαρ.)" : k === "MYDATA_URL" ? "— (κανονικό)" : "✗ λείπει"}</span>`).join("") : "";
+      const sec = r.secrets ? Object.entries(r.secrets).map(([k, v]) => `<span class="aade-sec ${v.set || k === "MYDATA_URL" ? "on" : ""}">${k}: ${v.set ? "✓ (" + v.len + " χαρ.)" : k === "MYDATA_URL" ? "— (κανονικό)" : "✗ λείπει"}</span>`).join("") : "";
       box.innerHTML = line("Στοιχεία από ΑΦΜ (ειδικοί κωδικοί ΑΑΔΕ)", r.afm) + line("myDATA (τιμολόγια αγορών με ΜΑΡΚ)", r.mydata)
         + (sec ? `<div class="cell-sub" style="margin-top:8px;">Secrets που βλέπει η function:</div><div class="aade-secs">${sec}</div>` : "")
         + (r.version ? "" : '<div class="afm-bad" style="margin-top:6px;">Η Edge Function «aade» είναι παλιά έκδοση — ξαναεπικόλλησε το νέο aade.ts και Deploy για πλήρη διάγνωση.</div>');
@@ -8177,10 +8313,11 @@
 
   // ================= USERS / ROLES (owner only) =================
   let USERS_CACHE = [];
-  const ROLE_LABEL = { owner:"Διαχειριστής", staff:"Τεχνικός", external:"Εξωτερικός συνεργάτης", client:"Πελάτης" };
+  const ROLE_LABEL = { owner:"Διαχειριστής", staff:"Τεχνικός", external:"Εξωτερικός συνεργάτης", client:"Πελάτης", supplier:"Προμηθευτής" };
 
   async function loadUsers(){
     if (CLIENTS_CACHE.length === 0) await loadClients();
+    if (!SUPPLIERS_CACHE.length) await loadSuppliers();
     const { data, error } = await sb.from("profiles").select("*").order("created_at");
     const tbody = $("#users-tbody");
     if (error) { showMsg($("#users-msg"), "Σφάλμα φόρτωσης: " + error.message, "error"); return; }
@@ -8192,12 +8329,13 @@
     }
     tbody.innerHTML = USERS_CACHE.map(p => {
       const client = p.client_id ? CLIENTS_CACHE.find(c => c.id === p.client_id) : null;
-      const pillClass = { owner:"pill-owner", staff:"pill-staff", external:"pill-external", client:"pill-client" }[p.role] || "";
+      const pillClass = { owner:"pill-owner", staff:"pill-staff", external:"pill-external", client:"pill-client", supplier:"pill-supplier" }[p.role] || "";
+      const sup = p.supplier_id ? SUPPLIERS_CACHE.find(x => x.id === p.supplier_id) : null;
       return `
       <tr data-id="${p.id}">
         <td><strong>${escapeHtml(p.full_name || "—")}</strong><div class="cell-sub">${escapeHtml(p.email || "")}</div></td>
         <td><span class="pill ${pillClass}">${ROLE_LABEL[p.role] || p.role}</span></td>
-        <td>${p.role === "client" ? escapeHtml(client ? client.name : "— δεν έχει οριστεί —") : "—"}</td>
+        <td>${p.role === "client" ? escapeHtml(client ? client.name : "— δεν έχει οριστεί —") : p.role === "supplier" ? escapeHtml(sup ? sup.name : "— δεν έχει οριστεί —") : "—"}</td>
       </tr>`;
     }).join("");
     tbody.querySelectorAll("tr[data-id]").forEach(tr => {
@@ -8220,7 +8358,13 @@
             <option value="staff" ${p.role==='staff'?'selected':''}>Τεχνικός</option>
             <option value="external" ${p.role==='external'?'selected':''}>Εξωτερικός συνεργάτης</option>
             <option value="client" ${p.role==='client'?'selected':''}>Πελάτης</option>
+            <option value="supplier" ${p.role==='supplier'?'selected':''}>Προμηθευτής</option>
           </select>
+        </div>
+        <div class="field ${p.role==='supplier'?'':'hidden'}" id="usr-supplier-field">
+          <label>Συνδεδεμένος προμηθευτής</label>
+          <select id="usr-supplier"><option value="">— Κανένας —</option>
+            ${SUPPLIERS_CACHE.map(x => `<option value="${x.id}" ${x.id===p.supplier_id?'selected':''}>${escapeHtml(x.name)}</option>`).join("")}</select>
         </div>
         <div class="field ${p.role==='client'?'':'hidden'}" id="usr-client-field">
           <label>Συνδεδεμένος πελάτης</label>
@@ -8259,17 +8403,435 @@
     });
     $("#usr-role").addEventListener("change", () => {
       $("#usr-client-field").classList.toggle("hidden", $("#usr-role").value !== "client");
+      $("#usr-supplier-field").classList.toggle("hidden", $("#usr-role").value !== "supplier");
     });
     $("#user-form").addEventListener("submit", async (e) => {
       e.preventDefault();
       const role = $("#usr-role").value;
       const clientId = role === "client" ? ($("#usr-client").value || null) : null;
-      const { error } = await sb.from("profiles").update({ role, client_id: clientId }).eq("id", userId);
+      const supplierId = role === "supplier" ? ($("#usr-supplier").value || null) : null;
+      if (role === "supplier" && !supplierId) { showMsg($("#user-form-msg"), "Διάλεξε σε ποιον προμηθευτή ανήκει.", "error"); return; }
+      const patch = { role, client_id: clientId };
+      if (role === "supplier" || p.supplier_id) patch.supplier_id = supplierId;
+      const { error } = await sb.from("profiles").update(patch).eq("id", userId);
       if (error) { showMsg($("#user-form-msg"), "Σφάλμα: " + error.message, "error"); return; }
       closeDrawer();
       await loadUsers();
     });
   }
+
+  // ================= ΠΡΟΜΗΘΕΥΤΕΣ: ζήτηση τιμών / παραγγελίες (schema_v21) =================
+  // Εσύ γράφεις είδη → push στον προμηθευτή → εκείνος βάζει τιμές → push σε σένα
+  // «έτοιμη η προσφορά» → επιβεβαιώνεις παραγγελία → «στάλθηκε» → παραλαβή = τιμολόγιο αγοράς.
+  const V21_MSG = "Για τα αιτήματα σε προμηθευτές τρέξε πρώτα το schema_v21.sql στο Supabase.";
+  const SREQ_STATUS = {
+    draft:     ["Πρόχειρο", "st-cancelled"],
+    sent:      ["Περιμένει τιμές", "st-waiting"],
+    quoted:    ["Έτοιμη προσφορά", "st-new"],
+    ordered:   ["Παραγγέλθηκε", "st-progress"],
+    shipped:   ["Στάλθηκε", "st-progress"],
+    received:  ["Παραλήφθηκε", "st-done"],
+    declined:  ["Δεν το καλύπτει", "st-cancelled"],
+    cancelled: ["Ακυρώθηκε", "st-cancelled"]
+  };
+  const SREQ_AVAIL = { in_stock:"Διαθέσιμο", on_order:"Κατόπιν παραγγελίας", unavailable:"Μη διαθέσιμο" };
+  const SREQ_UNITS = ["τεμ.","κιβ.","μ.","σετ","ρολό","κιλά"];
+  let SREQ_FILTER = "active";
+  const sreqPill = (st) => { const s = SREQ_STATUS[st] || [st, ""]; return `<span class="status-pill ${s[1]}">${escapeHtml(s[0])}</span>`; };
+  const sreqNo = (r) => "#" + r.req_no;
+  // σύνολα: τιμές προμηθευτή χωρίς ΦΠΑ
+  function sreqTotals(lines){
+    let net = 0, vat = 0;
+    (lines || []).forEach(l => {
+      if (l.unit_price == null || l.availability === "unavailable") return;
+      const n = r2(Number(l.qty) * Number(l.unit_price)); net += n; vat += r2(n * Number(l.vat_rate ?? 24) / 100);
+    });
+    return { net: r2(net), vat: r2(vat), total: r2(net + vat) };
+  }
+
+  // ---------------- λίστα (σελίδα Προμηθευτές) ----------------
+  async function loadSupplierRequests(){
+    const box = $("#sreq-list"); if (!box) return;
+    const { data, error } = await sb.from("supplier_requests").select("*, supplier_request_lines(id, qty, unit_price, vat_rate, availability)").order("created_at", { ascending:false }).limit(300);
+    if (error) { box.innerHTML = `<div class="cell-sub" style="padding:10px 0;">${isMissing(error) ? V21_MSG : "Σφάλμα: " + escapeHtml(error.message)}</div>`; return; }
+    if (!SUPPLIERS_CACHE.length) await loadSuppliers();
+    const rows = data || [];
+    const counts = { quoted: rows.filter(r => r.status === "quoted").length, waiting: rows.filter(r => r.status === "sent").length, open: rows.filter(r => ["ordered","shipped"].includes(r.status)).length };
+    $("#sreq-chips").innerHTML = [["active","Ενεργά"],["quoted",`Έτοιμες προσφορές${counts.quoted ? " (" + counts.quoted + ")" : ""}`],["sent",`Περιμένουν τιμές${counts.waiting ? " (" + counts.waiting + ")" : ""}`],["ordered",`Σε παραγγελία${counts.open ? " (" + counts.open + ")" : ""}`],["all","Όλα"]]
+      .map(([k, l]) => `<div class="chip ${SREQ_FILTER === k ? "active" : ""}" data-sf="${k}">${l}</div>`).join("");
+    const show = rows.filter(r => SREQ_FILTER === "all" ? true
+      : SREQ_FILTER === "active" ? !["received","cancelled","declined"].includes(r.status)
+      : SREQ_FILTER === "ordered" ? ["ordered","shipped"].includes(r.status) : r.status === SREQ_FILTER);
+    box.innerHTML = show.length === 0 ? `<div class="empty-state">${rows.length ? "Κανένα αίτημα εδώ." : "Δεν έχεις στείλει ακόμα αίτημα. Πάτα «+ Νέο αίτημα»."}</div>`
+      : show.map(r => {
+          const sup = SUPPLIERS_CACHE.find(s => s.id === r.supplier_id);
+          const t = sreqTotals(r.supplier_request_lines);
+          return `<div class="sd-row" data-sreq="${r.id}" role="button" tabindex="0">
+            <div class="sd-no"><b>${sreqNo(r)}</b><div class="cell-sub">${fmtShortDate(isoDay(new Date(r.created_at)))}</div></div>
+            <div class="sd-who"><div>${escapeHtml(sup ? sup.name : "—")}</div><div class="cell-sub">${escapeHtml(r.title || "")}${r.title ? " · " : ""}${(r.supplier_request_lines || []).length} είδη${r.needed_by ? " · έως " + fmtShortDate(r.needed_by) : ""}</div></div>
+            <div class="sd-badges">${sreqPill(r.status)}</div>
+            <div class="sd-amt">${["quoted","ordered","shipped","received"].includes(r.status) ? eur(t.total) : ""}</div>
+          </div>`;
+        }).join("");
+    $$("#sreq-list [data-sreq]").forEach(el => el.addEventListener("click", () => openSupplierRequest(el.dataset.sreq)));
+  }
+
+  async function supplierUsers(supplierId){
+    const { data } = await sb.from("profiles").select("id, full_name, email, role, supplier_id").eq("role", "supplier").eq("supplier_id", supplierId);
+    return data || [];
+  }
+
+  // ---------------- νέο / πρόχειρο αίτημα ----------------
+  async function openSupplierRequestForm(prefill){
+    prefill = prefill || {};
+    await loadSuppliers();
+    if (INVENTORY_CACHE.length === 0) await loadInventory();
+    await loadSeries();
+    let req = { supplier_id: prefill.supplier_id || "", title: "", note: "", needed_by: "" };
+    let lines = prefill.lines || [];
+    if (prefill.id) {
+      const [{ data: r }, { data: ls }] = await Promise.all([
+        sb.from("supplier_requests").select("*").eq("id", prefill.id).single(),
+        sb.from("supplier_request_lines").select("*").eq("request_id", prefill.id).order("line_no")]);
+      if (r) req = r; lines = ls || [];
+    }
+    if (!lines.length) lines = [{ qty:1, unit:"τεμ." }];
+    const itemOpts = (sel) => `<option value="">— Ελεύθερο κείμενο —</option>` + INVENTORY_CACHE.map(it =>
+      `<option value="${it.id}" ${sel === it.id ? "selected" : ""}>${escapeHtml(it.name)} · απόθ. ${it.stock}${it.max_stock ? "/" + it.max_stock : ""}</option>`).join("");
+    const lineHtml = (l) => `
+      <div class="sdl" data-rql>
+        <div class="sdl-top"><select class="rq-item">${itemOpts(l.inventory_item_id)}</select><button type="button" class="remove-x rq-del" title="Αφαίρεση">✕</button></div>
+        <input class="rq-desc" placeholder="Περιγραφή * (π.χ. κάμερα dome 4MP)" value="${escapeHtml(l.description || "")}" data-sku="${escapeHtml(l.sku || "")}">
+        <div class="rq-nums">
+          <label>Ποσότητα<input class="rq-qty" type="number" min="0" step="1" inputmode="decimal" value="${l.qty ?? 1}"></label>
+          <label>Μονάδα<select class="rq-unit">${[...new Set([...SREQ_UNITS, l.unit || "τεμ."])].map(u => `<option ${u === (l.unit || "τεμ.") ? "selected" : ""}>${escapeHtml(u)}</option>`).join("")}</select></label>
+          <div class="cell-sub rq-hint"></div>
+        </div>
+      </div>`;
+    openDrawer(prefill.id ? `Αίτημα ${sreqNo(req)} (πρόχειρο)` : "Νέο αίτημα σε προμηθευτή", `
+      <form id="rq-form" novalidate>
+        <div id="rq-msg"></div>
+        <div class="field"><label>Προμηθευτής *</label>
+          <select id="rq-sup"><option value="">— Διάλεξε —</option>${SUPPLIERS_CACHE.map(s => `<option value="${s.id}" ${s.id === req.supplier_id ? "selected" : ""}>${escapeHtml(s.name)}</option>`).join("")}</select>
+          <div id="rq-sup-note" style="margin-top:6px;"></div></div>
+        <div class="form-row">
+          <div class="field"><label>Τίτλος <span style="font-weight:400;color:var(--ink-soft);">(προαιρετικά)</span></label><input id="rq-title" value="${escapeHtml(req.title || "")}" placeholder="π.χ. Κάμερες για ξενοδοχείο Γαλάζιο"></div>
+          <div class="field"><label>Τα χρειάζομαι έως</label><input type="date" id="rq-needed" value="${req.needed_by || ""}"></div>
+        </div>
+        <div class="section-title" style="display:flex;justify-content:space-between;align-items:center;gap:8px;flex-wrap:wrap;"><span>Είδη</span>
+          <button type="button" class="btn-ghost btn-sm" id="rq-low">＋ Ό,τι λείπει από την αποθήκη</button></div>
+        <div id="rq-lines">${lines.map(lineHtml).join("")}</div>
+        <button type="button" class="add-link" id="rq-add">+ Είδος</button>
+        <div class="field" style="margin-top:12px;"><label>Σημείωση προς τον προμηθευτή</label><textarea id="rq-note" rows="2" placeholder="π.χ. θέλω και τιμή για εγκατάσταση, παράδοση στη Σαντορίνη">${escapeHtml(req.note || "")}</textarea></div>
+        <div class="cell-sub">Ο προμηθευτής βλέπει μόνο τα είδη, τις ποσότητες και τη σημείωση — όχι αποθέματα ή τιμές σου.</div>
+        <div class="drawer-foot" style="margin:22px -22px -20px;">
+          <button type="button" class="btn-ghost" id="rq-draft">Αποθήκευση πρόχειρου</button>
+          <button type="submit" class="btn-primary" id="rq-send">📩 Αποστολή</button>
+        </div>
+      </form>`, true);
+    const wire = (el) => {
+      el.querySelector(".rq-item").addEventListener("change", () => {
+        const it = INVENTORY_CACHE.find(i => i.id === el.querySelector(".rq-item").value);
+        if (it) { el.querySelector(".rq-desc").value = it.name; el.querySelector(".rq-desc").dataset.sku = it.sku || "";
+                  if (it.max_stock > it.stock && Number(el.querySelector(".rq-qty").value) <= 1) el.querySelector(".rq-qty").value = it.max_stock - it.stock; }
+        hint(el);
+      });
+      el.querySelector(".rq-del").addEventListener("click", () => { if ($$("#rq-lines [data-rql]").length > 1) el.remove(); });
+      hint(el);
+    };
+    const hint = (el) => {
+      const it = INVENTORY_CACHE.find(i => i.id === el.querySelector(".rq-item").value);
+      el.querySelector(".rq-hint").textContent = it ? `Απόθεμα ${it.stock}${it.max_stock ? " / " + it.max_stock : ""}${it.last_cost != null ? " · τελευταία τιμή " + eur(it.last_cost) : ""}` : "";
+    };
+    $$("#rq-lines [data-rql]").forEach(wire);
+    const addLine = (l) => { $("#rq-lines").insertAdjacentHTML("beforeend", lineHtml(l)); wire($("#rq-lines").lastElementChild); };
+    $("#rq-add").addEventListener("click", () => { addLine({ qty:1 }); $("#rq-lines").lastElementChild.querySelector(".rq-desc").focus(); });
+    $("#rq-low").addEventListener("click", () => {
+      const sup = $("#rq-sup").value;
+      const low = INVENTORY_CACHE.filter(i => i.max_stock > 0 && i.stock < i.max_stock && (!sup || !i.supplier_id || i.supplier_id === sup));
+      const have = new Set($$("#rq-lines .rq-item").map(s => s.value).filter(Boolean));
+      const add = low.filter(i => !have.has(i.id));
+      if (!add.length) { showMsg($("#rq-msg"), "Δεν λείπει κάτι από την αποθήκη" + (sup ? " γι' αυτόν τον προμηθευτή." : "."), "ok"); return; }
+      // αν η μόνη γραμμή είναι κενή, φεύγει
+      const rows = $$("#rq-lines [data-rql]");
+      if (rows.length === 1 && !rows[0].querySelector(".rq-desc").value.trim()) rows[0].remove();
+      add.forEach(i => addLine({ inventory_item_id:i.id, sku:i.sku, description:i.name, qty: i.max_stock - i.stock }));
+      showMsg($("#rq-msg"), `Προστέθηκαν ${add.length} είδη που είναι κάτω από το κανονικό απόθεμα.`, "ok");
+    });
+    const supNote = async () => {
+      const sid = $("#rq-sup").value, box = $("#rq-sup-note");
+      if (!sid) { box.innerHTML = ""; return; }
+      const users = await supplierUsers(sid);
+      box.innerHTML = users.length ? `<span class="afm-ok">✓ Έχει λογαριασμό (${users.length}) — θα του έρθει ειδοποίηση.</span>`
+        : `<div class="afm-bad">Ο προμηθευτής δεν έχει ακόμα λογαριασμό, άρα δεν θα δει το αίτημα. <button type="button" class="add-link" id="rq-invite">Στείλε του πρόσκληση</button></div>`;
+      if ($("#rq-invite")) $("#rq-invite").addEventListener("click", () => openSupplierAccess(sid));
+    };
+    $("#rq-sup").addEventListener("change", supNote); supNote();
+
+    const save = async (send) => {
+      clearMsg($("#rq-msg"));
+      const supplier_id = $("#rq-sup").value;
+      if (!supplier_id) { showMsg($("#rq-msg"), "Διάλεξε προμηθευτή.", "error"); return; }
+      const ls = [];
+      for (const [i, el] of $$("#rq-lines [data-rql]").entries()) {
+        const description = el.querySelector(".rq-desc").value.trim(), qty = parseFloat(el.querySelector(".rq-qty").value);
+        if (!description) { if ($$("#rq-lines [data-rql]").length > 1) continue; showMsg($("#rq-msg"), "Γράψε τουλάχιστον ένα είδος.", "error"); return; }
+        if (!(qty > 0)) { showMsg($("#rq-msg"), `Γραμμή ${i + 1}: γράψε ποσότητα.`, "error"); return; }
+        ls.push({ line_no: ls.length + 1, inventory_item_id: el.querySelector(".rq-item").value || null, sku: el.querySelector(".rq-desc").dataset.sku || null,
+                  description, qty, unit: el.querySelector(".rq-unit").value });
+      }
+      if (!ls.length) { showMsg($("#rq-msg"), "Γράψε τουλάχιστον ένα είδος.", "error"); return; }
+      const b = BIZ || {};
+      const payload = { supplier_id, title: $("#rq-title").value.trim() || null, note: $("#rq-note").value.trim() || null,
+                        needed_by: $("#rq-needed").value || null, buyer_name: b.trade_name || b.legal_name || "ITSUPP" };
+      let id = prefill.id;
+      if (id) { const { error } = await sb.from("supplier_requests").update(payload).eq("id", id); if (error) { showMsg($("#rq-msg"), "Σφάλμα: " + error.message, "error"); return; } }
+      else {
+        const { data, error } = await sb.from("supplier_requests").insert(payload).select("id").single();
+        if (error) { showMsg($("#rq-msg"), isMissing(error) ? V21_MSG : "Σφάλμα: " + error.message, "error"); return; }
+        id = data.id;
+      }
+      await sb.from("supplier_request_lines").delete().eq("request_id", id);
+      const { error: le } = await sb.from("supplier_request_lines").insert(ls.map(l => ({ ...l, request_id: id })));
+      if (le) { showMsg($("#rq-msg"), "Σφάλμα γραμμών: " + le.message, "error"); return; }
+      if (send) {
+        const { error: se } = await sb.from("supplier_requests").update({ status:"sent", sent_at: new Date().toISOString() }).eq("id", id);
+        if (se) { showMsg($("#rq-msg"), "Σφάλμα: " + se.message, "error"); return; }
+        showToast("📩 Το αίτημα στάλθηκε στον προμηθευτή.");
+      } else showToast("Αποθηκεύτηκε ως πρόχειρο.");
+      await openSupplierRequest(id);
+      refreshSreqViews();
+    };
+    $("#rq-draft").addEventListener("click", () => save(false));
+    $("#rq-form").addEventListener("submit", (e) => { e.preventDefault(); save(true); });
+  }
+
+  function refreshSreqViews(){
+    if (!$("#view-suppliers").classList.contains("hidden")) loadSupplierRequests();
+    if (!$("#view-dashboard").classList.contains("hidden")) loadDashboard();
+  }
+
+  // ---------------- προβολή αιτήματος (διαχειριστής) ----------------
+  async function openSupplierRequest(id){
+    const [{ data: r, error }, { data: ls }] = await Promise.all([
+      sb.from("supplier_requests").select("*").eq("id", id).single(),
+      sb.from("supplier_request_lines").select("*").eq("request_id", id).order("line_no")]);
+    if (error || !r) { showToast("Το αίτημα δεν βρέθηκε."); return; }
+    if (!SUPPLIERS_CACHE.length) await loadSuppliers();
+    const sup = SUPPLIERS_CACHE.find(s => s.id === r.supplier_id);
+    const lines = ls || [], t = sreqTotals(lines);
+    const priced = ["quoted","ordered","shipped","received"].includes(r.status) || lines.some(l => l.unit_price != null);
+    const when = (label, ts) => ts ? `<span>${label} ${new Date(ts).toLocaleString("el-GR", { day:"numeric", month:"numeric", hour:"2-digit", minute:"2-digit" })}</span>` : "";
+    openDrawer(`Αίτημα ${sreqNo(r)} — ${sup ? sup.name : ""}`, `
+      <div id="rv-msg"></div>
+      <div class="sdv-head">
+        <div><div class="sdv-client">${escapeHtml(r.title || "Αίτημα τιμών")}</div>
+          <div class="cell-sub rv-times">${when("Στάλθηκε", r.sent_at)}${when("· Προσφορά", r.quoted_at)}${when("· Παραγγελία", r.ordered_at)}${when("· Αποστολή", r.shipped_at)}${when("· Παραλαβή", r.received_at)}${r.needed_by ? `<span>· Τα θέλω έως ${fmtShortDate(r.needed_by)}</span>` : ""}</div></div>
+        <div style="text-align:right;">${priced ? `<div class="money-bal">${eur(t.total)}</div>` : ""}${sreqPill(r.status)}</div>
+      </div>
+      ${r.note ? `<div class="cell-sub" style="margin-bottom:8px;">Η σημείωσή σου: ${escapeHtml(r.note)}</div>` : ""}
+      <table class="sdv-lines"><thead><tr><th>Είδος</th><th style="text-align:right;">Ποσ.</th>${priced ? '<th style="text-align:right;">Τιμή</th><th style="text-align:right;">ΦΠΑ</th><th style="text-align:right;">Σύνολο</th>' : ""}</tr></thead>
+        <tbody>${lines.map(l => {
+          const it = l.inventory_item_id ? INVENTORY_CACHE.find(i => i.id === l.inventory_item_id) : null;
+          const was = it && it.last_cost != null && l.unit_price != null ? Number(l.unit_price) - Number(it.last_cost) : null;
+          return `<tr class="${l.availability === "unavailable" ? "rv-na" : ""}"><td>${escapeHtml(l.description)}
+            ${l.availability ? `<div class="cell-sub">${SREQ_AVAIL[l.availability]}</div>` : ""}${l.supplier_comment ? `<div class="cell-sub">💬 ${escapeHtml(l.supplier_comment)}</div>` : ""}
+            ${was != null && Math.abs(was) > 0.004 ? `<div class="cell-sub" style="color:${was > 0 ? "var(--red)" : "var(--green)"};">${was > 0 ? "▲" : "▼"} ${eur(Math.abs(was))} από την τελευταία τιμή</div>` : ""}</td>
+            <td style="text-align:right;white-space:nowrap;">${fmtQty(l.qty)} ${escapeHtml(l.unit)}</td>
+            ${priced ? `<td style="text-align:right;">${l.unit_price != null ? eur(l.unit_price) : "—"}</td><td style="text-align:right;">${Number(l.vat_rate)}%</td>
+            <td style="text-align:right;">${l.unit_price != null && l.availability !== "unavailable" ? eur(r2(Number(l.qty) * Number(l.unit_price))) : "—"}</td>` : ""}</tr>`; }).join("")}</tbody></table>
+      ${priced ? `<div class="sd-totals"><div><span>Καθαρή αξία</span><span>${eur(t.net)}</span></div><div><span>ΦΠΑ</span><span>${eur(t.vat)}</span></div><div class="grand"><span>Σύνολο</span><span>${eur(t.total)}</span></div></div>` : ""}
+      ${r.supplier_note || r.delivery_text || r.valid_until ? `<div class="rv-supnote">${r.delivery_text ? `<div>🚚 Παράδοση: <b>${escapeHtml(r.delivery_text)}</b></div>` : ""}${r.valid_until ? `<div>Ισχύς προσφοράς έως ${fmtShortDate(r.valid_until)}</div>` : ""}${r.supplier_note ? `<div>💬 ${escapeHtml(r.supplier_note)}</div>` : ""}</div>` : ""}
+      <div class="drawer-foot" style="margin:22px -22px -20px;flex-wrap:wrap;gap:8px;">
+        <div style="display:flex;gap:8px;flex-wrap:wrap;">
+          ${["draft","sent","quoted","ordered"].includes(r.status) ? '<button type="button" class="btn-danger btn-sm" id="rv-cancel">' + (r.status === "draft" ? "Διαγραφή" : "Ακύρωση") + '</button>' : ""}
+          ${["received","cancelled","declined"].includes(r.status) ? '<button type="button" class="btn-ghost btn-sm" id="rv-copy">Ξανά (αντίγραφο)</button>' : ""}
+          <button type="button" class="btn-ghost btn-sm" id="rv-sup">Προμηθευτής</button>
+        </div>
+        <div style="display:flex;gap:8px;flex-wrap:wrap;">
+          ${r.status === "draft" ? '<button type="button" class="btn-ghost btn-sm" id="rv-edit">Επεξεργασία</button><button type="button" class="btn-primary btn-sm" id="rv-send">📩 Αποστολή</button>' : ""}
+          ${r.status === "sent" ? '<button type="button" class="btn-ghost btn-sm" id="rv-remind">🔔 Υπενθύμιση</button>' : ""}
+          ${r.status === "quoted" ? '<button type="button" class="btn-primary btn-sm" id="rv-order">✓ Επιβεβαίωση παραγγελίας</button>' : ""}
+          ${["ordered","shipped"].includes(r.status) ? '<button type="button" class="btn-primary btn-sm" id="rv-receive">📦 Παραλαβή → τιμολόγιο αγοράς</button>' : ""}
+          ${r.status === "received" && r.purchase_invoice_id ? '<button type="button" class="btn-ghost btn-sm" id="rv-inv">Τιμολόγιο</button>' : ""}
+        </div>
+      </div>`, true);
+    const setStatus = async (patch, msg) => {
+      const { error } = await sb.from("supplier_requests").update(patch).eq("id", id);
+      if (error) { showMsg($("#rv-msg"), "Σφάλμα: " + error.message, "error"); return; }
+      if (msg) showToast(msg);
+      await openSupplierRequest(id); refreshSreqViews();
+    };
+    $("#rv-sup").addEventListener("click", () => openSupplierCard(r.supplier_id));
+    if ($("#rv-edit")) $("#rv-edit").addEventListener("click", () => openSupplierRequestForm({ id }));
+    if ($("#rv-send")) $("#rv-send").addEventListener("click", () => setStatus({ status:"sent", sent_at: new Date().toISOString(), buyer_name: (BIZ && (BIZ.trade_name || BIZ.legal_name)) || r.buyer_name || "ITSUPP" }, "📩 Το αίτημα στάλθηκε."));
+    if ($("#rv-remind")) $("#rv-remind").addEventListener("click", () => setStatus({ sent_at: new Date().toISOString() }, "🔔 Στάλθηκε υπενθύμιση στον προμηθευτή."));
+    if ($("#rv-order")) $("#rv-order").addEventListener("click", () => setStatus({ status:"ordered", ordered_at: new Date().toISOString() }, "✓ Η παραγγελία επιβεβαιώθηκε — ειδοποιήθηκε ο προμηθευτής."));
+    if ($("#rv-copy")) $("#rv-copy").addEventListener("click", () => openSupplierRequestForm({ supplier_id: r.supplier_id,
+      lines: lines.map(l => ({ inventory_item_id: l.inventory_item_id, sku: l.sku, description: l.description, qty: Number(l.qty), unit: l.unit })) }));
+    if ($("#rv-inv")) $("#rv-inv").addEventListener("click", () => openPurchaseInvoice(r.purchase_invoice_id));
+    if ($("#rv-cancel")) $("#rv-cancel").addEventListener("click", async () => {
+      const b = $("#rv-cancel");
+      if (!b.dataset.armed) { b.dataset.armed = "1"; b.textContent = "Σίγουρα; Πάτα ξανά"; return; }
+      if (r.status === "draft") { await sb.from("supplier_requests").delete().eq("id", id); closeDrawer(); refreshSreqViews(); return; }
+      setStatus({ status:"cancelled" }, "Το αίτημα ακυρώθηκε — ειδοποιήθηκε ο προμηθευτής.");
+    });
+    if ($("#rv-receive")) $("#rv-receive").addEventListener("click", () => openPurchaseInvoiceForm({
+      supplier_id: r.supplier_id, request_id: id, note: "Παραγγελία " + sreqNo(r),
+      lines: lines.filter(l => l.availability !== "unavailable" && l.unit_price != null).map(l => ({
+        inventory_item_id: l.inventory_item_id, description: l.description, qty: Number(l.qty), unit_price: Number(l.unit_price), vat_rate: Number(l.vat_rate) })) }));
+  }
+
+  // ---------------- πρόσβαση προμηθευτή (πρόσκληση + χρήστες) ----------------
+  async function openSupplierAccess(supplierId){
+    const s = SUPPLIERS_CACHE.find(x => x.id === supplierId) || {};
+    const { data: code, error } = await sb.rpc("supplier_invite_code", { p_supplier: supplierId, p_renew: false });
+    if (error) { showToast(isMissing(error) ? V21_MSG : "Σφάλμα: " + error.message); return; }
+    const users = await supplierUsers(supplierId);
+    const link = location.origin + "/?sinv=" + encodeURIComponent(code);
+    const b = BIZ || {};
+    const text = `Καλησπέρα! Σας στέλνω πρόσκληση για την πλατφόρμα ${b.trade_name || "ITSUPP"}, όπου θα σας στέλνω αιτήματα τιμών και παραγγελίες. Κάντε εγγραφή εδώ: ${link}`;
+    openDrawer("Πρόσβαση — " + (s.name || ""), `
+      <div id="sa-msg"></div>
+      <p class="sub" style="margin-top:0;">Στείλε στον προμηθευτή αυτόν τον σύνδεσμο. Κάνει εγγραφή με το email του και έναν κωδικό, και από εκεί και πέρα βλέπει <b>μόνο</b> τα αιτήματα που του στέλνεις. Του έρχεται ειδοποίηση στο κινητό για κάθε νέο αίτημα.</p>
+      <div class="afm-row"><input id="sa-link" readonly value="${escapeHtml(link)}"><button type="button" class="btn-primary btn-sm" id="sa-copy">Αντιγραφή</button></div>
+      <div class="sa-share">
+        ${navigator.share ? '<button type="button" class="btn-ghost btn-sm" id="sa-share">📤 Κοινοποίηση</button>' : ""}
+        <a class="btn-ghost btn-sm" target="_blank" rel="noopener" href="viber://forward?text=${encodeURIComponent(text)}">Viber</a>
+        <a class="btn-ghost btn-sm" target="_blank" rel="noopener" href="https://wa.me/?text=${encodeURIComponent(text)}">WhatsApp</a>
+        <a class="btn-ghost btn-sm" href="mailto:${encodeURIComponent(s.email || "")}?subject=${encodeURIComponent("Πρόσκληση — " + (b.trade_name || "ITSUPP"))}&body=${encodeURIComponent(text)}">Email</a>
+      </div>
+      <div class="section-title">Λογαριασμοί του προμηθευτή</div>
+      ${users.length === 0 ? '<div class="cell-sub">Κανένας ακόμα — θα εμφανιστεί εδώ μόλις κάνει εγγραφή με τον σύνδεσμο.</div>'
+        : users.map(u => `<div class="note-item" style="display:flex;justify-content:space-between;align-items:center;gap:10px;">
+            <div><b>${escapeHtml(u.full_name || "—")}</b><div class="cell-sub">${escapeHtml(u.email || "")}</div></div>
+            <button type="button" class="add-link" data-revoke="${u.id}" style="color:var(--red);">Αφαίρεση πρόσβασης</button></div>`).join("")}
+      <div class="section-title">Ασφάλεια</div>
+      <button type="button" class="add-link" id="sa-renew">Νέος σύνδεσμος (ο παλιός σταματά να δουλεύει)</button>
+      <div class="cell-sub">Όσοι έχουν ήδη λογαριασμό συνεχίζουν κανονικά.</div>`, true);
+    $("#sa-copy").addEventListener("click", async () => {
+      try { await navigator.clipboard.writeText(link); showToast("Ο σύνδεσμος αντιγράφηκε."); } catch (e) { $("#sa-link").select(); document.execCommand("copy"); showToast("Ο σύνδεσμος αντιγράφηκε."); }
+    });
+    if ($("#sa-share")) $("#sa-share").addEventListener("click", () => navigator.share({ title: "Πρόσκληση", text }).catch(() => {}));
+    $("#sa-renew").addEventListener("click", async () => {
+      const bt = $("#sa-renew"); if (!bt.dataset.armed) { bt.dataset.armed = "1"; bt.textContent = "Σίγουρα; Ο παλιός σύνδεσμος θα σταματήσει — πάτα ξανά"; return; }
+      const { error: e2 } = await sb.rpc("supplier_invite_code", { p_supplier: supplierId, p_renew: true });
+      if (e2) { showMsg($("#sa-msg"), "Σφάλμα: " + e2.message, "error"); return; }
+      showToast("Νέος σύνδεσμος έτοιμος."); openSupplierAccess(supplierId);
+    });
+    $$("[data-revoke]").forEach(bt => bt.addEventListener("click", async () => {
+      if (!bt.dataset.armed) { bt.dataset.armed = "1"; bt.textContent = "Σίγουρα; Πάτα ξανά"; return; }
+      const { error: e3 } = await sb.from("profiles").update({ role:"client", supplier_id:null, client_id:null }).eq("id", bt.dataset.revoke);
+      if (e3) { showMsg($("#sa-msg"), "Σφάλμα: " + e3.message, "error"); return; }
+      showToast("Η πρόσβαση αφαιρέθηκε."); openSupplierAccess(supplierId);
+    }));
+  }
+
+  // ================= ΠΥΛΗ ΠΡΟΜΗΘΕΥΤΗ (ρόλος supplier) =================
+  let SUPPORTAL_FILTER = "open";
+  async function loadSupplierPortal(){
+    const { data: me } = await sb.rpc("supplier_me");
+    $("#supportal-name").textContent = (me && me.name) || "Προμηθευτής";
+    const { data, error } = await sb.from("supplier_requests").select("*, supplier_request_lines(id)").order("created_at", { ascending:false }).limit(300);
+    const box = $("#supportal-list");
+    if (error) { box.innerHTML = `<div class="empty-state">Σφάλμα: ${escapeHtml(error.message)}</div>`; return; }
+    const rows = (data || []).filter(r => r.status !== "draft");
+    const needs = rows.filter(r => r.status === "sent").length, toShip = rows.filter(r => r.status === "ordered").length;
+    $("#supportal-sub").textContent = needs || toShip ? [needs ? `${needs} περιμένουν τιμές` : "", toShip ? `${toShip} παραγγελίες για αποστολή` : ""].filter(Boolean).join(" · ") : "Όλα ενημερωμένα 👍";
+    $("#supportal-chips").innerHTML = [["open","Σε εξέλιξη"],["sent",`Θέλουν τιμές${needs ? " (" + needs + ")" : ""}`],["ordered",`Παραγγελίες${toShip ? " (" + toShip + ")" : ""}`],["all","Όλα"]]
+      .map(([k, l]) => `<div class="chip ${SUPPORTAL_FILTER === k ? "active" : ""}" data-pf="${k}">${l}</div>`).join("");
+    const show = rows.filter(r => SUPPORTAL_FILTER === "all" ? true : SUPPORTAL_FILTER === "open" ? ["sent","quoted","ordered"].includes(r.status) : r.status === SUPPORTAL_FILTER);
+    const label = { sent:["Συμπλήρωσε τιμές","st-new"], quoted:["Στάλθηκε η προσφορά","st-waiting"], ordered:["Παραγγελία — για αποστολή","st-progress"], shipped:["Στάλθηκε","st-done"], received:["Παραλήφθηκε","st-done"], declined:["Δεν το κάλυψες","st-cancelled"], cancelled:["Ακυρώθηκε","st-cancelled"] };
+    box.innerHTML = show.length === 0 ? '<div class="empty-state">Δεν υπάρχουν αιτήματα εδώ.</div>' : show.map(r => `
+      <div class="sd-row compact" data-preq="${r.id}" role="button" tabindex="0">
+        <div class="sd-no"><b>#${r.req_no}</b><div class="cell-sub">${fmtShortDate(isoDay(new Date(r.sent_at || r.created_at)))}</div></div>
+        <div class="sd-who"><div>${escapeHtml(r.title || "Αίτημα τιμών")}</div><div class="cell-sub">${(r.supplier_request_lines || []).length} είδη${r.needed_by ? " · έως " + fmtShortDate(r.needed_by) : ""}</div></div>
+        <div><span class="status-pill ${(label[r.status] || ["",""])[1]}">${escapeHtml((label[r.status] || [r.status])[0])}</span></div>
+      </div>`).join("");
+    $$("#supportal-list [data-preq]").forEach(el => el.addEventListener("click", () => openSupplierPortalRequest(el.dataset.preq)));
+  }
+
+  async function openSupplierPortalRequest(id){
+    const [{ data: r, error }, { data: ls }] = await Promise.all([
+      sb.from("supplier_requests").select("*").eq("id", id).single(),
+      sb.from("supplier_request_lines").select("*").eq("request_id", id).order("line_no")]);
+    if (error || !r) { showToast("Το αίτημα δεν βρέθηκε."); return; }
+    const lines = ls || [];
+    const editable = ["sent","quoted"].includes(r.status);
+    const t = sreqTotals(lines);
+    openDrawer(`Αίτημα #${r.req_no} — ${r.buyer_name || ""}`, `
+      <form id="pq-form" novalidate>
+        <div id="pq-msg"></div>
+        ${r.status === "ordered" ? '<div class="money-count-diff ok" style="margin:0 0 12px;">✅ <b>Η παραγγελία επιβεβαιώθηκε.</b> Ετοίμασέ την και πάτα «Στάλθηκε» όταν φύγει.</div>' : ""}
+        ${r.status === "quoted" ? '<div class="money-count-diff ok" style="margin:0 0 12px;">Η προσφορά σου στάλθηκε. Μπορείς ακόμα να αλλάξεις τιμές μέχρι να επιβεβαιωθεί η παραγγελία.</div>' : ""}
+        ${r.status === "cancelled" ? '<div class="msg msg-error">Το αίτημα ακυρώθηκε.</div>' : ""}
+        <div class="sdv-client">${escapeHtml(r.title || "Αίτημα τιμών")}</div>
+        <div class="cell-sub" style="margin-bottom:8px;">${r.needed_by ? "Τα χρειάζονται έως <b>" + fmtShortDate(r.needed_by) + "</b>" : ""}</div>
+        ${r.note ? `<div class="rv-supnote" style="margin:0 0 12px;">💬 ${escapeHtml(r.note)}</div>` : ""}
+        <div id="pq-lines">${lines.map(l => `
+          <div class="sdl" data-pql="${l.id}">
+            <div style="display:flex;justify-content:space-between;gap:10px;"><b>${escapeHtml(l.description)}</b><span style="white-space:nowrap;">${fmtQty(l.qty)} ${escapeHtml(l.unit)}</span></div>
+            ${editable ? `<div class="pq-nums">
+              <label>Τιμή μονάδας χωρίς ΦΠΑ (€)<input class="pq-price" type="number" step="0.01" min="0" inputmode="decimal" value="${l.unit_price ?? ""}"></label>
+              <label>ΦΠΑ<select class="pq-vat">${[24,13,6,0].map(v => `<option value="${v}" ${Number(l.vat_rate ?? 24) === v ? "selected" : ""}>${v}%</option>`).join("")}</select></label>
+              <label>Διαθεσιμότητα<select class="pq-avail"><option value="in_stock" ${l.availability === "in_stock" || !l.availability ? "selected" : ""}>Διαθέσιμο</option><option value="on_order" ${l.availability === "on_order" ? "selected" : ""}>Κατόπιν παραγγελίας</option><option value="unavailable" ${l.availability === "unavailable" ? "selected" : ""}>Μη διαθέσιμο</option></select></label>
+              <div class="sdl-total pq-total"></div>
+            </div>
+            <input class="pq-comment" placeholder="Σχόλιο (προαιρετικά — π.χ. εναλλακτικό μοντέλο)" value="${escapeHtml(l.supplier_comment || "")}" style="margin-top:6px;">`
+            : `<div class="cell-sub">${l.unit_price != null ? eur(l.unit_price) + " χωρίς ΦΠΑ · ΦΠΑ " + Number(l.vat_rate) + "%" : ""}${l.availability ? " · " + SREQ_AVAIL[l.availability] : ""}${l.supplier_comment ? " · " + escapeHtml(l.supplier_comment) : ""}</div>`}
+          </div>`).join("")}</div>
+        <div class="sd-totals" id="pq-totals"><div><span>Καθαρή αξία</span><span>${eur(t.net)}</span></div><div><span>ΦΠΑ</span><span>${eur(t.vat)}</span></div><div class="grand"><span>Σύνολο</span><span>${eur(t.total)}</span></div></div>
+        ${editable ? `
+        <div class="form-row" style="margin-top:12px;">
+          <div class="field"><label>Χρόνος παράδοσης</label><input id="pq-delivery" value="${escapeHtml(r.delivery_text || "")}" placeholder="π.χ. 2-3 εργάσιμες"></div>
+          <div class="field"><label>Ισχύς προσφοράς έως</label><input type="date" id="pq-valid" value="${r.valid_until || ""}"></div>
+        </div>
+        <div class="field"><label>Σημείωση</label><textarea id="pq-note" rows="2" placeholder="π.χ. οι τιμές ισχύουν για πληρωμή τοις μετρητοίς">${escapeHtml(r.supplier_note || "")}</textarea></div>`
+        : (r.delivery_text || r.supplier_note ? `<div class="rv-supnote">${r.delivery_text ? "🚚 " + escapeHtml(r.delivery_text) : ""}${r.supplier_note ? "<div>💬 " + escapeHtml(r.supplier_note) + "</div>" : ""}</div>` : "")}
+        ${r.status === "ordered" ? '<div class="field" style="margin-top:12px;"><label>Σημείωση αποστολής</label><input id="pq-ship-note" placeholder="π.χ. με ΑΧΑΑ, αρ. αποστολής 123"></div>' : ""}
+        <div class="drawer-foot" style="margin:22px -22px -20px;flex-wrap:wrap;gap:8px;">
+          ${editable ? '<button type="button" class="btn-ghost btn-sm" id="pq-decline">Δεν μπορώ να το καλύψω</button>' : "<span></span>"}
+          ${editable ? `<button type="submit" class="btn-primary" id="pq-send">${r.status === "quoted" ? "Ενημέρωση προσφοράς" : "📤 Αποστολή προσφοράς"}</button>` : ""}
+          ${r.status === "ordered" ? '<button type="button" class="btn-primary" id="pq-shipped">🚚 Στάλθηκε</button>' : ""}
+        </div>
+      </form>`, true);
+    const recalc = () => {
+      const cur = $$("#pq-lines [data-pql]").map(el => ({ qty: lines.find(l => l.id === el.dataset.pql).qty,
+        unit_price: el.querySelector(".pq-price") ? (el.querySelector(".pq-price").value === "" ? null : Number(el.querySelector(".pq-price").value)) : null,
+        vat_rate: el.querySelector(".pq-vat") ? Number(el.querySelector(".pq-vat").value) : 24, availability: el.querySelector(".pq-avail") ? el.querySelector(".pq-avail").value : null, el }));
+      cur.forEach(c => { const tt = c.el.querySelector(".pq-total"); if (tt) tt.textContent = c.unit_price != null && c.availability !== "unavailable" ? eur(r2(c.qty * c.unit_price)) : "—"; });
+      const x = sreqTotals(cur);
+      $("#pq-totals").innerHTML = `<div><span>Καθαρή αξία</span><span>${eur(x.net)}</span></div><div><span>ΦΠΑ</span><span>${eur(x.vat)}</span></div><div class="grand"><span>Σύνολο</span><span>${eur(x.total)}</span></div>`;
+    };
+    if (editable) { $$("#pq-lines input, #pq-lines select").forEach(x => x.addEventListener("input", recalc)); recalc(); }
+    if ($("#pq-form")) $("#pq-form").addEventListener("submit", async (e) => {
+      e.preventDefault();
+      const payload = $$("#pq-lines [data-pql]").map(el => ({ id: el.dataset.pql, unit_price: el.querySelector(".pq-price").value, vat_rate: el.querySelector(".pq-vat").value,
+        availability: el.querySelector(".pq-avail").value, supplier_comment: el.querySelector(".pq-comment").value }));
+      const missing = payload.findIndex(p => p.unit_price === "" && p.availability !== "unavailable");
+      if (missing >= 0) { showMsg($("#pq-msg"), `Συμπλήρωσε τιμή στο «${lines[missing].description}» (ή διάλεξε «Μη διαθέσιμο»).`, "error"); $("#pq-msg").scrollIntoView({ block:"nearest" }); return; }
+      const btn = $("#pq-send"); btn.disabled = true;
+      const { data, error } = await sb.rpc("supplier_submit_quote", { p_id: id, p_lines: payload, p_note: $("#pq-note").value, p_delivery: $("#pq-delivery").value, p_valid_until: $("#pq-valid").value || null });
+      btn.disabled = false;
+      if (error || !data || !data.ok) { showMsg($("#pq-msg"), error ? "Σφάλμα: " + error.message : data.error, "error"); return; }
+      showToast("📤 Η προσφορά στάλθηκε — ειδοποιήθηκε ο πελάτης.");
+      await openSupplierPortalRequest(id); loadSupplierPortal();
+    });
+    const setSt = async (st, note, msg) => {
+      const { data, error } = await sb.rpc("supplier_set_status", { p_id: id, p_status: st, p_note: note || null });
+      if (error || !data || !data.ok) { showMsg($("#pq-msg"), error ? "Σφάλμα: " + error.message : data.error, "error"); return; }
+      showToast(msg); await openSupplierPortalRequest(id); loadSupplierPortal();
+    };
+    if ($("#pq-decline")) $("#pq-decline").addEventListener("click", () => {
+      const b = $("#pq-decline"); if (!b.dataset.armed) { b.dataset.armed = "1"; b.textContent = "Σίγουρα; Πάτα ξανά"; return; }
+      setSt("declined", $("#pq-note") ? $("#pq-note").value : "", "Ενημερώθηκε ο πελάτης.");
+    });
+    if ($("#pq-shipped")) $("#pq-shipped").addEventListener("click", () => setSt("shipped", $("#pq-ship-note").value, "🚚 Ενημερώθηκε ο πελάτης ότι στάλθηκε."));
+  }
+
+  $("#new-sreq-btn").addEventListener("click", () => openSupplierRequestForm());
+  $("#sreq-chips").addEventListener("click", (e) => { const c = e.target.closest("[data-sf]"); if (c) { SREQ_FILTER = c.dataset.sf; loadSupplierRequests(); } });
+  $("#supportal-chips").addEventListener("click", (e) => { const c = e.target.closest("[data-pf]"); if (c) { SUPPORTAL_FILTER = c.dataset.pf; loadSupplierPortal(); } });
 
   // ================= CLIENT PORTAL =================
   async function loadPortal(clientId){
