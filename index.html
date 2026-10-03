@@ -416,6 +416,13 @@
   .sd-totals .grand{font-weight:700;font-size:16px;border-top:2px solid var(--ink);margin-top:4px;padding-top:6px;}
   .sd-client-info{margin-top:6px;font-size:13px;}
   .sd-need-vat{color:var(--red);margin-top:4px;font-size:13px;}
+  .afm-row{display:flex;gap:6px;align-items:center;}
+  .afm-row input{flex:1;min-width:0;}
+  .afm-row .btn-sm{white-space:nowrap;flex:none;}
+  .afm-ok{color:var(--green);font-size:12px;}
+  .afm-bad{color:var(--red);font-size:12px;margin-top:3px;}
+  .afm-quick{background:var(--teal-light);border:1px solid var(--tile-line);border-radius:12px;padding:12px 14px;margin-bottom:16px;display:flex;flex-direction:column;gap:8px;}
+  .afm-quick .afm-row input{font-size:16px;letter-spacing:.06em;}
   .sd-legal{margin:14px 0 8px;background:var(--amber-bg);border-radius:10px;padding:9px 12px;font-size:12.5px;line-height:1.45;}
   .sdv-head{display:flex;justify-content:space-between;gap:14px;align-items:flex-start;margin-bottom:10px;}
   .sdv-client{font-weight:700;font-size:15px;}
@@ -1542,7 +1549,7 @@
         const biz = { ...(tbl("business_info")[0] || {}) }; ["id","updated_at","quote_terms","quote_valid_days","quote_prices_with_vat","quote_vat_rate"].forEach(k => delete biz[k]);
         const stock = p.affect_stock !== false;
         tbl("sales_docs").push({ id, series_id:s.id, series_code:s.code, kind:s.kind, title:s.title, number:no, doc_no:docNo, doc_date:date, client_id:clientId,
-          client_snapshot:{ name:c.name, trade_name:c.trade_name || null, vat_number:c.vat_number || null, tax_office:c.tax_office || null, address:c.address || null,
+          client_snapshot:{ name:c.name, trade_name:c.trade_name || null, vat_number:c.vat_number || null, tax_office:c.tax_office || null, address:c.address || null, postal_code:c.postal_code || null,
                             city:c.city || null, phone:c.phone || null, email:c.email || null, entity_type:c.entity_type || null, is_walkin:!!c.is_walkin },
           issuer_snapshot:biz, prices_with_vat:pwv, net:r2(net), vat:r2(vat), total:r2(total), payment_method:method, bank:method === "bank" ? (p.bank || null) : null,
           stock_applied:stock, status:"issued", cancel_reason:null, cancelled_at:null, mark:null, uid:null, qr_url:null, note:p.note || null,
@@ -1603,9 +1610,37 @@
         remove: async (paths) => { paths.forEach(p => delete FILES[p]); return { data: paths, error: null }; }
       })
     };
+    // ΑΑΔΕ στην επίδειξη: φανταστικά στοιχεία, καμία κλήση έξω
+    const vatOk = (v) => { if (!/^\d{9}$/.test(v)) return false; let t = 0; for (let i = 0; i < 8; i++) t += Number(v[i]) * 2 ** (8 - i); return (t % 11) % 10 === Number(v[8]); };
+    const demoAfm = (afm) => ({ ok:true, afm, name:"ΕΠΙΧΕΙΡΗΣΗ ΔΟΚΙΜΗΣ " + afm.slice(-3) + " Ο.Ε. (επίδειξη)", trade_name:"Δοκιμή " + afm.slice(-3),
+      tax_office:"ΘΗΡΑΣ", legal_status:"ΟΕ", firm_flag:"ΕΠΙΤΗΔΕΥΜΑΤΙΑΣ", individual:false, address:"ΟΔΟΣ ΔΟΚΙΜΗΣ " + Number(afm.slice(-2)),
+      postal_code:"84700", city:"ΘΗΡΑ", active:true, status_descr:"ΕΝΕΡΓΟΣ ΑΦΜ", stop_date:null, normal_vat:true,
+      activity:"ΥΠΗΡΕΣΙΕΣ ΠΑΡΟΧΗΣ ΚΑΤΑΛΥΜΑΤΟΣ", activities:[{ descr:"ΥΠΗΡΕΣΙΕΣ ΠΑΡΟΧΗΣ ΚΑΤΑΛΥΜΑΤΟΣ", main:true }] });
+    const functions = {
+      invoke: async (name, { body } = {}) => {
+        const b = body || {};
+        if (b.action === "afm") {
+          const afm = String(b.afm || "").replace(/\D/g, "");
+          if (!vatOk(afm)) return { data:{ ok:false, error:"Ο ΑΦΜ δεν είναι έγκυρος (9 ψηφία με σωστό ψηφίο ελέγχου)." }, error:null };
+          return { data: demoAfm(afm), error:null };
+        }
+        if (b.action === "mydata_doc") {
+          const mark = String(b.mark || "").replace(/\D/g, "");
+          if (!mark.endsWith("7")) return { data:{ ok:false, notfound:true, error:"Δεν βρέθηκε στο myDATA παραστατικό με αυτόν τον ΜΑΡΚ (επίδειξη: δοκίμασε ΜΑΡΚ που τελειώνει σε 7)." }, error:null };
+          return { data:{ ok:true, issuer_info: demoAfm("123456783"), invoice:{ mark, uid:"DEMO", cancelled:false, issuer_vat:"123456783", counterpart_vat:"000000000",
+            series:"Α", aa:"1207", issue_date: isoDay(new Date()), invoice_type:"1.1", currency:"EUR",
+            lines:[ { line_no:1, description:"IP ΚΑΜΕΡΑ DOME 4MP", qty:4, net:208, vat_category:"1", vat_rate:24, vat_amount:49.92 },
+                    { line_no:2, description:null, qty:null, net:35.5, vat_category:"1", vat_rate:24, vat_amount:8.52 } ],
+            totals:{ net:243.5, vat:58.44, gross:301.94 } } }, error:null };
+        }
+        if (b.action === "status") return { data:{ ok:true, afm:{ ok:true }, mydata:{ ok:true } }, error:null };
+        return { data:{ ok:false, error:"Άγνωστη ενέργεια." }, error:null };
+      }
+    };
     return {
       __demo: true,
       storage,
+      functions,
       from: (t) => new Q(t),
       rpc: async (name, args) => {
         if (!RPC[name]) return { data:null, error:{ message:"Δεν υποστηρίζεται στην επίδειξη" } };
@@ -1686,6 +1721,59 @@
     for (let i = 0; i < 8; i++) sum += Number(d[i]) * Math.pow(2, 8 - i);
     return (sum % 11) % 10 === Number(d[8]);
   }
+
+  // ================= ΑΑΔΕ: στοιχεία από ΑΦΜ + myDATA (μέσω Edge Function «aade») =================
+  // Οι κωδικοί της ΑΑΔΕ ζουν ΜΟΝΟ στα Secrets του Supabase· η εφαρμογή απλώς ρωτά τη συνάρτηση.
+  const AADE_SETUP_MSG = "Η σύνδεση με την ΑΑΔΕ δεν έχει στηθεί ακόμα (Edge Function «aade» + κωδικοί στα Secrets).";
+  async function aadeCall(body){
+    if (!sb.functions || !sb.functions.invoke) return { ok:false, setup:true, error: AADE_SETUP_MSG };
+    try {
+      const { data, error } = await sb.functions.invoke("aade", { body });
+      if (error) {
+        try { const j = error.context && typeof error.context.json === "function" ? await error.context.json() : null; if (j && j.error) return j; } catch (e) {}
+        return { ok:false, setup: /Failed to send|not found|404|FunctionsFetchError|FunctionsRelayError/i.test((error.name || "") + " " + (error.message || "")), error: AADE_SETUP_MSG };
+      }
+      return data || { ok:false, error:"Κενή απάντηση." };
+    } catch (e) { return { ok:false, error: "Σφάλμα: " + e.message }; }
+  }
+  // μαντεύει τον «τύπο» πελάτη από τη δραστηριότητα της ΑΑΔΕ
+  function guessClientType(info){
+    const a = String((info.activities || []).map(x => x.descr).join(" ") + " " + (info.activity || "")).toUpperCase();
+    if (/ΞΕΝΟΔΟΧ|ΚΑΤΑΛΥΜ|ΕΝΟΙΚΙΑΖΟΜΕΝ|ΔΩΜΑΤΙ|ΔΙΑΜΟΝ|ΒΙΛΑ/.test(a)) return "Ξενοδοχείο";
+    if (/ΕΣΤΙΑΤΟΡ|ΤΑΒΕΡΝ|ΚΑΦΕ|ΜΠΑΡ|ΑΝΑΨΥΚΤ|ΨΗΤΟΠΩΛ|ΠΙΤΣ|ΠΑΡΑΣΚΕΥΗ ΓΕΥΜΑΤ|ΠΟΤΩΝ/.test(a)) return "Εστιατόριο";
+    return info.individual && info.firm_flag !== "ΕΠΙΤΗΔΕΥΜΑΤΙΑΣ" ? "Άλλο" : "Επιχείρηση";
+  }
+  // Κουμπί «🔎 ΑΑΔΕ» δίπλα σε ΑΦΜ. apply(info) γεμίζει τη φόρμα. auto: ψάχνει μόνο του όταν
+  // γραφτούν 9 σωστά ψηφία και ο έλεγχος shouldAuto() λέει ναι (π.χ. κενή επωνυμία).
+  function wireAfmLookup(o){
+    const input = $(o.input), btn = $(o.button), note = $(o.note);
+    if (!input || !btn) return;
+    let last = "";
+    const run = async (silentSetup) => {
+      const afm = normalizeVat(input.value);
+      if (afm.length !== 9 || !vatChecksumOk(afm)) { if (note) note.innerHTML = '<span style="color:var(--amber);font-size:11.5px;">Γράψε έγκυρο ΑΦΜ (9 ψηφία).</span>'; return; }
+      last = afm;
+      btn.disabled = true; const label = btn.innerHTML; btn.innerHTML = '<span class="spinner"></span>';
+      if (note) note.innerHTML = '<span class="cell-sub">Αναζήτηση στην ΑΑΔΕ…</span>';
+      const r = await aadeCall({ action:"afm", afm });
+      btn.disabled = false; btn.innerHTML = label;
+      if (!r.ok) {
+        if (note) note.innerHTML = (r.setup && silentSetup) ? "" : `<span style="color:var(--red);font-size:11.5px;">${escapeHtml(r.error || "Δεν βρέθηκε.")}</span>`;
+        return;
+      }
+      o.apply(r);
+      if (note) note.innerHTML = `<span class="afm-ok">✓ Από ΑΑΔΕ: <b>${escapeHtml(r.trade_name || r.name || "")}</b>${r.tax_office ? " · ΔΟΥ " + escapeHtml(r.tax_office) : ""}</span>` +
+        (r.active ? "" : `<div class="afm-bad">⚠️ ${escapeHtml(r.status_descr || "Ανενεργός ΑΦΜ")}${r.stop_date ? " από " + escapeHtml(r.stop_date) : ""}</div>`) +
+        (o.extraNote ? o.extraNote(r) : "");
+    };
+    btn.addEventListener("click", () => run(false));
+    if (o.auto) input.addEventListener("input", () => {
+      const afm = normalizeVat(input.value);
+      if (afm.length === 9 && afm !== last && vatChecksumOk(afm) && (!o.shouldAuto || o.shouldAuto())) run(true);
+    });
+    return run;
+  }
+
   function wireVatHint(inputSel, noteSel){
     const input = $(inputSel), note = $(noteSel);
     if (!input || !note) return;
@@ -2716,6 +2804,11 @@
             Απορριμμένος πελάτης — δεν έχει πρόσβαση.
             <button type="button" class="add-link" id="cl-approve" style="color:inherit;text-decoration:underline;">Έγκριση τώρα</button>
           </div>` : ""}
+        ${clientId ? "" : `<div class="afm-quick">
+          <div><b>Γρήγορη καταχώρηση με ΑΦΜ</b><div class="cell-sub">Γράψε το ΑΦΜ — τα στοιχεία έρχονται από την ΑΑΔΕ.</div></div>
+          <div class="afm-row"><input id="cl-afm-quick" inputmode="numeric" maxlength="12" placeholder="ΑΦΜ πελάτη"><button type="button" class="btn-primary btn-sm" id="cl-afm-quick-btn">🔎 Αναζήτηση</button></div>
+          <div id="cl-afm-quick-note"></div>
+        </div>`}
         <div class="field"><label>Επωνυμία *</label><input id="cl-name" required value="${escapeHtml(client.name)}"></div>
         <div class="form-row">
           <div class="field"><label>Μορφή</label>
@@ -2739,14 +2832,18 @@
         </div>
         <div class="form-row">
           <div class="field">
-            <label>ΑΦΜ</label><input id="cl-vat" inputmode="numeric" maxlength="12" value="${escapeHtml(client.vat_number || "")}">
-            <div id="cl-vat-note" style="margin-top:4px;"></div>
+            <label>ΑΦΜ</label><div class="afm-row"><input id="cl-vat" inputmode="numeric" maxlength="12" value="${escapeHtml(client.vat_number || "")}"><button type="button" class="btn-ghost btn-sm" id="cl-afm-btn" title="Συμπλήρωση στοιχείων από την ΑΑΔΕ">🔎 ΑΑΔΕ</button></div>
+            <div id="cl-vat-note" style="margin-top:4px;"></div><div id="cl-afm-note" style="margin-top:4px;"></div>
           </div>
           <div class="field"><label>ΔΟΥ</label><input id="cl-tax-office" value="${escapeHtml(client.tax_office || "")}"></div>
         </div>
         <div class="form-row">
           <div class="field"><label>Διεύθυνση</label><input id="cl-address" value="${escapeHtml(client.address || "")}"></div>
           <div class="field"><label>Πόλη</label><input id="cl-city" value="${escapeHtml(client.city || "")}"></div>
+        </div>
+        <div class="form-row">
+          <div class="field"><label>Τ.Κ.</label><input id="cl-zip" inputmode="numeric" maxlength="10" value="${escapeHtml(client.postal_code || "")}"></div>
+          <div class="field"></div>
         </div>
         <div class="form-row">
           <div class="field"><label>Υπεύθυνος επικοινωνίας</label><input id="cl-contact" value="${escapeHtml(client.contact || "")}"></div>
@@ -2875,6 +2972,37 @@
       $("#cl-person-row").classList.toggle("hidden", isCompany);
       $("#cl-trade-field").classList.toggle("hidden", !isCompany);
     });
+    // ---- στοιχεία από ΑΑΔΕ ----
+    const applyClientAfm = (r) => {
+      $("#cl-vat").value = r.afm || normalizeVat($("#cl-vat").value);
+      $("#cl-vat").dispatchEvent(new Event("input"));
+      $("#cl-name").value = r.name || $("#cl-name").value;
+      $("#cl-entity").value = r.individual ? "individual" : "company";
+      $("#cl-entity").dispatchEvent(new Event("change"));
+      if (r.individual) {
+        const t = String(r.name || "").split(/\s+/);
+        if (t[0]) $("#cl-last-name").value = t[0];
+        if (t[1]) $("#cl-first-name").value = t[1];
+      }
+      $("#cl-trade-name").value = r.trade_name || "";
+      if (r.tax_office) $("#cl-tax-office").value = r.tax_office;
+      if (r.address) $("#cl-address").value = r.address;
+      if (r.city) $("#cl-city").value = r.city;
+      if (r.postal_code) $("#cl-zip").value = r.postal_code;
+      if (!clientId) $("#cl-type").value = guessClientType(r);
+    };
+    const dupNote = (r) => {
+      const d = CLIENTS_CACHE.find(c => c.vat_number === r.afm && c.id !== clientId);
+      return d ? `<div class="afm-bad">Υπάρχει ήδη πελάτης με αυτό το ΑΦΜ: <b>${escapeHtml(d.name)}</b> <button type="button" class="add-link" data-open-dup="${d.id}">Άνοιγμα</button></div>` : "";
+    };
+    const wireDup = () => $$("[data-open-dup]").forEach(b => b.addEventListener("click", () => openClientDrawer(b.dataset.openDup)));
+    wireAfmLookup({ input:"#cl-vat", button:"#cl-afm-btn", note:"#cl-afm-note", apply:(r) => { applyClientAfm(r); setTimeout(wireDup); }, extraNote: dupNote,
+                    auto: !clientId, shouldAuto: () => !$("#cl-name").value.trim() });
+    if (!clientId) {
+      wireAfmLookup({ input:"#cl-afm-quick", button:"#cl-afm-quick-btn", note:"#cl-afm-quick-note", auto:true,
+        apply:(r) => { applyClientAfm(r); setTimeout(wireDup); setTimeout(() => $("#cl-phone").focus(), 50); }, extraNote: (r) => dupNote(r) + '<div class="cell-sub">Συμπλήρωσε τηλέφωνο/email και πάτα «Αποθήκευση».</div>' });
+      setTimeout(() => { const q = $("#cl-afm-quick"); if (q && window.matchMedia("(pointer:fine)").matches) q.focus(); }, 60);
+    }
 
     $("#ra-add").addEventListener("click", () => {
       $("#ra-list").insertAdjacentHTML("beforeend", raRowsHtml([{ label:"", value:"" }]));
@@ -2916,6 +3044,7 @@
         tax_office: $("#cl-tax-office").value.trim() || null,
         address: $("#cl-address").value.trim() || null,
         city: $("#cl-city").value.trim() || null,
+        postal_code: $("#cl-zip").value.trim() || null,
         contact: $("#cl-contact").value.trim() || null,
         phone: $("#cl-phone").value.trim() || null,
         email: $("#cl-email").value.trim() || null,
@@ -2923,12 +3052,13 @@
       };
       let savedId = clientId;
       let err;
-      if (clientId) {
-        ({ error: err } = await sb.from("clients").update(payload).eq("id", clientId));
-      } else {
-        const { data, error } = await sb.from("clients").insert(payload).select("id").single();
-        err = error; if (data) savedId = data.id;
-      }
+      const writeClient = async (pl) => {
+        if (clientId) { ({ error: err } = await sb.from("clients").update(pl).eq("id", clientId)); }
+        else { const { data, error } = await sb.from("clients").insert(pl).select("id").single(); err = error; if (data) savedId = data.id; }
+      };
+      await writeClient(payload);
+      // χωρίς το v20 δεν υπάρχει ο Τ.Κ. — αποθηκεύει τα υπόλοιπα
+      if (err && isMissing(err) && /postal_code/.test(err.message || "")) { const { postal_code, ...rest } = payload; await writeClient(rest); }
       if (err) {
         saveBtn.disabled = false; saveBtn.textContent = "Αποθήκευση";
         showMsg($("#client-form-msg"), "Σφάλμα αποθήκευσης: " + err.message, "error");
@@ -3636,7 +3766,7 @@
   // Ένα τιμολόγιο αγοράς (με το χέρι ή από QR) πάει σε ΤΡΙΑ σημεία μαζί, μέσω
   // save_purchase_invoice στη βάση: καρτέλα προμηθευτή, αποθήκη, και (αν
   // πληρώθηκε αμέσως) Έξοδα/ταμείο. Όλα ή τίποτα.
-  const VAT_RATES = [24, 13, 6, 0];
+  const VAT_RATES = [24, 13, 6, 17, 9, 4, 3, 0];
   const V15_MSG = "Για τα τιμολόγια αγοράς τρέξε πρώτα το schema_v15.sql στο Supabase.";
   const isMissing = (err) => err && /schema cache|does not exist|Could not find/i.test(err.message || "");
 
@@ -3709,8 +3839,12 @@
         <div id="sup-msg"></div>
         <div class="form-row">
           <div class="field"><label>Επωνυμία *</label><input id="sup-name" required value="${s ? escapeHtml(s.name) : ""}"></div>
-          <div class="field"><label>ΑΦΜ</label><input id="sup-vat" inputmode="numeric" maxlength="12" value="${s ? escapeHtml(s.vat_number || "") : ""}">
-            <div id="sup-vat-note" style="margin-top:4px;"></div></div>
+          <div class="field"><label>ΑΦΜ</label><div class="afm-row"><input id="sup-vat" inputmode="numeric" maxlength="12" value="${s ? escapeHtml(s.vat_number || "") : ""}"><button type="button" class="btn-ghost btn-sm" id="sup-afm-btn" title="Συμπλήρωση από την ΑΑΔΕ">🔎 ΑΑΔΕ</button></div>
+            <div id="sup-vat-note" style="margin-top:4px;"></div><div id="sup-afm-note" style="margin-top:4px;"></div></div>
+        </div>
+        <div class="form-row">
+          <div class="field"><label>Διακριτικός τίτλος</label><input id="sup-trade" value="${s ? escapeHtml(s.trade_name || "") : ""}"></div>
+          <div class="field"><label>ΔΟΥ</label><input id="sup-doy" value="${s ? escapeHtml(s.tax_office || "") : ""}"></div>
         </div>
         <div class="form-row">
           <div class="field"><label>Υπεύθυνος</label><input id="sup-contact" value="${s ? escapeHtml(s.contact || "") : ""}"></div>
@@ -3719,6 +3853,10 @@
         <div class="form-row">
           <div class="field"><label>Email</label><input id="sup-email" type="email" value="${s ? escapeHtml(s.email || "") : ""}"></div>
           <div class="field"><label>Διεύθυνση</label><input id="sup-address" value="${s ? escapeHtml(s.address || "") : ""}"></div>
+        </div>
+        <div class="form-row">
+          <div class="field"><label>Πόλη</label><input id="sup-city" value="${s ? escapeHtml(s.city || "") : ""}"></div>
+          <div class="field"><label>Τ.Κ.</label><input id="sup-zip" inputmode="numeric" maxlength="10" value="${s ? escapeHtml(s.postal_code || "") : ""}"></div>
         </div>
         <div class="form-row">
           <div class="field"><label>Υπόλοιπο που του χρωστούσα ήδη (€)</label><input id="sup-open" type="number" step="0.01" value="${s ? (s.opening_balance ?? 0) : 0}"></div>
@@ -3730,6 +3868,16 @@
         </div>
       </form>`, true);
     wireVatHint("#sup-vat", "#sup-vat-note");
+    wireAfmLookup({ input:"#sup-vat", button:"#sup-afm-btn", note:"#sup-afm-note", auto: !s, shouldAuto: () => !$("#sup-name").value.trim(),
+      apply: (r) => {
+        $("#sup-name").value = r.name || $("#sup-name").value;
+        $("#sup-trade").value = r.trade_name || "";
+        if (r.tax_office) $("#sup-doy").value = r.tax_office;
+        if (r.address) $("#sup-address").value = r.address;
+        if (r.city) $("#sup-city").value = r.city;
+        if (r.postal_code) $("#sup-zip").value = r.postal_code;
+      },
+      extraNote: (r) => { const d = SUPPLIERS_CACHE.find(x => x.vat_number === r.afm && x.id !== supplierId); return d ? `<div class="afm-bad">Υπάρχει ήδη προμηθευτής με αυτό το ΑΦΜ: <b>${escapeHtml(d.name)}</b></div>` : ""; } });
     $("#supplier-form").addEventListener("submit", async (e) => {
       e.preventDefault();
       const name = $("#sup-name").value.trim();
@@ -3738,11 +3886,15 @@
         name, vat_number: normalizeVat($("#sup-vat").value) || null,
         contact: $("#sup-contact").value.trim() || null, phone: $("#sup-phone").value.trim() || null,
         email: $("#sup-email").value.trim() || null, address: $("#sup-address").value.trim() || null,
-        note: $("#sup-note").value.trim() || null, opening_balance: parseFloat($("#sup-open").value || "0") || 0
+        note: $("#sup-note").value.trim() || null, opening_balance: parseFloat($("#sup-open").value || "0") || 0,
+        trade_name: $("#sup-trade").value.trim() || null, tax_office: $("#sup-doy").value.trim() || null,
+        city: $("#sup-city").value.trim() || null, postal_code: $("#sup-zip").value.trim() || null
       };
       const write = (p) => supplierId ? sb.from("suppliers").update(p).eq("id", supplierId).select("id").single()
                                       : sb.from("suppliers").insert(p).select("id").single();
       let { data, error } = await write(full);
+      // χωρίς το v20: χωρίς ΔΟΥ/πόλη/ΤΚ/διακριτικό τίτλο
+      if (error && isMissing(error)) { const { trade_name, tax_office, city, postal_code, ...v15 } = full; ({ data, error } = await write(v15)); }
       // χωρίς το v15 λείπουν οι νέες στήλες — αποθηκεύει τουλάχιστον όνομα + ΑΦΜ
       if (error && isMissing(error)) ({ data, error } = await write({ name: full.name, vat_number: full.vat_number }));
       if (error) { showMsg($("#sup-msg"), "Σφάλμα: " + error.message, "error"); return; }
@@ -3892,7 +4044,8 @@
       <form id="pi-form" novalidate>
         <div id="pi-msg"></div>
         ${prefill.mark ? `<div class="money-count-diff ok" style="margin:0 0 14px;">📷 Διαβάστηκε το QR — ΜΑΡΚ <b>${escapeHtml(prefill.mark)}</b>${prefill.url ? ` · <a href="${escapeHtml(prefill.url)}" target="_blank" rel="noopener">άνοιγμα στην ΑΑΔΕ</a>` : ""}.
-           Συμπλήρωσε τα υπόλοιπα από το χαρτί.</div>` : ""}
+           <span id="pi-qr-hint">Συμπλήρωσε τα υπόλοιπα από το χαρτί.</span></div>` : ""}
+        <div id="pi-mydata-msg"></div>
         <div class="form-row">
           <div class="field"><label>Προμηθευτής *</label>
             <select id="pi-sup"><option value="">— Διάλεξε —</option>${SUPPLIERS_CACHE.map(s => `<option value="${s.id}" ${s.id === supplierId ? "selected" : ""}>${escapeHtml(s.name)}</option>`).join("")}
@@ -3901,12 +4054,13 @@
         </div>
         <div class="form-row hidden" id="pi-newsup">
           <div class="field"><label>Επωνυμία νέου προμηθευτή *</label><input id="pi-ns-name"></div>
-          <div class="field"><label>ΑΦΜ</label><input id="pi-ns-vat" inputmode="numeric" maxlength="12" value="${escapeHtml(prefill.vat || "")}"></div>
+          <div class="field"><label>ΑΦΜ</label><div class="afm-row"><input id="pi-ns-vat" inputmode="numeric" maxlength="12" value="${escapeHtml(prefill.vat || "")}"><button type="button" class="btn-ghost btn-sm" id="pi-ns-afm" title="Στοιχεία από την ΑΑΔΕ">🔎 ΑΑΔΕ</button></div>
+            <div id="pi-ns-note" style="margin-top:4px;"></div></div>
         </div>
         <div class="form-row">
           <div class="field"><label>Αριθμός παραστατικού</label><input id="pi-num" placeholder="π.χ. ΤΔΑ Α-551" value="${escapeHtml(prefill.doc_number || "")}"></div>
           <div class="field"><label>ΜΑΡΚ <span style="font-weight:400;color:var(--ink-soft);">(από το QR)</span></label>
-            <div style="display:flex;gap:6px;"><input id="pi-mark" inputmode="numeric" value="${escapeHtml(prefill.mark || "")}"><button type="button" class="btn-ghost btn-sm" id="pi-scan" title="Σκανάρισμα QR">📷</button></div></div>
+            <div style="display:flex;gap:6px;"><input id="pi-mark" inputmode="numeric" value="${escapeHtml(prefill.mark || "")}"><button type="button" class="btn-ghost btn-sm" id="pi-scan" title="Σκανάρισμα QR">📷</button><button type="button" class="btn-ghost btn-sm" id="pi-mydata" title="Φέρε το τιμολόγιο από το myDATA" style="white-space:nowrap;">⬇ myDATA</button></div></div>
         </div>
         <div class="section-title">Γραμμές</div>
         <div id="pi-lines">${lineHtml({}, 0)}</div>
@@ -3983,6 +4137,63 @@
     $("#pi-paid").addEventListener("change", () => $("#pi-paid-row").classList.toggle("hidden", !$("#pi-paid").checked));
     piPick.attach();
     $("#pi-scan").addEventListener("click", () => openQrScanner({ supplier_id: $("#pi-sup").value !== "__new" ? $("#pi-sup").value : "" }));
+    // ---- ΑΑΔΕ: νέος προμηθευτής από ΑΦΜ ----
+    let newSupInfo = null, fromMydata = false;
+    wireAfmLookup({ input:"#pi-ns-vat", button:"#pi-ns-afm", note:"#pi-ns-note", auto:true, shouldAuto: () => !$("#pi-ns-name").value.trim(),
+      apply: (r) => { $("#pi-ns-name").value = r.name || $("#pi-ns-name").value; newSupInfo = r; } });
+    // ---- myDATA: όλο το τιμολόγιο με τον ΜΑΡΚ ----
+    const loadFromMyData = async (auto) => {
+      const mark = $("#pi-mark").value.replace(/\D/g, "");
+      const box = $("#pi-mydata-msg");
+      if (!/^\d{6,20}$/.test(mark)) { showMsg(box, "Γράψε πρώτα τον ΜΑΡΚ (ή σκάναρε το QR).", "error"); return; }
+      const btn = $("#pi-mydata"); btn.disabled = true; const lbl = btn.innerHTML; btn.innerHTML = '<span class="spinner"></span>';
+      box.innerHTML = '<div class="cell-sub" style="margin-bottom:10px;">Αναζήτηση στο myDATA…</div>';
+      const r = await aadeCall({ action:"mydata_doc", mark });
+      btn.disabled = false; btn.innerHTML = lbl;
+      if (!r.ok) {
+        if (auto && r.setup) { box.innerHTML = ""; return; }
+        showMsg(box, r.error || "Δεν βρέθηκε.", "error"); return;
+      }
+      const inv = r.invoice;
+      if (inv.issue_date) $("#pi-date").value = inv.issue_date.slice(0, 10);
+      const num = [inv.series && inv.series !== "0" ? inv.series : "", inv.aa].filter(Boolean).join(" ");
+      if (num) $("#pi-num").value = num;
+      const known = SUPPLIERS_CACHE.find(x => x.vat_number && x.vat_number === inv.issuer_vat);
+      if (known) { $("#pi-sup").value = known.id; $("#pi-newsup").classList.add("hidden"); }
+      else {
+        $("#pi-sup").value = "__new"; $("#pi-newsup").classList.remove("hidden");
+        $("#pi-ns-vat").value = inv.issuer_vat || "";
+        const info = r.issuer_info;
+        if (info) { newSupInfo = info; $("#pi-ns-name").value = info.name || ""; $("#pi-ns-note").innerHTML = `<span class="afm-ok">✓ Από ΑΑΔΕ: <b>${escapeHtml(info.trade_name || info.name || "")}</b></span>`; }
+        else if (inv.issuer_name) $("#pi-ns-name").value = inv.issuer_name;
+      }
+      await loadMap($("#pi-sup").value === "__new" ? "" : $("#pi-sup").value);
+      // γραμμές: αν η ποσότητα «βγαίνει» ακριβώς, κρατά ποσότητα × τιμή — αλλιώς 1 × καθαρή αξία
+      const rows = (inv.lines || []).map(l => {
+        const q = Number(l.qty) > 0 ? Number(l.qty) : 1;
+        let price = Math.round(l.net / q * 100) / 100, qty = q;
+        if (Math.abs(price * q - l.net) > 0.005) { qty = 1; price = l.net; }
+        return { description: l.description || ("Γραμμή " + l.line_no), qty, unit_price: price, vat_rate: VAT_RATES.includes(Number(l.vat_rate)) ? Number(l.vat_rate) : 24 };
+      });
+      if (rows.length) {
+        $("#pi-lines").innerHTML = rows.map((l, i) => lineHtml(l, lineN + i)).join("");
+        lineN += rows.length;
+        $$("#pi-lines .pl-line").forEach(el => { wireLine(el); autoMatch(el); });
+      }
+      recalc();
+      fromMydata = true;
+      const t = inv.totals || {}, mine = parseFloat($("#pi-total-val").value || "0");
+      const ref = (Number(t.net) || 0) + (Number(t.vat) || 0);
+      const extra = ["withheld","fees","other_taxes","stamp","deductions"].some(k => Number(t[k]));
+      box.innerHTML = `<div class="money-count-diff ok" style="margin:0 0 14px;">⬇ Φορτώθηκε από το myDATA: ${rows.length} γραμμ${rows.length === 1 ? "ή" : "ές"} · σύνολο ${eur(t.gross ?? ref)}.
+        ${rows.some(l => /^Γραμμή \d+$/.test(l.description)) ? "Ο εκδότης δεν έστειλε περιγραφές — γράψε τι είναι κάθε γραμμή και διάλεξε είδος αποθήκης." : "Διάλεξε είδος αποθήκης όπου χρειάζεται."}
+        ${Math.abs(mine - ref) > 0.02 ? `<div style="color:var(--amber);margin-top:4px;">⚠️ Το σύνολο εδώ (${eur(mine)}) διαφέρει από το myDATA (${eur(ref)}) — έλεγξε τις γραμμές.</div>` : ""}
+        ${extra ? '<div style="color:var(--amber);margin-top:4px;">Το τιμολόγιο έχει και κρατήσεις/τέλη/λοιπούς φόρους — δες το πρωτότυπο.</div>' : ""}
+        ${inv.cancelled ? '<div style="color:var(--red);margin-top:4px;">⚠️ Το παραστατικό είναι ΑΚΥΡΩΜΕΝΟ στο myDATA.</div>' : ""}</div>`;
+      if ($("#pi-qr-hint")) $("#pi-qr-hint").textContent = "";
+    };
+    $("#pi-mydata").addEventListener("click", () => loadFromMyData(false));
+    if (prefill.mark && PROFILE && PROFILE.role === "owner") loadFromMyData(true);
     let invoiceFile = prefill.file || null;
     $("#pi-file").addEventListener("change", (e) => {
       const f = e.target.files && e.target.files[0];
@@ -4043,6 +4254,15 @@
         try { await uploadInvoiceFile({ id: data.id, doc_date: payload.doc_date }, invoiceFile); }
         catch (err) { showToast("Το τιμολόγιο αποθηκεύτηκε, αλλά η φωτογραφία όχι: " + (isMissing(err) || /bucket/i.test(err.message || "") ? V16_MSG : err.message)); }
       }
+      // επιπλέον στοιχεία νέου προμηθευτή από ΑΑΔΕ + σήμανση «από myDATA» (αγνοούνται αν λείπει το v20)
+      if (payload.new_supplier && newSupInfo && data.supplier_id) {
+        const extra = { trade_name: newSupInfo.trade_name || null, tax_office: newSupInfo.tax_office || null, address: newSupInfo.address || null,
+                        city: newSupInfo.city || null, postal_code: newSupInfo.postal_code || null };
+        const { error: upErr } = await sb.from("suppliers").update(extra).eq("id", data.supplier_id);
+        if (upErr && isMissing(upErr)) await sb.from("suppliers").update({ address: [extra.address, extra.postal_code, extra.city].filter(Boolean).join(", ") || null }).eq("id", data.supplier_id);
+        await loadSuppliers();
+      }
+      if (fromMydata) await sb.from("purchase_invoices").update({ from_mydata: true }).eq("id", data.id);
       showToast(`Το τιμολόγιο καταχωρήθηκε (${eur(data.total)}).`);
       refreshPurchaseViews();
       if (!$("#view-inventory").classList.contains("hidden")) loadInventory();
@@ -5443,7 +5663,7 @@
       <div><b>${escapeHtml(c.name || "")}</b></div>
       ${c.trade_name && c.trade_name !== c.name ? `<div>${escapeHtml(c.trade_name)}</div>` : ""}
       ${c.vat_number ? `<div>ΑΦΜ ${escapeHtml(c.vat_number)}${c.tax_office ? " · ΔΟΥ " + escapeHtml(c.tax_office) : ""}</div>` : ""}
-      ${c.address || c.city ? `<div>${escapeHtml([c.address, c.city].filter(Boolean).join(", "))}</div>` : ""}
+      ${c.address || c.city ? `<div>${escapeHtml([c.address, [c.postal_code, c.city].filter(Boolean).join(" ")].filter(Boolean).join(", "))}</div>` : ""}
       ${c.phone || c.email ? `<div>${escapeHtml([c.phone, c.email].filter(Boolean).join(" · "))}</div>` : ""}
     </div>`;
   }
@@ -5568,7 +5788,7 @@
         <p class="sub" style="margin-top:0;">Μπαίνουν αυτόματα σε κάθε παραστατικό και προσφορά. Κάθε παραστατικό κρατά τα στοιχεία που ίσχυαν τη στιγμή της έκδοσης.</p>
         ${f("legal_name", "Επωνυμία *", b.legal_name, "π.χ. ΤΟΜΟΡΙ ΗΛΙΑΣ")}
         <div class="form-row">${f("trade_name", "Διακριτικός τίτλος", b.trade_name, "ITSUPP")}${f("profession", "Δραστηριότητα", b.profession, "π.χ. Υπηρεσίες πληροφορικής")}</div>
-        <div class="form-row">${f("vat_number", "ΑΦΜ *", b.vat_number, "")}${f("tax_office", "ΔΟΥ", b.tax_office, "π.χ. Θήρας")}</div>
+        <div class="form-row"><div class="field"><label>ΑΦΜ *</label><div class="afm-row"><input id="bz-vat_number" inputmode="numeric" value="${escapeHtml(b.vat_number ?? "")}"><button type="button" class="btn-ghost btn-sm" id="bz-afm-btn" title="Συμπλήρωση από την ΑΑΔΕ">🔎 ΑΑΔΕ</button></div><div id="bz-afm-note" style="margin-top:4px;"></div></div>${f("tax_office", "ΔΟΥ", b.tax_office, "π.χ. Θήρας")}</div>
         <div class="form-row">${f("address", "Διεύθυνση", b.address, "")}${f("city", "Πόλη", b.city, "")}</div>
         <div class="form-row">${f("postal_code", "Τ.Κ.", b.postal_code, "")}${f("gemi", "ΓΕΜΗ", b.gemi, "")}</div>
         <div class="form-row">${f("phone", "Τηλέφωνο", b.phone, "")}${f("email", "Email", b.email, "", "email")}</div>
@@ -5583,6 +5803,10 @@
         </div>
         <label class="check-line"><input type="checkbox" id="bz-quote_prices_with_vat" ${b.quote_prices_with_vat !== false ? "checked" : ""}> Οι τιμές των προσφορών περιλαμβάνουν ΦΠΑ</label>
         <div class="field"><label>Όροι προσφοράς (τυπώνονται)</label><textarea id="bz-quote_terms" rows="3" placeholder="π.χ. Προκαταβολή 50% με την ανάθεση. Εγγύηση εξοπλισμού 2 έτη.">${escapeHtml(b.quote_terms || "")}</textarea></div>
+        <div class="section-title">Σύνδεση με ΑΑΔΕ</div>
+        <p class="sub" style="margin-top:0;">Στοιχεία από ΑΦΜ (ειδικοί κωδικοί ΑΑΔΕ) και τιμολόγια αγορών από το myDATA. Οι κωδικοί μπαίνουν <b>μόνο</b> στο Supabase → Edge Functions → Secrets.</p>
+        <button type="button" class="btn-ghost btn-sm" id="bz-aade-check">Έλεγχος σύνδεσης</button>
+        <div id="bz-aade-result" style="margin-top:8px;"></div>
         <div class="drawer-foot" style="margin:22px -22px -20px;">
           <button type="button" class="btn-ghost" id="bz-preview">👁 Δείγμα εκτύπωσης</button>
           <button type="submit" class="btn-primary">Αποθήκευση</button>
@@ -5599,6 +5823,22 @@
       o.quote_prices_with_vat = $("#bz-quote_prices_with_vat").checked;
       return o;
     };
+    wireAfmLookup({ input:"#bz-vat_number", button:"#bz-afm-btn", note:"#bz-afm-note", apply: (r) => {
+      $("#bz-legal_name").value = r.name || $("#bz-legal_name").value;
+      if (r.trade_name) $("#bz-trade_name").value = r.trade_name;
+      if (r.activity) $("#bz-profession").value = r.activity.charAt(0) + r.activity.slice(1).toLowerCase();
+      if (r.tax_office) $("#bz-tax_office").value = r.tax_office;
+      if (r.address) $("#bz-address").value = r.address;
+      if (r.city) $("#bz-city").value = r.city;
+      if (r.postal_code) $("#bz-postal_code").value = r.postal_code;
+    } });
+    $("#bz-aade-check").addEventListener("click", async () => {
+      const box = $("#bz-aade-result"); box.innerHTML = '<span class="cell-sub">Έλεγχος…</span>';
+      const r = await aadeCall({ action:"status", afm: normalizeVat($("#bz-vat_number").value) });
+      if (!r.ok) { box.innerHTML = `<div class="afm-bad">${escapeHtml(r.error || AADE_SETUP_MSG)}</div>`; return; }
+      const line = (label, x) => `<div class="${x && x.ok ? "afm-ok" : "afm-bad"}">${x && x.ok ? "✓" : "✗"} ${label}${x && !x.ok && x.error ? " — " + escapeHtml(x.error) : ""}</div>`;
+      box.innerHTML = line("Στοιχεία από ΑΦΜ (ειδικοί κωδικοί ΑΑΔΕ)", r.afm) + line("myDATA (τιμολόγια αγορών με ΜΑΡΚ)", r.mydata);
+    });
     $("#bz-preview").addEventListener("click", () => {
       const o = read();
       const lines = [{ description:"Κάμερα IP 4MP", sku:"CAM-4MP", qty:2, unit:"τεμ.", unit_price:124, discount_pct:0, vat_rate:24, line_net:200, line_vat:48, line_total:248 },
