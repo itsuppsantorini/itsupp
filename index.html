@@ -436,6 +436,15 @@
   .rv-supnote{margin-top:12px;background:var(--surface-2);border-radius:10px;padding:9px 12px;font-size:13px;line-height:1.55;}
   .sa-share{display:flex;flex-wrap:wrap;gap:8px;margin:10px 0 4px;}
   .sa-share a{text-decoration:none;display:inline-flex;align-items:center;}
+  .aging-bar{display:flex;height:12px;border-radius:99px;overflow:hidden;background:var(--surface-2);margin:4px 0 6px;}
+  .aging-bar.mini{height:5px;max-width:180px;margin:5px 0 0;}
+  .aging-bar .ag{display:block;height:100%;}
+  .ag0{background:#2E9E6A;} .ag1{background:#D9A421;} .ag2{background:#E07B2A;} .ag3{background:#C94040;}
+  .aging-legend{display:flex;flex-wrap:wrap;gap:6px 16px;font-size:12px;color:var(--ink-soft);margin-bottom:6px;}
+  .aging-legend i{display:inline-block;width:10px;height:10px;border-radius:3px;margin-right:5px;vertical-align:-1px;}
+  .bal-tools{display:flex;gap:10px;align-items:center;flex-wrap:wrap;justify-content:space-between;}
+  .bal-owe{color:var(--red);} .bal-credit{color:var(--green);}
+  @media (max-width:640px){ .bal-table .hide-sm{display:none;} }
   .afm-quick{background:var(--teal-light);border:1px solid var(--tile-line);border-radius:12px;padding:12px 14px;margin-bottom:16px;display:flex;flex-direction:column;gap:8px;}
   .afm-quick .afm-row input{font-size:16px;letter-spacing:.06em;}
   .sd-legal{margin:14px 0 8px;background:var(--amber-bg);border-radius:10px;padding:9px 12px;font-size:12.5px;line-height:1.45;}
@@ -743,13 +752,43 @@
           <h2>Πελάτες</h2>
           <button class="btn-primary btn-sm" id="new-client-btn">+ Νέος πελάτης</button>
         </div>
-        <div class="filterbar" id="client-filters"></div>
-        <div class="panel-body">
-          <div id="clients-msg" style="padding:0 20px;"></div>
-          <table>
-            <thead><tr><th>Επωνυμία</th><th>Τύπος / Πόλη</th><th>Επικοινωνία</th></tr></thead>
-            <tbody id="clients-tbody"></tbody>
-          </table>
+        <div class="drawer-tabs owner-only" id="clients-tabs" style="margin:0;padding:0 14px;">
+          <button type="button" data-ctab="list" class="active">Λίστα πελατών</button>
+          <button type="button" data-ctab="bal">Υπόλοιπα</button>
+        </div>
+        <div id="clients-list-pane">
+          <div class="filterbar" id="client-filters"></div>
+          <div class="panel-body">
+            <div id="clients-msg" style="padding:0 20px;"></div>
+            <table>
+              <thead><tr><th>Επωνυμία</th><th>Τύπος / Πόλη</th><th>Επικοινωνία</th></tr></thead>
+              <tbody id="clients-tbody"></tbody>
+            </table>
+          </div>
+        </div>
+        <div id="clients-bal-pane" class="hidden">
+          <div class="stat-row" id="bal-stats"></div>
+          <div id="bal-aging" style="padding:0 20px;"></div>
+          <div class="arch-tools">
+            <input type="search" id="bal-q" placeholder="🔍 Αναζήτηση πελάτη…">
+            <div class="bal-tools">
+              <div class="filterbar" id="bal-chips" style="padding:0;">
+                <div class="chip active" data-bf="owe">Χρωστάνε</div>
+                <div class="chip" data-bf="old">Πάνω από 60 ημ.</div>
+                <div class="chip" data-bf="credit">Πιστωτικά</div>
+                <div class="chip" data-bf="all">Όλοι</div>
+              </div>
+              <select id="bal-sort" style="width:auto;">
+                <option value="amount">Μεγαλύτερο υπόλοιπο</option>
+                <option value="age">Παλαιότερη οφειλή</option>
+                <option value="name">Αλφαβητικά</option>
+              </select>
+            </div>
+            <div class="bal-tools"><span class="cell-sub" id="bal-count"></span><span style="flex:1"></span>
+              <button type="button" class="btn-ghost btn-sm" id="bal-print">🖨 Εκτύπωση</button>
+              <button type="button" class="btn-ghost btn-sm" id="bal-csv">⬇ Excel (CSV)</button></div>
+          </div>
+          <div class="panel-body" id="bal-list" style="padding:0 20px 14px;"></div>
         </div>
       </div>
     </div>
@@ -2511,7 +2550,7 @@
     $("#view-technicians").classList.toggle("hidden", view !== "technicians");
     $("#view-users").classList.toggle("hidden", view !== "users");
     if (view === "dashboard") loadDashboard();
-    if (view === "clients") loadClients();
+    if (view === "clients") { loadClients(); if (CLIENTS_TAB === "bal") loadClientBalances(); }
     if (view === "tickets") loadTickets();
     if (view === "inventory") loadInventory();
     if (view === "suppliers") { loadSuppliersView(); loadSupplierRequests(); }
@@ -2805,7 +2844,7 @@
       <div class="stat-tile" data-goto="tickets"><div class="num">${openTickets.length}</div><div class="lbl">Ανοιχτά αιτήματα</div></div>
       <div class="stat-tile ${urgentOpenCount>0?'balance-due':''}" data-goto="tickets"><div class="num">${urgentOpenCount}</div><div class="lbl">Επείγοντα</div></div>
       <div class="stat-tile" data-goto="schedule"><div class="num">${upcoming.length}</div><div class="lbl">Επισκέψεις (7 ημ.)</div></div>
-      <div class="stat-tile ${balance>0?'balance-due':''}" data-goto="clients"><div class="num">${balance.toFixed(2)}€</div><div class="lbl">Οφειλές πελατών</div></div>
+      <div class="stat-tile ${balance>0?'balance-due':''}" data-goto="clients" data-ctab="bal"><div class="num">${balance.toFixed(2)}€</div><div class="lbl">Οφειλές πελατών</div></div>
       <div class="stat-tile" data-goto="expenses"><div class="num">${monthExpenses.toFixed(2)}€</div><div class="lbl">Έξοδα μήνα</div></div>
       <div class="stat-tile ${lowStock>0?'balance-due':''}" data-goto="inventory"><div class="num">${lowStock}</div><div class="lbl">Χαμηλό απόθεμα</div></div>
     `;
@@ -2814,7 +2853,7 @@
     if (!qErr && quotedN) $("#dashboard-stats").insertAdjacentHTML("afterbegin",
       `<div class="stat-tile balance-due" data-goto="suppliers"><div class="num">${quotedN}</div><div class="lbl">Έτοιμες προσφορές προμηθευτών</div></div>`);
     $$("#dashboard-stats [data-goto]").forEach(tile => {
-      tile.addEventListener("click", () => goToView(tile.dataset.goto));
+      tile.addEventListener("click", () => { goToView(tile.dataset.goto); if (tile.dataset.ctab) showClientsTab(tile.dataset.ctab); });
     });
 
     const urgentList = urgentRes.data || [];
@@ -6130,6 +6169,163 @@
   $("#inv-series-chips").addEventListener("click", (e) => { const c = e.target.closest("[data-s]"); if (c) { SD_FILTER.series = c.dataset.s; renderInvoicingList(); } });
   $("#inv-status-chips").addEventListener("click", (e) => { const c = e.target.closest("[data-st]"); if (c) { SD_FILTER.status = c.dataset.st; renderInvoicingList(); } });
 
+
+  // ================= ΥΠΟΛΟΙΠΑ ΠΕΛΑΤΩΝ (συνολική εικόνα) =================
+  // Από τις κινήσεις λογαριασμού: υπόλοιπο ανά πελάτη + «πόσο παλιά» είναι η οφειλή.
+  // Οι πληρωμές (και τα πιστωτικά) εξοφλούν πρώτα τις παλαιότερες χρεώσεις (FIFO).
+  let CLIENTS_TAB = "list";
+  let BAL_ROWS = [];
+  let BAL_FILTER = "owe", BAL_SORT = "amount", BAL_Q = "";
+  const AGE_BUCKETS = [["0–30", 30], ["31–60", 60], ["61–90", 90], ["90+", Infinity]];
+  const daysAgo = (iso) => Math.max(0, Math.floor((new Date(isoDay(new Date()) + "T00:00:00") - new Date(iso + "T00:00:00")) / 86400000));
+
+  function showClientsTab(tab){
+    CLIENTS_TAB = tab;
+    $$("#clients-tabs button").forEach(b => b.classList.toggle("active", b.dataset.ctab === tab));
+    $("#clients-list-pane").classList.toggle("hidden", tab !== "list");
+    $("#clients-bal-pane").classList.toggle("hidden", tab !== "bal");
+    $("#new-client-btn").classList.toggle("hidden", tab !== "list");
+    if (tab === "bal") loadClientBalances();
+  }
+
+  function computeClientBalances(ledger, clients){
+    const by = {};
+    ledger.forEach(l => { (by[l.client_id] = by[l.client_id] || []).push(l); });
+    return Object.entries(by).map(([cid, rows]) => {
+      const c = clients.find(x => x.id === cid) || { id: cid, name: "(διαγραμμένος πελάτης)" };
+      rows.sort((a, b) => a.entry_date < b.entry_date ? -1 : a.entry_date > b.entry_date ? 1 : String(a.created_at || "") < String(b.created_at || "") ? -1 : 1);
+      const charges = []; let credit = 0, charged = 0, paid = 0, lastPay = null, lastCharge = null;
+      rows.forEach(l => {
+        const ch = Number(l.charge || 0), pay = Number(l.payment || 0);
+        if (ch > 0) { charges.push({ date: l.entry_date, left: ch }); charged += ch; lastCharge = l.entry_date; }
+        if (ch < 0) { credit += -ch; charged += ch; }                       // πιστωτικό
+        if (pay > 0) { credit += pay; paid += pay; lastPay = l.entry_date; }
+      });
+      // FIFO: ό,τι πληρώθηκε/πιστώθηκε κλείνει πρώτα τις παλαιότερες χρεώσεις
+      for (const ch of charges) { const use = Math.min(ch.left, credit); ch.left = r2(ch.left - use); credit = r2(credit - use); if (credit <= 0) break; }
+      const open = charges.filter(x => x.left > 0.004);
+      const buckets = AGE_BUCKETS.map(() => 0);
+      open.forEach(x => { const d = daysAgo(x.date); const i = AGE_BUCKETS.findIndex(([, max]) => d <= max); buckets[i] = r2(buckets[i] + x.left); });
+      const balance = r2(charged - paid);
+      return { id: cid, client: c, name: c.name, phone: c.phone, email: c.email, balance, charged: r2(charged), paid: r2(paid), buckets,
+               oldest: open.length ? daysAgo(open[0].date) : null, oldestDate: open.length ? open[0].date : null, lastPay, lastCharge };
+    }).filter(r => Math.abs(r.balance) > 0.004 || r.charged > 0);
+  }
+
+  async function loadClientBalances(){
+    const box = $("#bal-list");
+    await loadSeries();   // στοιχεία επιχείρησης για εκτύπωση/υπενθύμιση
+    const [{ data, error }] = await Promise.all([sb.from("ledger_entries").select("client_id, entry_date, charge, payment, created_at"), CLIENTS_CACHE.length ? null : loadClients()]);
+    if (error) { box.innerHTML = `<div class="empty-state">Σφάλμα: ${escapeHtml(error.message)}</div>`; return; }
+    BAL_ROWS = computeClientBalances(data || [], CLIENTS_CACHE);
+    const owe = BAL_ROWS.filter(r => r.balance > 0.004), cr = BAL_ROWS.filter(r => r.balance < -0.004);
+    const tot = r2(owe.reduce((s, r) => s + r.balance, 0));
+    const ages = AGE_BUCKETS.map((_, i) => r2(owe.reduce((s, r) => s + r.buckets[i], 0)));
+    const over60 = r2(ages[2] + ages[3]);
+    $("#bal-stats").innerHTML = `
+      <div class="stat-tile ${tot > 0 ? "balance-due" : ""}" data-bf="owe" role="button" tabindex="0"><div class="num">${eur(tot)}</div><div class="lbl">Σύνολο οφειλών (${owe.length} πελάτ${owe.length === 1 ? "ης" : "ες"})</div></div>
+      <div class="stat-tile ${over60 > 0 ? "balance-due" : ""}" data-bf="old" role="button" tabindex="0"><div class="num">${eur(over60)}</div><div class="lbl">Πάνω από 60 ημέρες</div></div>
+      <div class="stat-tile" data-bf="credit" role="button" tabindex="0"><div class="num">${eur(Math.abs(cr.reduce((s, r) => s + r.balance, 0)))}</div><div class="lbl">Πιστωτικά υπόλοιπα (${cr.length})</div></div>
+      <div class="stat-tile" data-bf="all" role="button" tabindex="0"><div class="num">${eur(BAL_ROWS.reduce((s, r) => s + r.paid, 0))}</div><div class="lbl">Εισπράξεις συνολικά</div></div>`;
+    $$("#bal-stats [data-bf]").forEach(t => t.addEventListener("click", () => { BAL_FILTER = t.dataset.bf; renderClientBalances(); }));
+    // συνολική «ηλικία» οφειλών
+    $("#bal-aging").innerHTML = tot > 0 ? `
+      <div class="aging-bar">${ages.map((a, i) => a > 0 ? `<span class="ag ag${i}" style="width:${(a / tot * 100).toFixed(2)}%" title="${AGE_BUCKETS[i][0]} ημέρες: ${eur(a)}"></span>` : "").join("")}</div>
+      <div class="aging-legend">${ages.map((a, i) => `<span><i class="ag ag${i}"></i>${AGE_BUCKETS[i][0]} ημ.: <b>${eur(a)}</b></span>`).join("")}</div>` : "";
+    renderClientBalances();
+  }
+
+  function renderClientBalances(){
+    $$("#bal-chips .chip").forEach(c => c.classList.toggle("active", c.dataset.bf === BAL_FILTER));
+    const n = (x) => String(x || "").normalize("NFD").replace(/[̀-ͯ]/g, "").toLowerCase();
+    const q = n(BAL_Q).trim();
+    let rows = BAL_ROWS.filter(r => BAL_FILTER === "owe" ? r.balance > 0.004 : BAL_FILTER === "old" ? r.buckets[2] + r.buckets[3] > 0.004
+                                   : BAL_FILTER === "credit" ? r.balance < -0.004 : true)
+                       .filter(r => !q || n(r.name + " " + (r.client.vat_number || "") + " " + (r.phone || "")).includes(q));
+    rows.sort(BAL_SORT === "age" ? (a, b) => (b.oldest ?? -1) - (a.oldest ?? -1) || b.balance - a.balance
+             : BAL_SORT === "name" ? (a, b) => a.name.localeCompare(b.name, "el") : (a, b) => b.balance - a.balance);
+    const box = $("#bal-list");
+    $("#bal-count").textContent = `${rows.length} πελάτ${rows.length === 1 ? "ης" : "ες"} · ${eur(rows.reduce((s, r) => s + r.balance, 0))}`;
+    box.innerHTML = rows.length === 0 ? `<div class="empty-state">${BAL_ROWS.length ? "Κανένας πελάτης εδώ." : "Δεν υπάρχουν ακόμα χρεώσεις σε πελάτες."}</div>` : `
+      <table class="bal-table"><thead><tr><th>Πελάτης</th><th style="text-align:right;">Υπόλοιπο</th><th class="hide-sm">Παλαιότερη οφειλή</th><th class="hide-sm">Τελ. πληρωμή</th><th></th></tr></thead><tbody>
+      ${rows.map(r => {
+        const tot = r.buckets.reduce((s, x) => s + x, 0);
+        return `<tr class="clickable" data-bal="${r.id}">
+          <td><strong>${escapeHtml(r.name)}</strong>${r.phone ? `<div class="cell-sub">${escapeHtml(r.phone)}</div>` : ""}
+            ${tot > 0 ? `<div class="aging-bar mini">${r.buckets.map((a, i) => a > 0 ? `<span class="ag ag${i}" style="width:${(a / tot * 100).toFixed(1)}%"></span>` : "").join("")}</div>` : ""}</td>
+          <td style="text-align:right;white-space:nowrap;font-weight:700;" class="${r.balance > 0.004 ? "bal-owe" : r.balance < -0.004 ? "bal-credit" : ""}">${r.balance < -0.004 ? "−" + eur(-r.balance) : eur(r.balance)}${r.balance < -0.004 ? '<div class="cell-sub">πιστωτικό</div>' : ""}</td>
+          <td class="hide-sm">${r.oldest != null ? `<span class="${r.oldest > 60 ? "bal-owe" : ""}">${r.oldest} ημέρ${r.oldest === 1 ? "α" : "ες"}</span><div class="cell-sub">από ${fmtShortDate(r.oldestDate)}</div>` : "—"}</td>
+          <td class="hide-sm">${r.lastPay ? fmtShortDate(r.lastPay) : '<span class="cell-sub">ποτέ</span>'}</td>
+          <td style="text-align:right;">${r.balance > 0.004 ? `<button type="button" class="btn-ghost btn-sm" data-remind="${r.id}" title="Υπενθύμιση στον πελάτη">📩</button>` : ""}</td>
+        </tr>`; }).join("")}</tbody></table>`;
+    $$("#bal-list [data-bal]").forEach(tr => tr.addEventListener("click", (e) => { if (e.target.closest("[data-remind]")) return; openClientDrawer(tr.dataset.bal, "acct"); }));
+    $$("#bal-list [data-remind]").forEach(b => b.addEventListener("click", () => openBalanceReminder(b.dataset.remind)));
+  }
+
+  // έτοιμο μήνυμα υπενθύμισης (Viber / WhatsApp / SMS / email) — φεύγει από το δικό σου κινητό
+  function openBalanceReminder(clientId){
+    const r = BAL_ROWS.find(x => x.id === clientId); if (!r) return;
+    const b = BIZ || {};
+    const iban = b.bank_info ? `\nΤραπεζικός λογαριασμός: ${b.bank_info}` : "";
+    const text = `Καλησπέρα σας! Σας υπενθυμίζουμε ότι το ανοιχτό υπόλοιπο του λογαριασμού σας στην ${b.trade_name || "ITSUPP"} είναι ${eur(r.balance)}.${iban}\nΓια οποιαδήποτε απορία είμαστε στη διάθεσή σας. Ευχαριστούμε!`;
+    const phone = String(r.phone || "").replace(/[^\d+]/g, "");
+    const intl = phone ? (phone.startsWith("+") ? phone.slice(1) : phone.startsWith("00") ? phone.slice(2) : phone.length === 10 ? "30" + phone : phone) : "";
+    openDrawer("Υπενθύμιση — " + r.name, `
+      <p class="sub" style="margin-top:0;">Υπόλοιπο <b>${eur(r.balance)}</b>${r.oldest != null ? ` · η παλαιότερη οφειλή είναι ${r.oldest} ημερών` : ""}. Το μήνυμα φεύγει από το δικό σου κινητό/email.</p>
+      <div class="field"><label>Μήνυμα</label><textarea id="rem-text" rows="5">${escapeHtml(text)}</textarea></div>
+      <div class="sa-share" id="rem-links"></div>
+      <div class="drawer-foot" style="margin:22px -22px -20px;">
+        <button type="button" class="btn-ghost" id="rem-acct">Λογαριασμός πελάτη</button>
+        <button type="button" class="btn-primary" id="rem-copy">Αντιγραφή</button>
+      </div>`, true);
+    const links = () => {
+      const t = encodeURIComponent($("#rem-text").value);
+      $("#rem-links").innerHTML = `
+        ${navigator.share ? '<button type="button" class="btn-ghost btn-sm" id="rem-share">📤 Κοινοποίηση</button>' : ""}
+        <a class="btn-ghost btn-sm" target="_blank" rel="noopener" href="viber://forward?text=${t}">Viber</a>
+        <a class="btn-ghost btn-sm" target="_blank" rel="noopener" href="https://wa.me/${intl}?text=${t}">WhatsApp</a>
+        ${phone ? `<a class="btn-ghost btn-sm" href="sms:${escapeHtml(phone)}?body=${t}">SMS</a>` : ""}
+        <a class="btn-ghost btn-sm" href="mailto:${encodeURIComponent(r.email || "")}?subject=${encodeURIComponent("Υπόλοιπο λογαριασμού — " + (b.trade_name || "ITSUPP"))}&body=${t}">Email</a>`;
+      if ($("#rem-share")) $("#rem-share").addEventListener("click", () => navigator.share({ text: $("#rem-text").value }).catch(() => {}));
+    };
+    links();
+    $("#rem-text").addEventListener("input", links);
+    $("#rem-copy").addEventListener("click", async () => { try { await navigator.clipboard.writeText($("#rem-text").value); } catch (e) { $("#rem-text").select(); document.execCommand("copy"); } showToast("Το μήνυμα αντιγράφηκε."); });
+    $("#rem-acct").addEventListener("click", () => openClientDrawer(clientId, "acct"));
+  }
+
+  function balRowsForExport(){
+    return BAL_ROWS.filter(r => Math.abs(r.balance) > 0.004).sort((a, b) => b.balance - a.balance);
+  }
+  function printClientBalances(){
+    const rows = balRowsForExport(), b = BIZ || {};
+    const tot = rows.filter(r => r.balance > 0).reduce((s, r) => s + r.balance, 0);
+    writePrintWindow(null, `<!doctype html><html lang="el"><head><meta charset="UTF-8"><title>Υπόλοιπα πελατών</title><style>${PRINT_CSS}</style></head><body>
+      <div class="top">${issuerHtml(b)}<div class="docbox"><div class="t">Υπόλοιπα πελατών</div><div>${new Date().toLocaleDateString("el-GR")}</div></div></div>
+      <table><thead><tr><th>Πελάτης</th><th>ΑΦΜ</th><th class="r">0–30</th><th class="r">31–60</th><th class="r">61–90</th><th class="r">90+</th><th class="r">Υπόλοιπο</th><th>Τελ. πληρωμή</th></tr></thead>
+      <tbody>${rows.map(r => `<tr><td>${escapeHtml(r.name)}</td><td>${escapeHtml(r.client.vat_number || "")}</td>${r.buckets.map(x => `<td class="r">${x ? eur(x) : ""}</td>`).join("")}
+        <td class="r"><b>${eur(r.balance)}</b></td><td>${r.lastPay ? new Date(r.lastPay + "T00:00:00").toLocaleDateString("el-GR") : "—"}</td></tr>`).join("")}</tbody></table>
+      <div class="bottom"><div class="vat"></div><div class="totals"><div class="g"><span>ΣΥΝΟΛΟ ΟΦΕΙΛΩΝ</span><span>${eur(tot)}</span></div></div></div>
+      <button class="print-btn" onclick="window.print()">🖨 Εκτύπωση / Αποθήκευση ως PDF</button></body></html>`);
+  }
+  function exportClientBalancesCsv(){
+    const rows = balRowsForExport();
+    const num = (x) => Number(x || 0).toFixed(2).replace(".", ",");
+    const esc = (v) => `"${String(v ?? "").replace(/"/g, '""')}"`;
+    const csv = "﻿" + ["Πελάτης;ΑΦΜ;Τηλέφωνο;0-30;31-60;61-90;90+;Υπόλοιπο;Παλαιότερη οφειλή (ημέρες);Τελευταία πληρωμή"]
+      .concat(rows.map(r => [esc(r.name), esc(r.client.vat_number || ""), esc(r.phone || ""), ...r.buckets.map(num), num(r.balance), r.oldest ?? "", r.lastPay || ""].join(";"))).join("\r\n");
+    const a = document.createElement("a");
+    a.href = URL.createObjectURL(new Blob([csv], { type: "text/csv;charset=utf-8" }));
+    a.download = `ypoloipa-pelaton-${isoDay(new Date())}.csv`;
+    document.body.appendChild(a); a.click(); setTimeout(() => { URL.revokeObjectURL(a.href); a.remove(); }, 500);
+  }
+
+  $$("#clients-tabs button").forEach(b => b.addEventListener("click", () => showClientsTab(b.dataset.ctab)));
+  $("#bal-chips").addEventListener("click", (e) => { const c = e.target.closest("[data-bf]"); if (c) { BAL_FILTER = c.dataset.bf; renderClientBalances(); } });
+  $("#bal-sort").addEventListener("change", () => { BAL_SORT = $("#bal-sort").value; renderClientBalances(); });
+  $("#bal-q").addEventListener("input", () => { BAL_Q = $("#bal-q").value; renderClientBalances(); });
+  $("#bal-print").addEventListener("click", printClientBalances);
+  $("#bal-csv").addEventListener("click", exportClientBalancesCsv);
 
   // ================= EXPENSES (staff) =================
   const EXPENSE_CATEGORIES = ["Προμήθεια εξοπλισμού","Ενοίκιο","ΔΕΗ/Ρεύμα","Νερό","Τηλέφωνο/Internet","Καύσιμα","Συντήρηση οχήματος","Μισθοδοσία","Πληρωμή υπαλλήλου","Πληρωμή προμηθευτή","Λογιστής/Φόρος","Διαφήμιση","Διάφορα"];
