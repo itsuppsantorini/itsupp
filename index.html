@@ -445,6 +445,10 @@
   .bal-tools{display:flex;gap:10px;align-items:center;flex-wrap:wrap;justify-content:space-between;}
   .bal-owe{color:var(--red);} .bal-credit{color:var(--green);}
   @media (max-width:640px){ .bal-table .hide-sm{display:none;} }
+  .backup-card{display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap;border:1px solid var(--line);border-radius:12px;padding:10px 14px;}
+  .backup-card.late{background:var(--amber-bg);border-color:transparent;}
+  .bk-progress{margin-top:12px;max-height:220px;overflow:auto;font-size:12.5px;line-height:1.6;background:var(--surface-2);border-radius:10px;padding:8px 12px;font-family:ui-monospace,Menlo,Consolas,monospace;}
+  .bk-progress .bk-ok{color:var(--green);font-weight:700;} .bk-progress .bk-warn{color:var(--red);}
   .afm-quick{background:var(--teal-light);border:1px solid var(--tile-line);border-radius:12px;padding:12px 14px;margin-bottom:16px;display:flex;flex-direction:column;gap:8px;}
   .afm-quick .afm-row input{font-size:16px;letter-spacing:.06em;}
   .sd-legal{margin:14px 0 8px;background:var(--amber-bg);border-radius:10px;padding:9px 12px;font-size:12.5px;line-height:1.45;}
@@ -726,6 +730,7 @@
         </div>
         <div id="dashboard-msg" style="padding:0 20px;"></div>
         <div class="stat-row" id="dashboard-stats"></div>
+        <div id="backup-card" style="padding:0 20px 16px;"></div>
       </div>
       <div class="panel" style="margin-bottom:16px;">
         <div class="panel-head"><h2>Υπενθυμίσεις &amp; εκκρεμότητες</h2><button type="button" class="btn-ghost btn-sm" id="dash-new-note">+ Σημείωση</button></div>
@@ -2848,6 +2853,7 @@
       <div class="stat-tile" data-goto="expenses"><div class="num">${monthExpenses.toFixed(2)}€</div><div class="lbl">Έξοδα μήνα</div></div>
       <div class="stat-tile ${lowStock>0?'balance-due':''}" data-goto="inventory"><div class="num">${lowStock}</div><div class="lbl">Χαμηλό απόθεμα</div></div>
     `;
+    renderBackupCard();
     // έτοιμες προσφορές από προμηθευτές (αν έχει στηθεί — v21)
     const { count: quotedN, error: qErr } = await sb.from("supplier_requests").select("id", { count:"exact", head:true }).eq("status", "quoted");
     if (!qErr && quotedN) $("#dashboard-stats").insertAdjacentHTML("afterbegin",
@@ -3071,7 +3077,7 @@
         ` : ""}
 
         <div class="drawer-foot" style="margin:22px -22px -20px;">
-          ${clientId ? '<button type="button" class="btn-danger" id="cl-delete">Διαγραφή</button>' : '<span></span>'}
+          ${clientId ? '<button type="button" class="btn-danger" id="cl-delete-foot">Διαγραφή</button>' : '<span></span>'}
           <button type="submit" class="btn-primary" id="cl-save">Αποθήκευση</button>
         </div>
       </form>
@@ -3190,19 +3196,13 @@
     }
     wireRaRemove();
 
-    if (clientId) {
-      $("#cl-delete").addEventListener("click", async () => {
-        const wrap = $("#cl-delete");
-        wrap.outerHTML = `<span style="font-size:13px;">Σίγουρα; <button type="button" class="btn-sm btn-ghost" id="cl-del-no">Όχι</button> <button type="button" class="btn-sm btn-danger" id="cl-del-yes">Ναι, διαγραφή</button></span>`;
-        $("#cl-del-no").addEventListener("click", () => closeDrawer());
-        $("#cl-del-yes").addEventListener("click", async () => {
-          const { error } = await sb.from("clients").delete().eq("id", clientId);
-          if (error) { showMsg($("#client-form-msg"), "Σφάλμα διαγραφής: " + error.message, "error"); return; }
-          closeDrawer();
-          await loadClients();
-        });
-      });
-    }
+    // το κουμπί «Διαγραφή» του κάτω μέρους οδηγεί στην (αναλυτική) επιβεβαίωση της καρτέλας «Στοιχεία»
+    if (clientId) $("#cl-delete-foot").addEventListener("click", () => {
+      $$("#cl-tabs button").forEach(b => b.classList.toggle("active", b.dataset.tab === "info"));
+      $$("#client-form [data-pane]").forEach(p => p.classList.toggle("hidden", p.dataset.pane !== "info"));
+      $("#cl-delete").click();
+      $("#cl-delete-confirm").scrollIntoView({ behavior:"smooth", block:"center" });
+    });
 
     $("#client-form").addEventListener("submit", async (e) => {
       e.preventDefault();
@@ -6326,6 +6326,221 @@
   $("#bal-q").addEventListener("input", () => { BAL_Q = $("#bal-q").value; renderClientBalances(); });
   $("#bal-print").addEventListener("click", printClientBalances);
   $("#bal-csv").addEventListener("click", exportClientBalancesCsv);
+
+  // ================= ΑΝΤΙΓΡΑΦΟ ΑΣΦΑΛΕΙΑΣ (χειροκίνητο, το κατεβάζει ο διαχειριστής) =================
+  // Ένα ZIP με ΟΛΑ τα δεδομένα: JSON ανά πίνακα, CSV για Excel, restore.sql για επαναφορά
+  // σε καινούργια βάση, και (προαιρετικά) τις φωτογραφίες/PDF των τιμολογίων.
+  // Διαβάζει μόνο ό,τι επιτρέπουν οι κανόνες πρόσβασης του διαχειριστή — κανένα «μυστικό» κλειδί.
+  const BACKUP_TABLES = [
+    // σειρά: πρώτα όσα δεν εξαρτώνται από άλλα
+    "clients","suppliers","profiles","inventory_items","doc_counters","doc_series","business_info","app_settings",
+    "tickets","ticket_notes","visit_logs","equipment","remote_access","quotes","quote_items",
+    "ledger_entries","expenses","other_incomes","money_accounts","money_movements",
+    "purchase_invoices","purchase_invoice_lines","supplier_item_map",
+    "sales_docs","sales_doc_lines","supplier_requests","supplier_request_lines",
+    "calendar_notes","leave_requests","notifications"
+  ];
+  const BACKUP_CSV = { clients:"Πελάτες", suppliers:"Προμηθευτές", inventory_items:"Αποθήκη", ledger_entries:"Κινήσεις πελατών",
+    sales_docs:"Παραστατικά", purchase_invoices:"Τιμολόγια αγορών", expenses:"Έξοδα", other_incomes:"Άλλα έσοδα",
+    money_accounts:"Λογαριασμοί ταμείου", money_movements:"Κινήσεις ταμείου", tickets:"Αιτήματα", quotes:"Προσφορές" };
+  const BACKUP_EVERY_DAYS = 30;
+
+  async function fetchAllRows(table, onPage){
+    const out = []; const size = 1000;
+    for (let from = 0; ; from += size) {
+      const { data, error } = await sb.from(table).select("*").range(from, from + size - 1);
+      if (error) return { error, rows: out };
+      out.push(...(data || []));
+      if (onPage) onPage(out.length);
+      if (!data || data.length < size) break;
+    }
+    return { rows: out };
+  }
+
+  function toCsv(rows){
+    if (!rows.length) return "﻿";
+    const cols = [...rows.reduce((s, r) => { Object.keys(r).forEach(k => s.add(k)); return s; }, new Set())];
+    const cell = (v) => {
+      if (v == null) return "";
+      if (typeof v === "object") v = JSON.stringify(v);
+      if (typeof v === "number") return String(v).replace(".", ",");
+      v = String(v);
+      return /[;"\n\r]/.test(v) ? `"${v.replace(/"/g, '""')}"` : v;
+    };
+    return "﻿" + [cols.join(";")].concat(rows.map(r => cols.map(c => cell(r[c])).join(";"))).join("\r\n");
+  }
+
+  // SQL επαναφοράς: για κάθε πίνακα ένα insert από JSON (η βάση κάνει μόνη της τις μετατροπές τύπων)
+  function buildRestoreSql(data, meta){
+    const tag = "$itsupp_" + Math.random().toString(36).slice(2, 8) + "$";
+    const lines = [
+      "-- ============================================================================",
+      "-- ITSUPP — ΕΠΑΝΑΦΟΡΑ ΔΕΔΟΜΕΝΩΝ από αντίγραφο ασφαλείας",
+      `-- Αντίγραφο: ${meta.created_at}  ·  από: ${meta.by}`,
+      "-- Πώς: σε ΚΑΙΝΟΥΡΓΙΑ βάση τρέχεις πρώτα όλα τα schema (itsupp_full_schema.sql)",
+      "--      και μετά αυτό το αρχείο στο Supabase SQL editor.",
+      "-- Όσες εγγραφές υπάρχουν ήδη (ίδιο id) ΔΕΝ αλλάζουν (on conflict do nothing).",
+      "-- Οι λογαριασμοί σύνδεσης (email/κωδικοί) δεν περιέχονται: οι χρήστες ξαναγράφονται",
+      "-- και ο διαχειριστής τους ξαναδίνει ρόλο από «Χρήστες».",
+      "-- ============================================================================",
+      "begin;",
+      "set local session_replication_role = replica;   -- χωρίς triggers/ειδοποιήσεις κατά την επαναφορά",
+      ""
+    ];
+    // ρυθμίσεις που τις φτιάχνει ήδη το schema (σειρές, αρίθμηση, στοιχεία επιχείρησης): αντικαθίστανται από το αντίγραφο
+    const REPLACE = ["doc_series","doc_counters","business_info","app_settings"];
+    for (const t of BACKUP_TABLES) {
+      const rows = data[t];
+      if (!rows || !rows.length) continue;
+      const json = JSON.stringify(rows).split(tag).join("");
+      lines.push(`-- ${t}: ${rows.length}`);
+      if (REPLACE.includes(t)) lines.push(`delete from public.${t};`);
+      lines.push(`insert into public.${t} overriding system value select * from json_populate_recordset(null::public.${t}, ${tag}${json}${tag}) on conflict do nothing;`);
+    }
+    if (data.__vault) {
+      const v = data.__vault;
+      if (v.debts && v.debts.length) lines.push(`-- δάνεια & χρέη`, `insert into private.debts select * from json_populate_recordset(null::private.debts, ${tag}${JSON.stringify(v.debts).split(tag).join("")}${tag}) on conflict do nothing;`);
+      if (v.entries && v.entries.length) lines.push(`insert into private.debt_entries select * from json_populate_recordset(null::private.debt_entries, ${tag}${JSON.stringify(v.entries).split(tag).join("")}${tag}) on conflict do nothing;`);
+    }
+    lines.push("",
+      "-- οι αυτόματες αριθμήσεις (αιτήματα ΤΚ-, προσφορές ΠΡ-, αιτήματα προμηθευτών #) συνεχίζουν από τον μεγαλύτερο αριθμό",
+      "do $$ declare r record; begin",
+      "  for r in select table_name, column_name from information_schema.columns where table_schema = 'public' and is_identity = 'YES' loop",
+      "    execute format('select setval(pg_get_serial_sequence(%L, %L), coalesce((select max(%I) from public.%I), 0) + 1, false)',",
+      "                   'public.' || r.table_name, r.column_name, r.column_name, r.table_name);",
+      "  end loop;",
+      "end $$;",
+      "commit;", "");
+    return lines.join("\n");
+  }
+
+  async function lastBackupInfo(){
+    const { data } = await sb.from("app_settings").select("value, updated_at").eq("key", "last_backup").maybeSingle();
+    if (!data || !data.value) return null;
+    try { return JSON.parse(data.value); } catch (e) { return { at: data.updated_at }; }
+  }
+
+  // κάρτα στην Αρχική: πότε πήρες τελευταίο αντίγραφο + κουμπί
+  async function renderBackupCard(){
+    const box = $("#backup-card"); if (!box) return;
+    if (!PROFILE || PROFILE.role !== "owner") { box.innerHTML = ""; return; }
+    const info = await lastBackupInfo();
+    const days = info && info.at ? Math.floor((Date.now() - new Date(info.at).getTime()) / 86400000) : null;
+    const late = days == null || days >= BACKUP_EVERY_DAYS;
+    box.innerHTML = `<div class="backup-card ${late ? "late" : ""}">
+      <div>💾 <b>Αντίγραφο ασφαλείας</b><div class="cell-sub">${days == null ? "Δεν έχεις πάρει ακόμα αντίγραφο των δεδομένων σου." :
+        `Τελευταίο: ${new Date(info.at).toLocaleString("el-GR", { day:"numeric", month:"numeric", year:"numeric", hour:"2-digit", minute:"2-digit" })} (${days === 0 ? "σήμερα" : days === 1 ? "χθες" : "πριν " + days + " ημέρες"})`}
+        ${late && days != null ? " — ώρα για καινούργιο." : ""}</div></div>
+      <button type="button" class="${late ? "btn-primary" : "btn-ghost"} btn-sm" id="backup-open">Λήψη αντιγράφου</button></div>`;
+    $("#backup-open").addEventListener("click", openBackupDrawer);
+  }
+
+  function openBackupDrawer(){
+    openDrawer("💾 Αντίγραφο ασφαλείας", `
+      <div id="bk-msg"></div>
+      <p class="sub" style="margin-top:0;">Κατεβάζει <b>όλα</b> τα δεδομένα της εφαρμογής σε ένα αρχείο ZIP στη συσκευή σου: πελάτες, αιτήματα, αποθήκη, προμηθευτές, τιμολόγια, παραστατικά, έσοδα-έξοδα, ταμείο, πρόγραμμα.
+        Κράτα το σε ασφαλές μέρος (υπολογιστή, USB, Google Drive) — περιέχει προσωπικά στοιχεία πελατών.</p>
+      <label class="check-line"><input type="checkbox" id="bk-files"> Μαζί οι φωτογραφίες/PDF των τιμολογίων αγοράς <span class="cell-sub">(μεγαλύτερο αρχείο)</span></label>
+      <div class="field" style="margin-top:10px;"><label>PIN «Δάνεια & χρέη» <span style="font-weight:400;color:var(--ink-soft);">(προαιρετικά — για να μπουν κι αυτά)</span></label>
+        <input id="bk-pin" type="password" inputmode="numeric" maxlength="4" autocomplete="off" style="max-width:140px;"></div>
+      <div class="bk-progress hidden" id="bk-progress"></div>
+      <div class="cell-sub" style="margin-top:10px;">Μέσα στο ZIP: τα δεδομένα (JSON), αρχεία για Excel (CSV), οδηγίες, και το <b>restore.sql</b> για επαναφορά σε καινούργια βάση αν χρειαστεί ποτέ.</div>
+      <div class="drawer-foot" style="margin:22px -22px -20px;">
+        <span></span>
+        <button type="button" class="btn-primary" id="bk-go">⬇ Λήψη αντιγράφου</button>
+      </div>`, true);
+    $("#bk-go").addEventListener("click", runBackup);
+  }
+
+  async function runBackup(){
+    const btn = $("#bk-go"); btn.disabled = true; btn.innerHTML = '<span class="spinner"></span>Ετοιμάζεται…';
+    const prog = $("#bk-progress"); prog.classList.remove("hidden"); prog.innerHTML = "";
+    const step = (txt, cls) => { const d = document.createElement("div"); d.className = cls || ""; d.textContent = txt; prog.appendChild(d); prog.scrollTop = prog.scrollHeight; return d; };
+    clearMsg($("#bk-msg"));
+    try {
+      const JSZip = await loadJSZip();
+      const zip = new JSZip();
+      const now = new Date(), stamp = isoDay(now) + "_" + String(now.getHours()).padStart(2, "0") + String(now.getMinutes()).padStart(2, "0");
+      const data = {}, counts = {}, skipped = [];
+      for (const t of BACKUP_TABLES) {
+        const line = step(`${t}…`);
+        const { rows, error } = await fetchAllRows(t, (n) => { line.textContent = `${t}: ${n}`; });
+        if (error) {
+          // πίνακας που δεν υπάρχει ακόμα (παλιό schema) — το αντίγραφο συνεχίζει
+          if (isMissing(error)) { line.textContent = `${t}: — (δεν υπάρχει)`; skipped.push(t); continue; }
+          throw new Error(`${t}: ${error.message}`);
+        }
+        data[t] = rows; counts[t] = rows.length;
+        line.textContent = `✓ ${t}: ${rows.length}`;
+        zip.file(`data/${t}.json`, JSON.stringify(rows, null, 1));
+        if (BACKUP_CSV[t]) zip.file(`excel/${BACKUP_CSV[t]}.csv`, toCsv(rows));
+      }
+      // δάνεια & χρέη (μόνο με PIN)
+      const pin = $("#bk-pin").value.trim();
+      if (pin) {
+        const { data: v, error } = await sb.rpc("vault_get", { p_pin: pin });
+        if (error || !v || !v.ok) step("✗ Δάνεια & χρέη: λάθος PIN — παραλείφθηκαν", "bk-warn");
+        else { data.__vault = { debts: v.debts || [], entries: v.entries || [] }; counts["δάνεια"] = data.__vault.debts.length;
+               zip.file("data/private_debts.json", JSON.stringify(v.debts || [], null, 1)); zip.file("data/private_debt_entries.json", JSON.stringify(v.entries || [], null, 1));
+               step(`✓ Δάνεια & χρέη: ${data.__vault.debts.length}`); }
+      }
+      // φωτογραφίες τιμολογίων
+      let files = 0, fileErr = 0;
+      if ($("#bk-files").checked) {
+        const withFile = (data.purchase_invoices || []).filter(i => i.file_path);
+        const line = step(`Φωτογραφίες τιμολογίων: 0/${withFile.length}`);
+        for (const inv of withFile) {
+          const { data: blob, error } = await sb.storage.from("invoices").download(inv.file_path);
+          if (error || !blob) { fileErr++; continue; }
+          zip.file("files/invoices/" + inv.file_path.replace(/^\/+/, ""), blob);
+          files++; line.textContent = `Φωτογραφίες τιμολογίων: ${files}/${withFile.length}`;
+        }
+        line.textContent = `✓ Φωτογραφίες τιμολογίων: ${files}${fileErr ? ` (${fileErr} δεν κατέβηκαν)` : ""}`;
+      }
+      const meta = { app: "ITSUPP", created_at: now.toISOString(), by: (PROFILE && (PROFILE.email || PROFILE.full_name)) || "", counts, skipped, files,
+                     demo: !!DEMO, note: "Αντίγραφο ασφαλείας δεδομένων. Επαναφορά: README.txt" };
+      zip.file("manifest.json", JSON.stringify(meta, null, 2));
+      zip.file("restore.sql", buildRestoreSql(data, meta));
+      zip.file("README.txt", [
+        "ITSUPP — Αντίγραφο ασφαλείας", "",
+        `Ημερομηνία: ${now.toLocaleString("el-GR")}`, `Από: ${meta.by}`, "",
+        "Τι περιέχει:",
+        "  data/      όλα τα δεδομένα, ένα αρχείο ανά πίνακα (JSON)",
+        "  excel/     οι βασικοί πίνακες σε CSV — ανοίγουν στο Excel",
+        "  files/     φωτογραφίες/PDF τιμολογίων αγοράς (αν το διάλεξες)",
+        "  restore.sql  επαναφορά σε καινούργια βάση Supabase",
+        "",
+        "Επαναφορά (αν χαθεί ποτέ η βάση):",
+        "  1. Νέο project στο Supabase.",
+        "  2. SQL editor: τρέχεις το itsupp_full_schema.sql (όλα τα schema).",
+        "  3. SQL editor: τρέχεις το restore.sql από αυτό το ZIP.",
+        "  4. Στο index.html αλλάζεις τη διεύθυνση/κλειδί του νέου project.",
+        "  5. Οι χρήστες ξαναγράφονται με το ίδιο email· τους ξαναδίνεις ρόλο από «Χρήστες».",
+        "",
+        "Εγγραφές ανά πίνακα:",
+        ...Object.entries(counts).map(([k, v]) => `  ${k}: ${v}`),
+        "",
+        "ΠΡΟΣΟΧΗ: περιέχει προσωπικά δεδομένα πελατών — φύλαξέ το σε ασφαλές μέρος."
+      ].join("\r\n"));
+      step("Συμπίεση…");
+      const blob = await zip.generateAsync({ type: "blob", compression: "DEFLATE", compressionOptions: { level: 6 } });
+      const name = `itsupp-backup-${stamp}.zip`;
+      const a = document.createElement("a");
+      a.href = URL.createObjectURL(blob); a.download = name;
+      document.body.appendChild(a); a.click(); setTimeout(() => { URL.revokeObjectURL(a.href); a.remove(); }, 2000);
+      const total = Object.values(counts).reduce((s, n) => s + n, 0);
+      step(`✓ Έτοιμο: ${name} (${(blob.size / 1048576).toFixed(2)} MB, ${total} εγγραφές)`, "bk-ok");
+      const rec = { key: "last_backup", value: JSON.stringify({ at: now.toISOString(), total, size: blob.size }), updated_at: now.toISOString() };
+      if (DEMO) { await sb.from("app_settings").delete().eq("key", "last_backup"); await sb.from("app_settings").insert(rec); }
+      else await sb.from("app_settings").upsert(rec);
+      showToast("💾 Το αντίγραφο ασφαλείας κατέβηκε.");
+      btn.disabled = false; btn.textContent = "⬇ Ξανά";
+      renderBackupCard();
+    } catch (e) {
+      showMsg($("#bk-msg"), "Το αντίγραφο δεν ολοκληρώθηκε: " + e.message, "error");
+      btn.disabled = false; btn.textContent = "⬇ Λήψη αντιγράφου";
+    }
+  }
 
   // ================= EXPENSES (staff) =================
   const EXPENSE_CATEGORIES = ["Προμήθεια εξοπλισμού","Ενοίκιο","ΔΕΗ/Ρεύμα","Νερό","Τηλέφωνο/Internet","Καύσιμα","Συντήρηση οχήματος","Μισθοδοσία","Πληρωμή υπαλλήλου","Πληρωμή προμηθευτή","Λογιστής/Φόρος","Διαφήμιση","Διάφορα"];
