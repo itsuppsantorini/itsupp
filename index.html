@@ -1413,7 +1413,7 @@
       quotes_view:  () => tbl("quotes").map(q => ({ ...q, code: "ΠΡ-" + q.quote_no })),
       supplier_balances: () => tbl("suppliers").map(s => {
         const inv = tbl("purchase_invoices").filter(i => i.supplier_id === s.id);
-        const purchases = inv.reduce((a, i) => a + Number(i.total), 0);
+        const purchases = inv.reduce((a, i) => a + (i.doc_kind === "credit" ? -1 : 1) * Number(i.total), 0);
         const paid = tbl("expenses").filter(e => e.supplier_payment && e.supplier_id === s.id).reduce((a, e) => a + Number(e.amount), 0);
         return { ...s, purchases: Math.round(purchases * 100) / 100, paid: Math.round(paid * 100) / 100,
                  balance: Math.round((Number(s.opening_balance || 0) + purchases - paid) * 100) / 100,
@@ -1574,24 +1574,26 @@
         }
         if (!sup) return { ok:false, error:"Διάλεξε προμηθευτή." };
         const id = newId(); let net = 0, vat = 0;
-        const inv = { id, supplier_id:sup, doc_date:p.doc_date || isoDay(new Date()), doc_number:p.doc_number || null, mark:p.mark || null, note:p.note || null, qr_raw:p.qr_raw || null, created_at:nowIso() };
+        const kind = p.doc_kind === "credit" ? "credit" : "invoice", sg = kind === "credit" ? -1 : 1;
+        const inv = { id, supplier_id:sup, doc_date:p.doc_date || isoDay(new Date()), doc_number:p.doc_number || null, mark:p.mark || null, note:p.note || null, qr_raw:p.qr_raw || null,
+                      doc_kind:kind, category:p.category || null, from_mydata:!!p.from_mydata, created_at:nowIso() };
         p.lines.forEach((l, i) => {
           let item = l.inventory_item_id || null;
-          if (!item && l.new_item && l.new_item.name) { item = newId(); tbl("inventory_items").push({ id:item, sku:l.new_item.sku || ("ΝΕΟ-" + Math.random().toString(36).slice(2, 8).toUpperCase()), name:l.new_item.name, category:l.new_item.category || null, stock:0, max_stock:0, price:0, supplier_id:sup }); }
+          if (!item && kind === "invoice" && l.new_item && l.new_item.name) { item = newId(); tbl("inventory_items").push({ id:item, sku:l.new_item.sku || ("ΝΕΟ-" + Math.random().toString(36).slice(2, 8).toUpperCase()), name:l.new_item.name, category:l.new_item.category || null, stock:0, max_stock:0, price:0, supplier_id:sup }); }
           const qty = Number(l.qty || 1), price = Number(l.unit_price || 0), rate = Number(l.vat_rate ?? 24), ln = r2(qty * price);
           tbl("purchase_invoice_lines").push({ id:newId(), invoice_id:id, line_no:i + 1, inventory_item_id:item, supplier_code:l.supplier_code || null,
-            description:l.description || (item ? tbl("inventory_items").find(x => x.id === item).name : "Γραμμή " + (i + 1)), qty, unit_price:price, vat_rate:rate, line_net:ln, stock_added:item ? qty : 0 });
-          if (item) { const it = tbl("inventory_items").find(x => x.id === item); it.stock = Number(it.stock) + qty; it.last_cost = price; it.supplier_id = it.supplier_id || sup;
+            description:l.description || (item ? tbl("inventory_items").find(x => x.id === item).name : "Γραμμή " + (i + 1)), qty, unit_price:price, vat_rate:rate, line_net:ln, stock_added:item ? sg * qty : 0 });
+          if (item) { const it = tbl("inventory_items").find(x => x.id === item); it.stock = Number(it.stock) + sg * qty; if (kind === "invoice") it.last_cost = price; it.supplier_id = it.supplier_id || sup;
             const key = String(l.supplier_code || l.description || "").trim().toLowerCase();
             if (key) { const m = tbl("supplier_item_map").find(x => x.supplier_id === sup && x.match_key === key); if (m) m.inventory_item_id = item; else tbl("supplier_item_map").push({ supplier_id:sup, match_key:key, inventory_item_id:item }); } }
           net += ln; vat += r2(ln * rate / 100);
         });
         Object.assign(inv, { net:r2(net), vat:r2(vat), total:r2(net + vat) });
         tbl("purchase_invoices").push(inv);
-        if (p.paid_now) tbl("expenses").push({ id:newId(), expense_date:inv.doc_date, category:"Πληρωμή προμηθευτή", supplier_id:sup, amount:inv.total,
+        if (p.paid_now && kind === "invoice") tbl("expenses").push({ id:newId(), expense_date:inv.doc_date, category:"Πληρωμή προμηθευτή", supplier_id:sup, amount:inv.total,
           note:"Τιμολόγιο " + (inv.doc_number || "(χωρίς αριθμό)"), method:p.paid_now.method || "cash", bank:p.paid_now.bank || null, payer:"shop", supplier_payment:true, purchase_invoice_id:id, created_at:nowIso() });
         save();
-        return { ok:true, id, supplier_id:sup, total:inv.total };
+        return { ok:true, id, supplier_id:sup, total:inv.total, doc_kind:kind };
       },
       delete_purchase_invoice: ({ p_id }) => {
         tbl("purchase_invoice_lines").filter(l => l.invoice_id === p_id && l.inventory_item_id).forEach(l => {
@@ -1779,6 +1781,7 @@
           if (!vatOk(afm)) return { data:{ ok:false, error:"Ο ΑΦΜ δεν είναι έγκυρος (9 ψηφία με σωστό ψηφίο ελέγχου)." }, error:null };
           return { data: demoAfm(afm), error:null };
         }
+        if (b.action === "qr_fetch") return { data:{ ok:false, error:"Ο σύνδεσμος του παρόχου δεν έδωσε ΜΑΡΚ (επίδειξη)." }, error:null };
         if (b.action === "mydata_inbox") {
           let list = demoInbox();
           const v = String(b.counter_vat || "").replace(/\D/g, "");
@@ -3976,6 +3979,12 @@
   // πληρώθηκε αμέσως) Έξοδα/ταμείο. Όλα ή τίποτα.
   const VAT_RATES = [24, 13, 6, 17, 9, 4, 3, 0];
   const V15_MSG = "Για τα τιμολόγια αγοράς τρέξε πρώτα το schema_v15.sql στο Supabase.";
+  const V23_MSG = "Για τα πιστωτικά τιμολόγια αγοράς τρέξε πρώτα το schema_v23.sql στο Supabase.";
+  const PURCHASE_CATEGORIES = ["Εργαλεία", "Διάφορα γραφείου", "Υλικά εγκαταστάσεων", "Εμπορεύματα για μεταπώληση", "Εξοπλισμός", "Αναλώσιμα", "Υπηρεσίες"];
+  // πιστωτικό αγοράς = αρνητικό ποσό (μειώνει αγορές και υπόλοιπο προμηθευτή)
+  const piSign = (r) => r && r.doc_kind === "credit" ? -1 : 1;
+  const piSigned = (r, k = "total") => piSign(r) * Number((r && r[k]) || 0);
+  const piLabel = (r) => (r && r.doc_kind === "credit" ? "Πιστωτικό " : "Τιμολόγιο ") + ((r && r.doc_number) || "(χωρίς αριθμό)");
   const isMissing = (err) => err && /schema cache|does not exist|Could not find/i.test(err.message || "");
 
   async function loadSuppliersView(){
@@ -4021,7 +4030,7 @@
     const unsent = ARCHIVE_ROWS.filter(r => !r.sent_to_accountant_at);
     const noFile = ARCHIVE_ROWS.filter(r => !r.file_path).length;
     $("#accounting-stats").innerHTML = `
-      <div class="stat-tile"><div class="num">${eur(thisMonth.reduce((s, r) => s + Number(r.total), 0))}</div><div class="lbl">Αγορές μήνα (${thisMonth.length})</div></div>
+      <div class="stat-tile"><div class="num">${eur(thisMonth.reduce((s, r) => s + piSigned(r), 0))}</div><div class="lbl">Αγορές μήνα (${thisMonth.length})</div></div>
       <div class="stat-tile"><div class="num">${eur(thisMonth.reduce((s, r) => s + Number(r.vat), 0))}</div><div class="lbl">ΦΠΑ αγορών μήνα</div></div>
       <div class="stat-tile ${unsent.length ? "balance-due" : ""}" data-acc-filter="unsent" role="button" tabindex="0"><div class="num">${unsent.length}</div><div class="lbl">Δεν έχουν σταλεί στον λογιστή</div></div>
       <div class="stat-tile" data-acc-filter="nofile" role="button" tabindex="0"><div class="num">${noFile}</div><div class="lbl">Χωρίς φωτογραφία</div></div>`;
@@ -4131,7 +4140,7 @@
       if (!error) { toFix.forEach(e => { e.supplier_payment = true; }); if (typeof loadSuppliersView === "function" && !$("#view-suppliers")?.classList.contains("hidden")) loadSuppliersView(); }
     }
     const moves = [
-      ...(invRes.data || []).map(i => ({ date:i.doc_date, at:i.created_at, kind:"inv", id:i.id, text:"Τιμολόγιο " + (i.doc_number || "(χωρίς αριθμό)"), sub: i.mark ? "ΜΑΡΚ " + i.mark : "", debit:Number(i.total), credit:0 })),
+      ...(invRes.data || []).map(i => ({ date:i.doc_date, at:i.created_at, kind:"inv", id:i.id, text:(i.doc_kind === "credit" ? "↩️ " : "") + piLabel(i), sub: [i.category, i.mark ? "ΜΑΡΚ " + i.mark : ""].filter(Boolean).join(" · "), debit:piSigned(i), credit:0 })),
       ...exps.map(p => p.supplier_payment
         ? ({ date:p.expense_date, at:p.created_at, kind:"pay", id:p.id, text:"Πληρωμή · " + (METHOD_LABEL[p.method] || p.method || ""), sub: p.note || "", debit:0, credit:Number(p.amount) })
         // έξοδο με προμηθευτή που ΔΕΝ είναι έναντι υπολοίπου = αγορά πληρωμένη επί τόπου: χρέωση και πληρωμή μαζί
@@ -4146,7 +4155,7 @@
       return `<tr class="clickable" data-kind="${m.kind}" data-id="${m.id}">
         <td>${fmtShortDate(m.date)}</td>
         <td>${escapeHtml(m.text)}${m.sub ? `<div class="cell-sub">${escapeHtml(m.sub)}</div>` : ""}</td>
-        <td style="text-align:right;white-space:nowrap;">${m.debit ? eur(m.debit) : ""}</td>
+        <td style="text-align:right;white-space:nowrap;">${m.debit ? (m.debit < 0 ? "−" + eur(-m.debit) : eur(m.debit)) : ""}</td>
         <td style="text-align:right;white-space:nowrap;" class="amt-in">${m.credit ? eur(m.credit) : ""}</td>
         <td style="text-align:right;white-space:nowrap;font-weight:600;">${eur(run)}</td></tr>`;
     }).reverse().join("");
@@ -4298,6 +4307,16 @@
         <div class="field"><label>ΜΑΡΚ <span style="font-weight:400;color:var(--ink-soft);">(από το QR ή τυπωμένος στο χαρτί)</span></label>
           <div style="display:flex;gap:6px;"><input id="pi-mark" inputmode="numeric" placeholder="15 ψηφία" style="flex:1;min-width:0;" value="${escapeHtml(prefill.mark || "")}"><button type="button" class="btn-ghost btn-sm" id="pi-scan" title="Σκανάρισμα QR">📷</button><button type="button" class="btn-ghost btn-sm" id="pi-mydata" title="Φέρε το τιμολόγιο από το myDATA" style="white-space:nowrap;">⬇ myDATA</button></div></div>
         <div class="field"><label>Αριθμός παραστατικού</label><input id="pi-num" placeholder="π.χ. ΤΔΑ Α-551" value="${escapeHtml(prefill.doc_number || "")}"></div>
+        <div class="form-row">
+          <div class="field"><label>Είδος παραστατικού</label>
+            <div style="display:flex;gap:6px;flex-wrap:wrap;" id="pi-kind">
+              <button type="button" class="chip" data-k="invoice">🧾 Τιμολόγιο</button>
+              <button type="button" class="chip" data-k="credit">↩️ Πιστωτικό (επιστροφή)</button></div>
+            <div class="cell-sub hidden" id="pi-kind-hint" style="margin-top:6px;">Μειώνει αυτό που χρωστάς στον προμηθευτή· όσα είδη είναι της αποθήκης βγαίνουν από το απόθεμα.</div></div>
+          <div class="field"><label>Κατηγορία αγοράς</label>
+            <input id="pi-cat" list="pi-cat-list" placeholder="π.χ. Εργαλεία" value="${escapeHtml(prefill.category || "")}">
+            <datalist id="pi-cat-list">${PURCHASE_CATEGORIES.map(c => `<option value="${escapeHtml(c)}">`).join("")}</datalist></div>
+        </div>
         <div class="section-title">Γραμμές</div>
         <div id="pi-lines">${(prefill.lines && prefill.lines.length ? prefill.lines : [{}]).map((l, i) => lineHtml(l, i)).join("")}</div>
         <button type="button" class="add-link" id="pi-add">+ Γραμμή</button>
@@ -4392,6 +4411,7 @@
       }
       const inv = r.invoice;
       if (inv.issue_date) $("#pi-date").value = inv.issue_date.slice(0, 10);
+      setKind(/^5\./.test(inv.invoice_type || "") ? "credit" : "invoice");
       const num = [inv.series && inv.series !== "0" ? inv.series : "", inv.aa].filter(Boolean).join(" ");
       if (num) $("#pi-num").value = num;
       const known = SUPPLIERS_CACHE.find(x => x.vat_number && x.vat_number === inv.issuer_vat);
@@ -4429,6 +4449,27 @@
       if ($("#pi-qr-hint")) $("#pi-qr-hint").textContent = "";
     };
     $("#pi-mydata").addEventListener("click", () => loadFromMyData(false));
+    // τιμολόγιο ή πιστωτικό
+    let docKind = prefill.doc_kind === "credit" ? "credit" : "invoice";
+    const setKind = (k) => {
+      docKind = k;
+      $$("#pi-kind [data-k]").forEach(b => b.classList.toggle("active", b.dataset.k === k));
+      $("#pi-kind-hint").classList.toggle("hidden", k !== "credit");
+      const paidLine = $("#pi-paid") && $("#pi-paid").closest("label");
+      if (paidLine) paidLine.classList.toggle("hidden", k === "credit");
+      if (k === "credit" && $("#pi-paid")) { $("#pi-paid").checked = false; $("#pi-paid").dispatchEvent(new Event("change")); }
+    };
+    $$("#pi-kind [data-k]").forEach(b => b.addEventListener("click", () => setKind(b.dataset.k)));
+    setKind(docKind);
+    // κατηγορία: η τελευταία που έβαλες σε αυτόν τον προμηθευτή
+    const suggestCategory = async () => {
+      const sid = $("#pi-sup").value;
+      if (!sid || sid === "__new" || $("#pi-cat").value.trim()) return;
+      const { data, error } = await sb.from("purchase_invoices").select("category").eq("supplier_id", sid).not("category", "is", null).order("doc_date", { ascending:false }).limit(1);
+      if (!error && data && data[0] && !$("#pi-cat").value.trim()) $("#pi-cat").value = data[0].category;
+    };
+    $("#pi-sup").addEventListener("change", suggestCategory);
+    suggestCategory();
     let lastAutoMark = prefill.mark || "";
     $("#pi-mark").addEventListener("input", () => {
       const m = $("#pi-mark").value.replace(/\D/g, "");
@@ -4469,8 +4510,13 @@
       if (lines.length === 0) { showMsg($("#pi-msg"), "Πρόσθεσε τουλάχιστον μία γραμμή.", "error"); return; }
       const payload = {
         doc_date: $("#pi-date").value, doc_number: $("#pi-num").value.trim(), mark: $("#pi-mark").value.trim(),
-        note: $("#pi-note").value.trim(), qr_raw: prefill.qr_raw || "", lines
+        note: $("#pi-note").value.trim(), qr_raw: prefill.qr_raw || "", lines,
+        doc_kind: docKind, category: $("#pi-cat").value.trim(), from_mydata: !!fromMydata
       };
+      if (docKind === "credit") {
+        const chk = await sb.from("purchase_invoices").select("doc_kind").limit(1);
+        if (chk.error) { showMsg($("#pi-msg"), V23_MSG, "error"); return; }
+      }
       if (sup === "__new") {
         if (!$("#pi-ns-name").value.trim()) { showMsg($("#pi-msg"), "Γράψε την επωνυμία του νέου προμηθευτή.", "error"); return; }
         payload.new_supplier = { name: $("#pi-ns-name").value.trim(), vat_number: normalizeVat($("#pi-ns-vat").value) || "" };
@@ -4505,7 +4551,7 @@
       }
       if (fromMydata) await sb.from("purchase_invoices").update({ from_mydata: true }).eq("id", data.id);
       if (prefill.request_id) { await sb.from("supplier_requests").update({ status:"received", received_at: new Date().toISOString(), purchase_invoice_id: data.id }).eq("id", prefill.request_id); refreshSreqViews(); }
-      showToast(`Το τιμολόγιο καταχωρήθηκε (${eur(data.total)}).`);
+      showToast(`${docKind === "credit" ? "Το πιστωτικό" : "Το τιμολόγιο"} καταχωρήθηκε (${docKind === "credit" ? "−" : ""}${eur(data.total)}).`);
       refreshPurchaseViews();
       if (!$("#view-inventory").classList.contains("hidden")) loadInventory();
       if (!$("#view-expenses").classList.contains("hidden")) loadExpenses();
@@ -4521,7 +4567,7 @@
     ]);
     if (error || !inv) { alertMsg("Το τιμολόγιο δεν βρέθηκε."); return; }
     const qrUrl = inv.qr_raw && /^https?:\/\//i.test(inv.qr_raw) ? inv.qr_raw : null;
-    openDrawer("Τιμολόγιο " + (inv.doc_number || ""), `
+    openDrawer((inv.doc_kind === "credit" ? "↩️ Πιστωτικό " : "Τιμολόγιο ") + (inv.doc_number || ""), `
       <div class="money-st-head">
         <div><strong>${escapeHtml(inv.suppliers ? inv.suppliers.name : "")}</strong>
           <div class="cell-sub">${fmtShortDate(inv.doc_date)}${inv.mark ? " · ΜΑΡΚ " + escapeHtml(inv.mark) : ""}${qrUrl ? ` · <a href="${escapeHtml(qrUrl)}" target="_blank" rel="noopener">${qrLinkLabel(qrUrl)}</a>` : ""}</div></div>
@@ -4532,10 +4578,11 @@
       </div>
       <table style="margin-top:14px;"><thead><tr><th>Περιγραφή</th><th style="text-align:right;">Ποσ.</th><th style="text-align:right;">Τιμή</th><th style="text-align:right;">ΦΠΑ</th><th style="text-align:right;">Αξία</th></tr></thead>
       <tbody>${(lines || []).map(l => `<tr>
-        <td>${escapeHtml(l.description)}${l.inventory_item_id ? `<div class="cell-sub">📦 +${l.stock_added} στην αποθήκη</div>` : ""}</td>
+        <td>${escapeHtml(l.description)}${l.inventory_item_id ? `<div class="cell-sub">📦 ${Number(l.stock_added) < 0 ? "" : "+"}${l.stock_added} στην αποθήκη</div>` : ""}</td>
         <td style="text-align:right;">${Number(l.qty)}</td><td style="text-align:right;">${eur(l.unit_price)}</td>
         <td style="text-align:right;">${Number(l.vat_rate)}%</td><td style="text-align:right;">${eur(l.line_net)}</td></tr>`).join("")}</tbody></table>
-      <div class="pi-totals"><span>Καθαρή αξία <b>${eur(inv.net)}</b></span><span>ΦΠΑ <b>${eur(inv.vat)}</b></span><span class="pi-total">Σύνολο <b>${eur(inv.total)}</b></span></div>
+      <div class="pi-totals"><span>Καθαρή αξία <b>${eur(inv.net)}</b></span><span>ΦΠΑ <b>${eur(inv.vat)}</b></span><span class="pi-total">${inv.doc_kind === "credit" ? "Πίστωση" : "Σύνολο"} <b>${inv.doc_kind === "credit" ? "−" : ""}${eur(inv.total)}</b></span></div>
+      ${inv.category || inv.doc_kind === "credit" ? `<div class="cell-sub" style="margin-top:8px;">${inv.doc_kind === "credit" ? "↩️ Πιστωτικό — μειώνει το υπόλοιπο του προμηθευτή" : ""}${inv.category && inv.doc_kind === "credit" ? " · " : ""}${inv.category ? "Κατηγορία: <b>" + escapeHtml(inv.category) + "</b>" : ""}</div>` : ""}
       ${inv.note ? `<div class="cell-sub" style="margin-top:8px;">${escapeHtml(inv.note)}</div>` : ""}
       <div class="section-title">Φωτογραφία τιμολογίου</div>
       <div id="piv-file">${inv.file_path ? '<div class="cell-sub">Φόρτωση…</div>' : '<div class="cell-sub">Δεν έχει επισυναφθεί φωτογραφία.</div>'}</div>
@@ -4654,13 +4701,13 @@
         <div class="arch-row ${ARCHIVE_SEL.has(r.id) ? "sel" : ""}" data-inv="${r.id}">
           <label class="note-check"><input type="checkbox" data-pick="${r.id}" ${ARCHIVE_SEL.has(r.id) ? "checked" : ""} aria-label="Επιλογή"></label>
           <div class="arch-date">${fmtShortDate(r.doc_date)}</div>
-          <div class="arch-main"><strong>${escapeHtml(r.suppliers ? r.suppliers.name : "")}</strong> — ${escapeHtml(r.doc_number || "χωρίς αριθμό")}
+          <div class="arch-main"><strong>${escapeHtml(r.suppliers ? r.suppliers.name : "")}</strong> — ${r.doc_kind === "credit" ? '<span style="color:var(--teal);font-weight:600;">↩️ Πιστωτικό</span> ' : ""}${escapeHtml(r.doc_number || "χωρίς αριθμό")}${r.category ? ` <span class="cell-sub">· ${escapeHtml(r.category)}</span>` : ""}
             <div class="cell-sub">${r.mark ? "ΜΑΡΚ " + escapeHtml(r.mark) + " · " : ""}${r.file_path ? "📎 " + (r.file_type === "application/pdf" ? "PDF" : "φωτογραφία") : '<span style="color:var(--amber);">χωρίς φωτογραφία</span>'}${r.sent_to_accountant_at ? ` · <span class="arch-sent">✓ στάλθηκε ${fmtShortDate(r.sent_to_accountant_at.slice(0, 10))}</span>` : ""}</div></div>
-          <div class="arch-total">${eur(r.total)}</div>
+          <div class="arch-total">${r.doc_kind === "credit" ? "−" : ""}${eur(r.total)}</div>
         </div>`).join("");
     const selRows = ARCHIVE_ROWS.filter(r => ARCHIVE_SEL.has(r.id));
     $("#arch-bar").classList.toggle("hidden", selRows.length === 0);
-    $("#arch-bar-text").textContent = `${selRows.length} επιλεγμένα · ${eur(selRows.reduce((s, r) => s + Number(r.total), 0))}`;
+    $("#arch-bar-text").textContent = `${selRows.length} επιλεγμένα · ${eur(selRows.reduce((s, r) => s + piSigned(r), 0))}`;
     box.querySelectorAll("[data-pick]").forEach(cb => {
       cb.addEventListener("click", (e) => e.stopPropagation());
       cb.addEventListener("change", () => { cb.checked ? ARCHIVE_SEL.add(cb.dataset.pick) : ARCHIVE_SEL.delete(cb.dataset.pick); renderInvoiceArchive(); });
@@ -4687,7 +4734,9 @@
     const { jsPDF } = await loadJsPDF();
     const pdf = new jsPDF({ unit: "mm", format: "a4", compress: true });
     const addCanvas = (c, first) => { if (!first) pdf.addPage(); pdf.addImage(c.toDataURL("image/jpeg", 0.85), "JPEG", 0, 0, 210, 297); };
-    const sorted = [...rows].sort((a, b) => a.doc_date < b.doc_date ? -1 : a.doc_date > b.doc_date ? 1 : 0);
+    // πιστωτικά: αρνητικά ποσά και «ΠΙΣΤ.» στον αριθμό, για να βγαίνουν σωστά τα σύνολα στον λογιστή
+    const sorted = [...rows].sort((a, b) => a.doc_date < b.doc_date ? -1 : a.doc_date > b.doc_date ? 1 : 0)
+      .map(r => r.doc_kind === "credit" ? { ...r, net: -Number(r.net), vat: -Number(r.vat), total: -Number(r.total), doc_number: "ΠΙΣΤ. " + (r.doc_number || "") } : r);
     const dates = sorted.map(r => r.doc_date);
     const period = `${fmtShortDate(dates[0])} – ${fmtShortDate(dates[dates.length - 1])}`;
     const sum = (k) => sorted.reduce((s, r) => s + Number(r[k] || 0), 0);
@@ -4698,7 +4747,7 @@
       const [c, x] = canvasPage();
       x.font = fontOf(40, true); x.fillText("Τιμολόγια αγοράς", 80, 70);
       x.font = fontOf(24); x.fillStyle = "#444";
-      x.fillText(`Περίοδος ${period} · ${sorted.length} τιμολόγια · Σύνολο ${eur(sum("total"))}`, 80, 125);
+      x.fillText(`Περίοδος ${period} · ${sorted.length} παραστατικά · Σύνολο ${eur(sum("total"))}`, 80, 125);
       x.fillText(`Δημιουργήθηκε ${new Date().toLocaleString("el-GR")}${sorted.length > per ? ` · σελίδα ${p + 1}/${Math.ceil(sorted.length / per)}` : ""}`, 80, 160);
       const cols = [[80, "Ημ/νία"], [215, "Προμηθευτής"], [555, "ΑΦΜ"], [660, "Αριθμός"], [905, "Καθαρή"], [1030, "ΦΠΑ"], [1165, "Σύνολο"]];
       let y = 230; x.fillStyle = "#111"; x.font = fontOf(22, true);
@@ -4753,9 +4802,9 @@
     // κατάλογος για Excel: UTF-8 με BOM, «;» και δεκαδικό κόμμα — ανοίγει σωστά στο ελληνικό Excel
     const num = (v) => Number(v || 0).toFixed(2).replace(".", ",");
     const esc = (v) => `"${String(v ?? "").replace(/"/g, '""')}"`;
-    const csv = "﻿" + [["Ημερομηνία","Προμηθευτής","ΑΦΜ","Αριθμός","ΜΑΡΚ","Καθαρή αξία","ΦΠΑ","Σύνολο","Αρχείο"].map(esc).join(";"),
+    const csv = "﻿" + [["Ημερομηνία","Προμηθευτής","ΑΦΜ","Αριθμός","ΜΑΡΚ","Καθαρή αξία","ΦΠΑ","Σύνολο","Αρχείο","Είδος","Κατηγορία"].map(esc).join(";"),
       ...sorted.map(r => [r.doc_date, r.suppliers ? r.suppliers.name : "", (r.suppliers && r.suppliers.vat_number) || "", r.doc_number || "", r.mark || "",
-                          num(r.net), num(r.vat), num(r.total), r.file_path ? "ναι" : "όχι"].map((v, i) => i >= 5 && i <= 7 ? v : esc(v)).join(";"))].join("\r\n");
+                          num(r.net), num(r.vat), num(r.total), r.file_path ? "ναι" : "όχι", r.doc_kind === "credit" ? "Πιστωτικό" : "Τιμολόγιο", r.category || ""].map((v, i) => i >= 5 && i <= 7 ? v : esc(v)).join(";"))].join("\r\n");
 
     const tag = `${dates[0]}_${dates[dates.length - 1]}`;
     return {
@@ -4780,7 +4829,7 @@
     const noFile = rows.filter(r => !r.file_path).length;
     openDrawer("📤 Αποστολή στον λογιστή", `
       <div id="acc-msg"></div>
-      <div class="money-count-diff ok" style="margin:0 0 14px;"><b>${rows.length}</b> τιμολόγια · σύνολο <b>${eur(rows.reduce((s, r) => s + Number(r.total), 0))}</b>
+      <div class="money-count-diff ok" style="margin:0 0 14px;"><b>${rows.length}</b> τιμολόγια · σύνολο <b>${eur(rows.reduce((s, r) => s + piSigned(r), 0))}</b>
         ${noFile ? `<div style="color:var(--amber);margin-top:4px;">${noFile} χωρίς φωτογραφία — θα φαίνονται μόνο στη λίστα.</div>` : ""}</div>
       <div class="field"><label>Email λογιστή</label><input type="email" id="acc-email" value="${escapeHtml(accEmail)}" placeholder="π.χ. logistis@example.gr"></div>
       <div class="cell-sub" style="margin-bottom:14px;">Θα φτιαχτεί <b>ένα PDF</b> (λίστα + μία σελίδα ανά τιμολόγιο με τη φωτογραφία του) και <b>ένας κατάλογος για Excel</b>.
@@ -4942,7 +4991,7 @@
   // (και ανά ΑΦΜ προμηθευτή), κρύβουμε όσα έχεις ήδη περάσει, κι εσύ απλώς διαλέγεις.
   let MYDATA_INBOX_MEMO = {};   // κλειδί -> { at, res } για να μη ρωτάμε την ΑΑΔΕ συνέχεια
   const INV_TYPE_LABEL = { "1.1":"Τιμολόγιο", "1.2":"Τιμολόγιο ενδοκοιν.", "1.3":"Τιμολόγιο τρίτων χωρών", "1.4":"Τιμολόγιο (για λογ/σμό τρίτων)", "1.6":"Τιμολόγιο (συμπληρωματικό)",
-    "2.1":"Τιμολόγιο παροχής", "2.2":"Τιμολόγιο παροχής ενδοκοιν.", "2.4":"Τιμολόγιο παροχής (συμπλ.)", "5.1":"Πιστωτικό", "5.2":"Πιστωτικό", "11.1":"Απόδειξη", "11.2":"Απόδειξη παροχής" };
+    "2.1":"Τιμολόγιο παροχής", "2.2":"Τιμολόγιο παροχής ενδοκοιν.", "2.4":"Τιμολόγιο παροχής (συμπλ.)", "5.1":"↩️ Πιστωτικό", "5.2":"↩️ Πιστωτικό", "11.1":"Απόδειξη", "11.2":"Απόδειξη παροχής" };
   async function fetchMyDataInbox({ days = 60, from, to, vat } = {}){
     to = to || isoDay(new Date());
     if (!from) { const d = new Date(); d.setDate(d.getDate() - days); from = isoDay(d); }
@@ -4960,7 +5009,7 @@
     }
     const invoices = (r.invoices || []).map(i => ({ ...i, registered_id: have.get(i.mark) || null }))
       .sort((a, b) => String(b.issue_date || "").localeCompare(String(a.issue_date || "")));
-    const res = { ok:true, invoices, more: r.more, from, to };
+    const res = { ok:true, invoices, more: r.more, from, to, debug: r.debug || null };
     MYDATA_INBOX_MEMO[key] = { at: Date.now(), res };
     return res;
   }
@@ -4987,7 +5036,7 @@
       <div class="sd-no"><b>${inv.issue_date ? fmtShortDate(inv.issue_date.slice(0, 10)) : "—"}</b><div class="cell-sub">${escapeHtml(INV_TYPE_LABEL[inv.invoice_type] || ("τύπος " + (inv.invoice_type || "?")))}</div></div>
       <div class="sd-who"><div><b>${escapeHtml(s.name)}</b>${s.known ? "" : ' <span class="cell-sub">· νέος προμηθευτής</span>'}</div>
         <div class="cell-sub">${num ? "Αρ. " + escapeHtml(num) + " · " : ""}ΜΑΡΚ ${escapeHtml(inv.mark)}</div></div>
-      <div style="text-align:right;white-space:nowrap;"><b>${eur(t.gross ?? ((Number(t.net) || 0) + (Number(t.vat) || 0)))}</b>
+      <div style="text-align:right;white-space:nowrap;"><b>${/^5\./.test(inv.invoice_type || "") ? "−" : ""}${eur(t.gross ?? ((Number(t.net) || 0) + (Number(t.vat) || 0)))}</b>
         <div class="cell-sub">${inv.cancelled ? '<span style="color:var(--red);">ακυρωμένο</span>' : inv.registered_id ? "✓ καταχωρημένο" : '<span style="color:var(--teal);">νέο</span>'}</div></div></div>`;
   }
   // ctx: { supplier_id, file, qr_raw, url, note, days }
@@ -5015,7 +5064,10 @@
       const hidden = (res.invoices || []).length - list.length;
       box.innerHTML = (list.length ? list.map(inboxRowHtml).join("") : `<div class="empty-state">${(res.invoices || []).length ? "Όλα τα τιμολόγια του διαστήματος είναι ήδη καταχωρημένα. 👍" : "Δεν βρέθηκαν τιμολόγια αγοράς στο myDATA για αυτό το διάστημα."}<div class="cell-sub" style="margin-top:6px;">Ένα τιμολόγιο φαίνεται εδώ μόλις το διαβιβάσει ο προμηθευτής (συνήθως αμέσως, μερικές φορές σε λίγες ώρες).</div></div>`)
         + (hidden && !showAll ? `<div class="cell-sub" style="margin-top:8px;">${hidden} ήδη καταχωρημένα/ακυρωμένα κρυμμένα.</div>` : "")
-        + (res.more ? '<div class="cell-sub" style="margin-top:8px;color:var(--amber);">Πάρα πολλά αποτελέσματα — διάλεξε μικρότερο διάστημα.</div>' : "");
+        + (res.more ? '<div class="cell-sub" style="margin-top:8px;color:var(--amber);">Πάρα πολλά αποτελέσματα — διάλεξε μικρότερο διάστημα.</div>' : "")
+        + (!(res.invoices || []).length && res.debug ? `<details style="margin-top:12px;"><summary class="cell-sub" style="cursor:pointer;">🔧 Τι απάντησε η ΑΑΔΕ (στείλ' το μου αν δεν βλέπεις τιμολόγια)</summary>
+            <pre style="white-space:pre-wrap;font-size:11px;background:var(--surface-2);padding:8px;border-radius:8px;user-select:all;">${escapeHtml(JSON.stringify(res.debug, null, 1))}</pre></details>`
+            + (res.debug.env === "dev" ? '<div class="msg msg-error" style="margin-top:8px;">Η σύνδεση είναι στο ΔΟΚΙΜΑΣΤΙΚΟ myDATA — εκεί δεν υπάρχουν τα πραγματικά τιμολόγια. Σβήσε το Secret MYDATA_URL και βάλε κωδικούς του κανονικού myDATA.</div>' : "") : "");
       $$("#mdi-list [data-mdinv]").forEach(el => el.addEventListener("click", () => {
         const inv = res.invoices.find(i => i.mark === el.dataset.mdinv);
         if (inv.registered_id) { openPurchaseInvoice(inv.registered_id); return; }
@@ -5043,6 +5095,18 @@
     await loadSuppliers();
     const sup = ctx && ctx.supplier_id ? SUPPLIERS_CACHE.find(s => s.id === ctx.supplier_id) : null;
     const vat = (sup && sup.vat_number) || info.vat || "";
+    // 1) ο σύνδεσμος του QR (πάροχος): ρωτάμε τον ίδιο τον πάροχο για τον ΜΑΡΚ
+    if (info.url) {
+      if ($("#qr-status")) $("#qr-status").innerHTML = '<span class="spinner"></span> Ρωτάω τον πάροχο του τιμολογίου…';
+      const q = await aadeCall({ action:"qr_fetch", url: info.url });
+      if (q && q.ok && q.mark) {
+        const { data: dup } = await sb.from("purchase_invoices").select("id").eq("mark", q.mark).maybeSingle();
+        if (dup) { openPurchaseInvoice(dup.id); showToast("Αυτό το τιμολόγιο έχει ήδη καταχωρηθεί."); return true; }
+        await openPurchaseInvoiceForm({ ...(ctx || {}), qr_raw: info.qr_raw, url: info.url, file: ctx && ctx.file, mark: q.mark, source:"mydata",
+                                        supplier_id: (ctx && ctx.supplier_id) || "" });
+        return true;
+      }
+    }
     if ($("#qr-status")) $("#qr-status").innerHTML = '<span class="spinner"></span> Ψάχνω το τιμολόγιο στο myDATA…';
     const r = await fetchMyDataInbox({ days: 60, vat });
     if (!r.ok) return false;
@@ -6793,7 +6857,7 @@
   }
 
   // ================= EXPENSES (staff) =================
-  const EXPENSE_CATEGORIES = ["Προμήθεια εξοπλισμού","Ενοίκιο","ΔΕΗ/Ρεύμα","Νερό","Τηλέφωνο/Internet","Καύσιμα","Συντήρηση οχήματος","Μισθοδοσία","Πληρωμή υπαλλήλου","Πληρωμή προμηθευτή","Λογιστής/Φόρος","Διαφήμιση","Διάφορα"];
+  const EXPENSE_CATEGORIES = ["Προμήθεια εξοπλισμού","Ενοίκιο","ΔΕΗ/Ρεύμα","Νερό","Τηλέφωνο/Internet","Καύσιμα","Συντήρηση οχήματος","Μισθοδοσία","Πληρωμή υπαλλήλου","Πληρωμή προμηθευτή","Λογιστής/Φόρος","Διαφήμιση","Εργαλεία","Διάφορα γραφείου","Διάφορα"];
   let EXPENSE_CATEGORY_FILTER = "all";
   $("#expense-filters").innerHTML = ["all", ...EXPENSE_CATEGORIES].map(c => `<div class="chip ${c==='all'?'active':''}" data-f="${escapeHtml(c)}">${c==='all'?'Όλα':c}</div>`).join("");
   $("#expense-filters").addEventListener("click", (e) => {
