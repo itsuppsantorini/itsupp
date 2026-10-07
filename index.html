@@ -4243,8 +4243,11 @@
     openDrawer("Τιμολόγιο αγοράς", `
       <form id="pi-form" novalidate>
         <div id="pi-msg"></div>
-        ${prefill.mark ? `<div class="money-count-diff ok" style="margin:0 0 14px;">📷 Διαβάστηκε το QR — ΜΑΡΚ <b>${escapeHtml(prefill.mark)}</b>${prefill.url ? ` · <a href="${escapeHtml(prefill.url)}" target="_blank" rel="noopener">άνοιγμα στην ΑΑΔΕ</a>` : ""}.
+        ${prefill.mark ? `<div class="money-count-diff ok" style="margin:0 0 14px;">📷 Διαβάστηκε το QR — ΜΑΡΚ <b>${escapeHtml(prefill.mark)}</b>${prefill.url ? ` · <a href="${escapeHtml(prefill.url)}" target="_blank" rel="noopener">${qrLinkLabel(prefill.url)}</a>` : ""}.
            <span id="pi-qr-hint">Συμπλήρωσε τα υπόλοιπα από το χαρτί.</span></div>` : ""}
+        ${!prefill.mark && prefill.url ? `<div class="money-count-diff" style="margin:0 0 14px;">📷 Το QR είναι σύνδεσμος του παρόχου ηλεκτρονικής τιμολόγησης και <b>δεν έχει μέσα τον ΜΑΡΚ</b>.
+           Γράψε τον <b>ΜΑΡΚ</b> που είναι τυπωμένος στο χαρτί (15 ψηφία, συνήθως αρχίζει από <b>4</b> — συχνά κοντά στο QR ή στις παρατηρήσεις) και θα συμπληρωθούν όλα μόνα τους από το myDATA.
+           · <a href="${escapeHtml(prefill.url)}" target="_blank" rel="noopener">${qrLinkLabel(prefill.url)}</a></div>` : ""}
         <div id="pi-mydata-msg"></div>
         <div class="form-row">
           <div class="field"><label>Προμηθευτής *</label>
@@ -4257,11 +4260,9 @@
           <div class="field"><label>ΑΦΜ</label><div class="afm-row"><input id="pi-ns-vat" inputmode="numeric" maxlength="12" value="${escapeHtml(prefill.vat || "")}"><button type="button" class="btn-ghost btn-sm" id="pi-ns-afm" title="Στοιχεία από την ΑΑΔΕ">🔎 ΑΑΔΕ</button></div>
             <div id="pi-ns-note" style="margin-top:4px;"></div></div>
         </div>
-        <div class="form-row">
-          <div class="field"><label>Αριθμός παραστατικού</label><input id="pi-num" placeholder="π.χ. ΤΔΑ Α-551" value="${escapeHtml(prefill.doc_number || "")}"></div>
-          <div class="field"><label>ΜΑΡΚ <span style="font-weight:400;color:var(--ink-soft);">(από το QR)</span></label>
-            <div style="display:flex;gap:6px;"><input id="pi-mark" inputmode="numeric" value="${escapeHtml(prefill.mark || "")}"><button type="button" class="btn-ghost btn-sm" id="pi-scan" title="Σκανάρισμα QR">📷</button><button type="button" class="btn-ghost btn-sm" id="pi-mydata" title="Φέρε το τιμολόγιο από το myDATA" style="white-space:nowrap;">⬇ myDATA</button></div></div>
-        </div>
+        <div class="field"><label>ΜΑΡΚ <span style="font-weight:400;color:var(--ink-soft);">(από το QR ή τυπωμένος στο χαρτί)</span></label>
+          <div style="display:flex;gap:6px;"><input id="pi-mark" inputmode="numeric" placeholder="15 ψηφία" style="flex:1;min-width:0;" value="${escapeHtml(prefill.mark || "")}"><button type="button" class="btn-ghost btn-sm" id="pi-scan" title="Σκανάρισμα QR">📷</button><button type="button" class="btn-ghost btn-sm" id="pi-mydata" title="Φέρε το τιμολόγιο από το myDATA" style="white-space:nowrap;">⬇ myDATA</button></div></div>
+        <div class="field"><label>Αριθμός παραστατικού</label><input id="pi-num" placeholder="π.χ. ΤΔΑ Α-551" value="${escapeHtml(prefill.doc_number || "")}"></div>
         <div class="section-title">Γραμμές</div>
         <div id="pi-lines">${(prefill.lines && prefill.lines.length ? prefill.lines : [{}]).map((l, i) => lineHtml(l, i)).join("")}</div>
         <button type="button" class="add-link" id="pi-add">+ Γραμμή</button>
@@ -4393,6 +4394,11 @@
       if ($("#pi-qr-hint")) $("#pi-qr-hint").textContent = "";
     };
     $("#pi-mydata").addEventListener("click", () => loadFromMyData(false));
+    let lastAutoMark = prefill.mark || "";
+    $("#pi-mark").addEventListener("input", () => {
+      const m = $("#pi-mark").value.replace(/\D/g, "");
+      if (m.length === 15 && m !== lastAutoMark && PROFILE && PROFILE.role === "owner") { lastAutoMark = m; loadFromMyData(false); }
+    });
     if (prefill.mark && PROFILE && PROFILE.role === "owner") loadFromMyData(true);
     let invoiceFile = prefill.file || null;
     $("#pi-file").addEventListener("change", (e) => {
@@ -4483,7 +4489,7 @@
     openDrawer("Τιμολόγιο " + (inv.doc_number || ""), `
       <div class="money-st-head">
         <div><strong>${escapeHtml(inv.suppliers ? inv.suppliers.name : "")}</strong>
-          <div class="cell-sub">${fmtShortDate(inv.doc_date)}${inv.mark ? " · ΜΑΡΚ " + escapeHtml(inv.mark) : ""}${qrUrl ? ` · <a href="${escapeHtml(qrUrl)}" target="_blank" rel="noopener">άνοιγμα στην ΑΑΔΕ</a>` : ""}</div></div>
+          <div class="cell-sub">${fmtShortDate(inv.doc_date)}${inv.mark ? " · ΜΑΡΚ " + escapeHtml(inv.mark) : ""}${qrUrl ? ` · <a href="${escapeHtml(qrUrl)}" target="_blank" rel="noopener">${qrLinkLabel(qrUrl)}</a>` : ""}</div></div>
         <div style="display:flex;gap:8px;">
           <button type="button" class="btn-ghost btn-sm" id="piv-card">Καρτέλα προμηθευτή</button>
           <button type="button" class="btn-danger btn-sm" id="piv-del">Διαγραφή</button>
@@ -4848,6 +4854,11 @@
     return r ? r.data : null;
   }
 
+  // Ο σύνδεσμος του QR: της ΑΑΔΕ ή του παρόχου (Epsilon, Softone, Impact κ.λπ.)
+  function qrLinkLabel(url){
+    let host = ""; try { host = new URL(url).hostname; } catch (e) {}
+    return /aade\.gr$/i.test(host) ? "άνοιγμα στην ΑΑΔΕ" : "📄 δες το παραστατικό στον πάροχο";
+  }
   // Από το κείμενο του QR βγάζει ΜΑΡΚ (15ψήφιο), σύνδεσμο, και ΑΦΜ/ημερομηνία αν υπάρχουν.
   function parseInvoiceQr(text){
     const raw = String(text || "").trim();
@@ -4883,7 +4894,8 @@
     await openPurchaseInvoiceForm({ ...(ctx || {}), ...info, supplier_id: (ctx && ctx.supplier_id) || "" });
     // από την κάμερα δεν έχουμε φωτογραφία ολόκληρου του τιμολογίου — πρόταση να τραβηχτεί μία
     if (!(ctx && ctx.file) && $("#pi-file-name")) $("#pi-file-name").innerHTML = '<span style="color:var(--amber);">Τράβηξε μια φωτογραφία ολόκληρου του τιμολογίου για το αρχείο</span>';
-    if (!info.mark) showMsg($("#pi-msg"), "Διαβάστηκε το QR αλλά δεν βρέθηκε ΜΑΡΚ μέσα του. Γράψε τα στοιχεία από το χαρτί.", "error");
+    if (!info.mark && !info.url) showMsg($("#pi-msg"), "Διαβάστηκε το QR αλλά δεν βρέθηκε ΜΑΡΚ μέσα του. Γράψε τον ΜΑΡΚ από το χαρτί.", "error");
+    if (!info.mark && $("#pi-mark")) setTimeout(() => $("#pi-mark").focus(), 300);
   }
 
   function openQrScanner(ctx){
