@@ -4319,7 +4319,10 @@
         </div>
         <div class="section-title">Γραμμές</div>
         <div id="pi-lines">${(prefill.lines && prefill.lines.length ? prefill.lines : [{}]).map((l, i) => lineHtml(l, i)).join("")}</div>
-        <button type="button" class="add-link" id="pi-add">+ Γραμμή</button>
+        <div style="display:flex;gap:14px;flex-wrap:wrap;align-items:center;">
+          <button type="button" class="add-link" id="pi-add">+ Γραμμή</button>
+          <button type="button" class="add-link" id="pi-all-new" title="Κάθε γραμμή χωρίς είδος γίνεται νέο είδος αποθήκης, με την κατηγορία του τιμολογίου">📦 Όλες οι γραμμές → είδη αποθήκης</button>
+        </div>
         <div class="pi-totals" id="pi-totals"></div><input type="hidden" id="pi-total-val" value="0">
         <label class="check-line" style="margin-top:12px;"><input type="checkbox" id="pi-paid"> Το πλήρωσα ήδη</label>
         <div class="field hidden" id="pi-paid-row"><label>Πληρώθηκε από</label>
@@ -4363,6 +4366,8 @@
     const onItem = (el) => {
       const v = el.querySelector(".pl-sel").value;
       el.querySelector(".pl-new").classList.toggle("hidden", v !== "__new");
+      // νέο είδος: κατηγορία = η κατηγορία του τιμολογίου (αν δεν γράφτηκε άλλη)
+      if (v === "__new" && !el.querySelector(".pl-new-cat").value.trim() && $("#pi-cat")) el.querySelector(".pl-new-cat").value = $("#pi-cat").value.trim();
       el.querySelector(".pl-qty").step = v ? "1" : "0.001";
       const it = ITEMS.find(i => i.id === v);
       if (it) {
@@ -4379,6 +4384,17 @@
       el.querySelector(".pl-del").addEventListener("click", () => { if ($$("#pi-lines .pl-line").length > 1) { el.remove(); recalc(); } });
     };
     $$("#pi-lines .pl-line").forEach(wireLine);
+    $("#pi-all-new").addEventListener("click", () => {
+      let n = 0, frac = 0;
+      $$("#pi-lines .pl-line").forEach(el => {
+        const sel = el.querySelector(".pl-sel");
+        if (sel.value || !el.querySelector(".pl-descr").value.trim()) return;
+        if (!Number.isInteger(parseFloat(el.querySelector(".pl-qty").value || "1"))) { frac++; return; }
+        sel.value = "__new"; onItem(el); n++;
+      });
+      showToast(n ? `${n} γραμμ${n === 1 ? "ή θα γίνει νέο είδος" : "ές θα γίνουν νέα είδη"} αποθήκης${$("#pi-cat").value.trim() ? " («" + $("#pi-cat").value.trim() + "»)" : ""}.${frac ? " " + frac + " με δεκαδική ποσότητα έμειναν όπως ήταν." : ""}`
+                  : "Όλες οι γραμμές έχουν ήδη είδος (ή είναι κενές).");
+    });
     $("#pi-add").addEventListener("click", () => {
       $("#pi-lines").insertAdjacentHTML("beforeend", lineHtml({}, lineN++));
       wireLine($("#pi-lines .pl-line:last-child"));
