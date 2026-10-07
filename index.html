@@ -4086,14 +4086,27 @@
     const [balRes, invRes, payRes] = await Promise.all([
       sb.from("supplier_balances").select("*").eq("id", supplierId).maybeSingle(),
       sb.from("purchase_invoices").select("*").eq("supplier_id", supplierId).order("doc_date").order("created_at"),
-      sb.from("expenses").select("*").eq("supplier_id", supplierId).eq("supplier_payment", true).order("expense_date").order("created_at")
+      sb.from("expenses").select("*").eq("supplier_id", supplierId).order("expense_date").order("created_at")
     ]);
     if (balRes.error || !balRes.data) { alertMsg(isMissing(balRes.error) ? V15_MSG : "Ο προμηθευτής δεν βρέθηκε."); return; }
-    const s = balRes.data;
+    const s = { ...balRes.data };
+    const exps = payRes.data || [];
+    // παλιά έξοδα «Πληρωμή προμηθευτή» από τα Έσοδα-Έξοδα που δεν είχαν σημειωθεί ως πληρωμή → διορθώνονται μία φορά
+    const toFix = exps.filter(e => !e.supplier_payment && e.category === "Πληρωμή προμηθευτή");
+    if (toFix.length && PROFILE && PROFILE.role === "owner") {
+      const { error } = await sb.from("expenses").update({ supplier_payment: true }).in("id", toFix.map(e => e.id));
+      if (!error) { toFix.forEach(e => { e.supplier_payment = true; }); if (typeof loadSuppliersView === "function" && !$("#view-suppliers")?.classList.contains("hidden")) loadSuppliersView(); }
+    }
     const moves = [
       ...(invRes.data || []).map(i => ({ date:i.doc_date, at:i.created_at, kind:"inv", id:i.id, text:"Τιμολόγιο " + (i.doc_number || "(χωρίς αριθμό)"), sub: i.mark ? "ΜΑΡΚ " + i.mark : "", debit:Number(i.total), credit:0 })),
-      ...(payRes.data || []).map(p => ({ date:p.expense_date, at:p.created_at, kind:"pay", id:p.id, text:"Πληρωμή · " + (METHOD_LABEL[p.method] || p.method || ""), sub: p.note || "", debit:0, credit:Number(p.amount) }))
+      ...exps.map(p => p.supplier_payment
+        ? ({ date:p.expense_date, at:p.created_at, kind:"pay", id:p.id, text:"Πληρωμή · " + (METHOD_LABEL[p.method] || p.method || ""), sub: p.note || "", debit:0, credit:Number(p.amount) })
+        // έξοδο με προμηθευτή που ΔΕΝ είναι έναντι υπολοίπου = αγορά πληρωμένη επί τόπου: χρέωση και πληρωμή μαζί
+        : ({ date:p.expense_date, at:p.created_at, kind:"pay", id:p.id, text:"Αγορά πληρωμένη επί τόπου · " + (METHOD_LABEL[p.method] || p.method || ""), sub: [p.category, p.note].filter(Boolean).join(" · "), debit:Number(p.amount), credit:Number(p.amount) }))
     ].sort((a, b) => a.date < b.date ? -1 : a.date > b.date ? 1 : (a.at < b.at ? -1 : 1));
+    s.purchases = moves.reduce((a, m) => a + m.debit, 0);
+    s.paid = moves.reduce((a, m) => a + m.credit, 0);
+    s.balance = Number(s.opening_balance || 0) + s.purchases - s.paid;
     let run = Number(s.opening_balance || 0);
     const lines = moves.map(m => {
       run += m.debit - m.credit;
@@ -6607,6 +6620,7 @@
 
   async function openExpenseDrawer(expenseId, prefill){
     if (STAFF_USERS_CACHE.length === 0) await loadStaffUsers();
+    if (!SUPPLIERS_CACHE.length) await loadSuppliers();
     let ex = { expense_date: new Date().toISOString().slice(0,10), category: EXPENSE_CATEGORIES[0], supplier_id:null, amount:0, note:"", method:"cash", bank:null, txn_ref:"", payer:"shop", payer_id:null, payer_note:"", employee_id:null };
     if (expenseId) {
       const { data } = await sb.from("expenses").select("*").eq("id", expenseId).single();
@@ -6629,6 +6643,14 @@
           <select id="ex-category">${EXPENSE_CATEGORIES.map(c => `<option ${ex.category===c?"selected":""}>${c}</option>`).join("")}</select>
         </div>
         <div class="field"><label>Προμηθευτής</label><select id="ex-supplier">${supplierOptionsHtml(ex.supplier_id)}</select></div>
+        <div class="field ${ex.supplier_id && !ex.purchase_invoice_id ? "" : "hidden"}" id="ex-suppay-field">
+          <label>Στην καρτέλα του προμηθευτή μετράει ως</label>
+          <div id="ex-suppay" style="display:flex;gap:6px;flex-wrap:wrap;">
+            <button type="button" class="chip" data-sp="pay">💸 Πληρωμή έναντι υπολοίπου</button>
+            <button type="button" class="chip" data-sp="buy">🛒 Αγορά πληρωμένη επί τόπου</button>
+          </div>
+          <div class="cell-sub" id="ex-suppay-hint" style="margin-top:6px;"></div>
+        </div>
 
         <div class="field ${["Μισθοδοσία","Πληρωμή υπαλλήλου"].includes(ex.category) ? "" : "hidden"}" id="ex-employee-field">
           <label>Πληρωμή σε</label>
@@ -6675,9 +6697,32 @@
       $("#ex-payer-who-field").classList.toggle("hidden", v !== "employee");
       $("#ex-payer-note-field").classList.toggle("hidden", v !== "other");
     });
+    // --- έξοδο με προμηθευτή: πληρωμή έναντι υπολοίπου ή αγορά πληρωμένη επί τόπου ---
+    let supMode = ex.supplier_id ? (ex.supplier_payment ? "pay" : (expenseId ? "buy" : null)) : null;
+    let supModeTouched = !!expenseId;
+    const setSupMode = (m) => {
+      supMode = m;
+      $$("#ex-suppay [data-sp]").forEach(b => b.classList.toggle("active", b.dataset.sp === m));
+      $("#ex-suppay-hint").textContent = m === "pay"
+        ? "Μειώνει αυτό που του χρωστάς (π.χ. εξόφληση τιμολογίου)."
+        : "Γράφεται στην καρτέλα του ως αγορά και πληρωμή μαζί — το υπόλοιπο δεν αλλάζει.";
+    };
+    const autoSupMode = async () => {
+      const sid = $("#ex-supplier").value;
+      $("#ex-suppay-field").classList.toggle("hidden", !sid || !!ex.purchase_invoice_id);
+      if (!sid || supModeTouched) { if (sid && supMode) setSupMode(supMode); return; }
+      if ($("#ex-category").value === "Πληρωμή προμηθευτή") { setSupMode("pay"); return; }
+      setSupMode("buy");
+      const { data } = await sb.from("supplier_balances").select("balance").eq("id", sid).maybeSingle();
+      if (!supModeTouched && $("#ex-supplier").value === sid && data && Number(data.balance) > 0) setSupMode("pay");
+    };
+    $$("#ex-suppay [data-sp]").forEach(b => b.addEventListener("click", () => { supModeTouched = true; setSupMode(b.dataset.sp); }));
+    $("#ex-supplier").addEventListener("change", autoSupMode);
+    if (ex.supplier_id && supMode) setSupMode(supMode); else autoSupMode();
     $("#ex-category").addEventListener("change", () => {
       const isSalary = ["Μισθοδοσία","Πληρωμή υπαλλήλου"].includes($("#ex-category").value);
       $("#ex-employee-field").classList.toggle("hidden", !isSalary);
+      if ($("#ex-category").value === "Πληρωμή προμηθευτή" && $("#ex-supplier").value) { supModeTouched = true; setSupMode("pay"); }
     });
     if (expenseId) {
       $("#ex-delete").addEventListener("click", async () => {
@@ -6703,6 +6748,7 @@
         amount: parseFloat($("#ex-amount").value || "0"),
         category,
         supplier_id: $("#ex-supplier").value || null,
+        supplier_payment: !!$("#ex-supplier").value && (!!ex.purchase_invoice_id || supMode === "pay"),
         note: $("#ex-note").value.trim() || null,
         method,
         bank,
