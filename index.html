@@ -873,6 +873,7 @@
           <h2>Λογιστήριο</h2>
           <div style="display:flex;gap:8px;flex-wrap:wrap;justify-content:flex-end;">
             <button type="button" class="btn-ghost btn-sm" id="new-purchase-btn">+ Τιμολόγιο αγοράς</button>
+            <button type="button" class="btn-ghost btn-sm" id="mydata-inbox-btn">📥 Από myDATA</button>
             <button type="button" class="btn-primary btn-sm" id="qr-scan-btn">📷 Σκανάρισμα τιμολογίου</button>
           </div>
         </div>
@@ -1191,7 +1192,7 @@
         { id:C[5], name:"Εστιατόριο Θαλασσινό", type:"Εστιατόριο", city:"Περίσσα", contact:"Πέτρος Ζαχαρίου", phone:"210 000 0106", status:"pending", entity_type:"company", created_at: ts(-1) }
       ],
       suppliers: [
-        { id:S[0], name:"TechnoNet Διανομή (demo)", vat_number:null, contact:"Γιώργος Βασιλείου", phone:"210 000 0201", opening_balance:0 },
+        { id:S[0], name:"TechnoNet Διανομή (demo)", vat_number:"094014298", contact:"Γιώργος Βασιλείου", phone:"210 000 0201", opening_balance:0 },
         { id:S[1], name:"Ασφάλεια Plus (demo)", vat_number:null, contact:"Άννα Σταύρου", phone:"210 000 0202", opening_balance:0 },
         { id:S[2], name:"Telecom Parts (demo)", vat_number:null, phone:"210 000 0203", opening_balance:150 }
       ],
@@ -1754,6 +1755,22 @@
       tax_office:"ΘΗΡΑΣ", legal_status:"ΟΕ", firm_flag:"ΕΠΙΤΗΔΕΥΜΑΤΙΑΣ", individual:false, address:"ΟΔΟΣ ΔΟΚΙΜΗΣ " + Number(afm.slice(-2)),
       postal_code:"84700", city:"ΘΗΡΑ", active:true, status_descr:"ΕΝΕΡΓΟΣ ΑΦΜ", stop_date:null, normal_vat:true,
       activity:"ΥΠΗΡΕΣΙΕΣ ΠΑΡΟΧΗΣ ΚΑΤΑΛΥΜΑΤΟΣ", activities:[{ descr:"ΥΠΗΡΕΣΙΕΣ ΠΑΡΟΧΗΣ ΚΑΤΑΛΥΜΑΤΟΣ", main:true }] });
+    // «εισερχόμενα» myDATA της επίδειξης: 2 από τον TechnoNet (ΑΦΜ 094014298), 1 από νέο προμηθευτή, 1 ακυρωμένο
+    const demoInbox = () => {
+      const d = (n) => { const x = new Date(); x.setDate(x.getDate() - n); return isoDay(x); };
+      const mk = (mark, vat, ago, aa, lines, type, cancelled) => {
+        const net = lines.reduce((s, l) => s + l.net, 0), vat24 = Math.round(net * 24) / 100;
+        return { mark, uid:"DEMO" + mark.slice(-4), cancelled: !!cancelled, issuer_vat: vat, counterpart_vat:"800123456", series:"Α", aa, issue_date: d(ago), invoice_type: type || "1.1", currency:"EUR",
+          lines: lines.map((l, i) => ({ line_no:i + 1, vat_category:"1", vat_rate:24, vat_amount: Math.round(l.net * 24) / 100, ...l })),
+          totals:{ net, vat: vat24, gross: Math.round((net + vat24) * 100) / 100 } };
+      };
+      return [
+        mk("400015538600717", "094014298", 2, "017620", [{ description:"ΚΡΟΥΣΤΙΚΟ ΔΡΑΠΑΝΟΚΑΤΣΑΒΙΔΟ 120Nm", qty:1, net:225 }]),
+        mk("400015538600727", "094014298", 12, "017411", [{ description:"ΚΑΛΩΔΙΟ UTP CAT6 305m", qty:2, net:180 }, { description:"ΒΥΣΜΑΤΑ RJ45 (100τμχ)", qty:1, net:12.5 }]),
+        mk("400015538600737", "998665290", 5, "551", [{ description:"IP ΚΑΜΕΡΑ BULLET 4MP", qty:3, net:195 }]),
+        mk("400015538600747", "094014298", 20, "017300", [{ description:"ΤΡΟΦΟΔΟΤΙΚΟ 12V", qty:1, net:20 }], "1.1", true)
+      ];
+    };
     const functions = {
       invoke: async (name, { body } = {}) => {
         const b = body || {};
@@ -1762,8 +1779,17 @@
           if (!vatOk(afm)) return { data:{ ok:false, error:"Ο ΑΦΜ δεν είναι έγκυρος (9 ψηφία με σωστό ψηφίο ελέγχου)." }, error:null };
           return { data: demoAfm(afm), error:null };
         }
+        if (b.action === "mydata_inbox") {
+          let list = demoInbox();
+          const v = String(b.counter_vat || "").replace(/\D/g, "");
+          if (v) list = list.filter(i => i.issuer_vat === v);
+          list = list.filter(i => i.issue_date >= (b.date_from || "0000") && i.issue_date <= (b.date_to || "9999"));
+          return { data:{ ok:true, invoices:list, more:false }, error:null };
+        }
         if (b.action === "mydata_doc") {
           const mark = String(b.mark || "").replace(/\D/g, "");
+          const hit = demoInbox().find(i => i.mark === mark);
+          if (hit) return { data:{ ok:true, invoice:hit, issuer_info: hit.issuer_vat === "094014298" ? null : demoAfm(hit.issuer_vat) }, error:null };
           if (!mark.endsWith("7")) return { data:{ ok:false, notfound:true, error:"Δεν βρέθηκε στο myDATA παραστατικό με αυτόν τον ΜΑΡΚ (επίδειξη: δοκίμασε ΜΑΡΚ που τελειώνει σε 7)." }, error:null };
           return { data:{ ok:true, issuer_info: demoAfm("123456783"), invoice:{ mark, uid:"DEMO", cancelled:false, issuer_vat:"123456783", counterpart_vat:"000000000",
             series:"Α", aa:"1207", issue_date: isoDay(new Date()), invoice_type:"1.1", currency:"EUR",
@@ -2861,6 +2887,13 @@
     $$("#dashboard-stats [data-goto]").forEach(tile => {
       tile.addEventListener("click", () => { goToView(tile.dataset.goto); if (tile.dataset.ctab) showClientsTab(tile.dataset.ctab); });
     });
+    // νέα τιμολόγια αγοράς στο myDATA που δεν έχουν περαστεί (στο παρασκήνιο — δεν καθυστερεί την αρχική)
+    if (PROFILE && PROFILE.role === "owner") loadSuppliers().then(() => fetchMyDataInbox({ days: 60 })).then(r => {
+      if (!r || !r.ok || !$("#dashboard-stats") || $("#md-inbox-tile")) return;
+      const n = inboxPending(r).length; if (!n) return;
+      $("#dashboard-stats").insertAdjacentHTML("afterbegin", `<div class="stat-tile balance-due" id="md-inbox-tile" style="cursor:pointer;"><div class="num">${n}</div><div class="lbl">Νέα τιμολόγια αγοράς στο myDATA</div></div>`);
+      $("#md-inbox-tile").addEventListener("click", () => openMyDataInbox());
+    }).catch(() => {});
 
     const urgentList = urgentRes.data || [];
     $("#dashboard-urgent").innerHTML = urgentList.length === 0
@@ -4125,6 +4158,7 @@
         <div style="display:flex;gap:8px;flex-wrap:wrap;">
           <button type="button" class="btn-primary btn-sm" id="sc-inv">+ Τιμολόγιο</button>
           <button type="button" class="btn-ghost btn-sm" id="sc-scan">📷 QR</button>
+          <button type="button" class="btn-ghost btn-sm" id="sc-mydata">📥 myDATA</button>
           <button type="button" class="btn-ghost btn-sm" id="sc-pay">Πληρωμή</button>
           <button type="button" class="btn-ghost btn-sm" id="sc-req">📩 Αίτημα τιμών</button>
           <button type="button" class="btn-ghost btn-sm" id="sc-access">🔑 Πρόσβαση</button>
@@ -4152,6 +4186,7 @@
     });
     $("#sc-inv").addEventListener("click", () => openPurchaseInvoiceForm({ supplier_id: supplierId }));
     $("#sc-scan").addEventListener("click", () => openQrScanner({ supplier_id: supplierId }));
+    $("#sc-mydata").addEventListener("click", () => openMyDataInbox({ supplier_id: supplierId }));
     $("#sc-pay").addEventListener("click", () => openSupplierPayment(supplierId, Math.max(0, Number(s.balance))));
     $("#sc-edit").addEventListener("click", () => openSupplierDrawer(supplierId));
     $$("#sc-rows tr").forEach(tr => tr.addEventListener("click", () =>
@@ -4243,7 +4278,7 @@
     openDrawer("Τιμολόγιο αγοράς", `
       <form id="pi-form" novalidate>
         <div id="pi-msg"></div>
-        ${prefill.mark ? `<div class="money-count-diff ok" style="margin:0 0 14px;">📷 Διαβάστηκε το QR — ΜΑΡΚ <b>${escapeHtml(prefill.mark)}</b>${prefill.url ? ` · <a href="${escapeHtml(prefill.url)}" target="_blank" rel="noopener">${qrLinkLabel(prefill.url)}</a>` : ""}.
+        ${prefill.mark ? `<div class="money-count-diff ok" style="margin:0 0 14px;">${prefill.source === "mydata_auto" ? "🔎 Βρέθηκε αυτόματα στο myDATA (το μόνο νέο τιμολόγιο αυτού του προμηθευτή) — έλεγξε αριθμό και σύνολο με το χαρτί. ΜΑΡΚ" : prefill.source === "mydata" ? "📥 Από το myDATA — ΜΑΡΚ" : prefill.source === "pdf" ? "📄 Διαβάστηκε από το PDF — ΜΑΡΚ" : "📷 Διαβάστηκε το QR — ΜΑΡΚ"} <b>${escapeHtml(prefill.mark)}</b>${prefill.url ? ` · <a href="${escapeHtml(prefill.url)}" target="_blank" rel="noopener">${qrLinkLabel(prefill.url)}</a>` : ""}.
            <span id="pi-qr-hint">Συμπλήρωσε τα υπόλοιπα από το χαρτί.</span></div>` : ""}
         ${!prefill.mark && prefill.url ? `<div class="money-count-diff" style="margin:0 0 14px;">📷 Το QR είναι σύνδεσμος του παρόχου ηλεκτρονικής τιμολόγησης και <b>δεν έχει μέσα τον ΜΑΡΚ</b>.
            Γράψε τον <b>ΜΑΡΚ</b> που είναι τυπωμένος στο χαρτί (15 ψηφία, συνήθως αρχίζει από <b>4</b> — συχνά κοντά στο QR ή στις παρατηρήσεις) και θα συμπληρωθούν όλα μόνα τους από το myDATA.
@@ -4274,7 +4309,7 @@
         <div class="field"><label>Φωτογραφία / PDF τιμολογίου (για το αρχείο και τον λογιστή)</label>
           <div class="pi-file">
             <label class="btn-ghost btn-sm qr-photo-btn">📎 ${prefill.file ? "Αλλαγή" : "Επισύναψη"}<input type="file" id="pi-file" accept="image/*,application/pdf" hidden></label>
-            <span class="cell-sub" id="pi-file-name">${prefill.file ? "✓ Θα κρατηθεί η φωτογραφία που σκανάρισες" : "καμία ακόμα"}</span>
+            <span class="cell-sub" id="pi-file-name">${prefill.file ? "✓ Θα κρατηθεί " + (/pdf/i.test(prefill.file.type || prefill.file.name || "") ? "το PDF «" + escapeHtml(prefill.file.name || "") + "»" : "η φωτογραφία που σκανάρισες") : "καμία ακόμα"}</span>
           </div></div>
         <div class="drawer-foot" style="margin:22px -22px -20px;">
           <span class="cell-sub" id="pi-foot-hint">Τα είδη αποθήκης θα προστεθούν στο απόθεμα.</span>
@@ -4878,9 +4913,13 @@
     return out;
   }
 
-  async function handleQrResult(text, ctx){
+  async function handleQrResult(text, ctx, extra){
     stopQrCamera();
-    const info = parseInvoiceQr(text);
+    const info = text ? parseInvoiceQr(text) : { qr_raw: "" };
+    if (!info.mark && extra && extra.mark) info.mark = extra.mark;
+    if (!info.vat && extra && extra.vat) info.vat = extra.vat;
+    // χωρίς ΜΑΡΚ (π.χ. QR-σύνδεσμος παρόχου): το βρίσκουμε μόνοι μας στο myDATA
+    if (!info.mark && await autoFindInMyData(info, ctx || {})) return;
     if (info.mark) {
       const { data: dup } = await sb.from("purchase_invoices").select("id").eq("mark", info.mark).maybeSingle();
       if (dup) {
@@ -4894,8 +4933,175 @@
     await openPurchaseInvoiceForm({ ...(ctx || {}), ...info, supplier_id: (ctx && ctx.supplier_id) || "" });
     // από την κάμερα δεν έχουμε φωτογραφία ολόκληρου του τιμολογίου — πρόταση να τραβηχτεί μία
     if (!(ctx && ctx.file) && $("#pi-file-name")) $("#pi-file-name").innerHTML = '<span style="color:var(--amber);">Τράβηξε μια φωτογραφία ολόκληρου του τιμολογίου για το αρχείο</span>';
-    if (!info.mark && !info.url) showMsg($("#pi-msg"), "Διαβάστηκε το QR αλλά δεν βρέθηκε ΜΑΡΚ μέσα του. Γράψε τον ΜΑΡΚ από το χαρτί.", "error");
+    if (!info.mark && !info.url) showMsg($("#pi-msg"), text ? "Διαβάστηκε το QR αλλά δεν βρέθηκε ΜΑΡΚ μέσα του και δεν βρέθηκε νέο τιμολόγιο στο myDATA. Γράψε τον ΜΑΡΚ από το χαρτί." : "Δεν βρέθηκε ΜΑΡΚ ούτε νέο τιμολόγιο στο myDATA (ίσως δεν έχει διαβιβαστεί ακόμα). Γράψε τον ΜΑΡΚ ή τα στοιχεία από το χαρτί.", "error");
     if (!info.mark && $("#pi-mark")) setTimeout(() => $("#pi-mark").focus(), 300);
+  }
+
+  // ================= myDATA: ΤΙΜΟΛΟΓΙΑ ΑΓΟΡΑΣ ΧΩΡΙΣ ΜΑΡΚ =================
+  // Όσα σου έχουν εκδώσει οι προμηθευτές είναι ήδη στο myDATA. Τα φέρνουμε ανά διάστημα
+  // (και ανά ΑΦΜ προμηθευτή), κρύβουμε όσα έχεις ήδη περάσει, κι εσύ απλώς διαλέγεις.
+  let MYDATA_INBOX_MEMO = {};   // κλειδί -> { at, res } για να μη ρωτάμε την ΑΑΔΕ συνέχεια
+  const INV_TYPE_LABEL = { "1.1":"Τιμολόγιο", "1.2":"Τιμολόγιο ενδοκοιν.", "1.3":"Τιμολόγιο τρίτων χωρών", "1.4":"Τιμολόγιο (για λογ/σμό τρίτων)", "1.6":"Τιμολόγιο (συμπληρωματικό)",
+    "2.1":"Τιμολόγιο παροχής", "2.2":"Τιμολόγιο παροχής ενδοκοιν.", "2.4":"Τιμολόγιο παροχής (συμπλ.)", "5.1":"Πιστωτικό", "5.2":"Πιστωτικό", "11.1":"Απόδειξη", "11.2":"Απόδειξη παροχής" };
+  async function fetchMyDataInbox({ days = 60, from, to, vat } = {}){
+    to = to || isoDay(new Date());
+    if (!from) { const d = new Date(); d.setDate(d.getDate() - days); from = isoDay(d); }
+    const key = [from, to, vat || ""].join("|");
+    const m = MYDATA_INBOX_MEMO[key];
+    if (m && Date.now() - m.at < 5 * 60e3) return m.res;
+    const r = await aadeCall({ action:"mydata_inbox", date_from: from, date_to: to, counter_vat: vat || "" });
+    if (!r.ok) return r;
+    // ποια έχουν ήδη περαστεί (με ΜΑΡΚ)
+    const marks = (r.invoices || []).map(i => i.mark).filter(Boolean);
+    const have = new Map();
+    for (let i = 0; i < marks.length; i += 150) {
+      const { data } = await sb.from("purchase_invoices").select("id, mark").in("mark", marks.slice(i, i + 150));
+      (data || []).forEach(p => have.set(p.mark, p.id));
+    }
+    const invoices = (r.invoices || []).map(i => ({ ...i, registered_id: have.get(i.mark) || null }))
+      .sort((a, b) => String(b.issue_date || "").localeCompare(String(a.issue_date || "")));
+    const res = { ok:true, invoices, more: r.more, from, to };
+    MYDATA_INBOX_MEMO[key] = { at: Date.now(), res };
+    return res;
+  }
+  const inboxPending = (res) => (res.invoices || []).filter(i => !i.registered_id && !i.cancelled);
+  const AFM_NAME_MEMO = {};   // ΑΦΜ -> επωνυμία από την ΑΑΔΕ (για προμηθευτές που δεν έχεις ακόμα)
+  function inboxSupplierName(inv){
+    const s = SUPPLIERS_CACHE.find(x => x.vat_number && x.vat_number === inv.issuer_vat);
+    return s ? { known:true, id:s.id, name:s.name } : { known:false, id:"", name: AFM_NAME_MEMO[inv.issuer_vat] || inv.issuer_name || ("ΑΦΜ " + (inv.issuer_vat || "—")) };
+  }
+  async function resolveInboxNames(invoices){
+    const vats = [...new Set(invoices.map(i => i.issuer_vat).filter(v => v && !AFM_NAME_MEMO[v] && !SUPPLIERS_CACHE.some(x => x.vat_number === v)))].slice(0, 8);
+    let any = false;
+    for (const v of vats) {
+      const r = await aadeCall({ action:"afm", afm: v });
+      if (r && r.ok && (r.trade_name || r.name)) { AFM_NAME_MEMO[v] = r.trade_name || r.name; any = true; }
+      else if (r && r.setup) break;
+    }
+    return any;
+  }
+  function inboxRowHtml(inv){
+    const s = inboxSupplierName(inv), t = inv.totals || {};
+    const num = [inv.series && inv.series !== "0" ? inv.series : "", inv.aa].filter(Boolean).join(" ");
+    return `<div class="sd-row compact" data-mdinv="${escapeHtml(inv.mark)}" role="button" tabindex="0" style="${inv.registered_id || inv.cancelled ? "opacity:.6;" : ""}">
+      <div class="sd-no"><b>${inv.issue_date ? fmtShortDate(inv.issue_date.slice(0, 10)) : "—"}</b><div class="cell-sub">${escapeHtml(INV_TYPE_LABEL[inv.invoice_type] || ("τύπος " + (inv.invoice_type || "?")))}</div></div>
+      <div class="sd-who"><div><b>${escapeHtml(s.name)}</b>${s.known ? "" : ' <span class="cell-sub">· νέος προμηθευτής</span>'}</div>
+        <div class="cell-sub">${num ? "Αρ. " + escapeHtml(num) + " · " : ""}ΜΑΡΚ ${escapeHtml(inv.mark)}</div></div>
+      <div style="text-align:right;white-space:nowrap;"><b>${eur(t.gross ?? ((Number(t.net) || 0) + (Number(t.vat) || 0)))}</b>
+        <div class="cell-sub">${inv.cancelled ? '<span style="color:var(--red);">ακυρωμένο</span>' : inv.registered_id ? "✓ καταχωρημένο" : '<span style="color:var(--teal);">νέο</span>'}</div></div></div>`;
+  }
+  // ctx: { supplier_id, file, qr_raw, url, note, days }
+  async function openMyDataInbox(ctx){
+    ctx = ctx || {};
+    await loadSuppliers();
+    const sup = ctx.supplier_id ? SUPPLIERS_CACHE.find(s => s.id === ctx.supplier_id) : null;
+    let days = ctx.days || 60, onlySup = !!(sup && sup.vat_number), showAll = false, res = null;
+    openDrawer("📥 Τιμολόγια αγοράς από το myDATA", `
+      ${ctx.note ? `<div class="money-count-diff ok" style="margin:0 0 12px;">${ctx.note}</div>` : ""}
+      <div class="cell-sub" style="margin-bottom:10px;">Όσα σου έχουν εκδώσει οι προμηθευτές (με τον ΑΦΜ σου) — χωρίς να γράψεις ΜΑΡΚ. Πάτα ένα για να καταχωρηθεί.</div>
+      <div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:8px;" id="mdi-days">
+        ${[[30,"30 ημέρες"],[60,"60 ημέρες"],[120,"4 μήνες"],[365,"Έτος"]].map(([d, l]) => `<button type="button" class="chip ${d === days ? "active" : ""}" data-d="${d}">${l}</button>`).join("")}
+      </div>
+      <div style="display:flex;gap:14px;flex-wrap:wrap;margin-bottom:10px;">
+        ${sup && sup.vat_number ? `<label class="check-line"><input type="checkbox" id="mdi-only" checked> Μόνο ${escapeHtml(sup.name)}</label>` : ""}
+        <label class="check-line"><input type="checkbox" id="mdi-all"> Δείξε και τα καταχωρημένα</label>
+      </div>
+      ${ctx.file ? `<div class="cell-sub" style="margin-bottom:8px;">📎 Το αρχείο «${escapeHtml(ctx.file.name || "φωτογραφία")}» θα επισυναφθεί στο τιμολόγιο που θα διαλέξεις.</div>` : ""}
+      <div id="mdi-msg"></div>
+      <div id="mdi-list"><div class="cell-sub">Αναζήτηση στο myDATA…</div></div>`, true);
+    const render = () => {
+      const box = $("#mdi-list"); if (!box) return;
+      const list = (res.invoices || []).filter(i => showAll || (!i.registered_id && !i.cancelled));
+      const hidden = (res.invoices || []).length - list.length;
+      box.innerHTML = (list.length ? list.map(inboxRowHtml).join("") : `<div class="empty-state">${(res.invoices || []).length ? "Όλα τα τιμολόγια του διαστήματος είναι ήδη καταχωρημένα. 👍" : "Δεν βρέθηκαν τιμολόγια αγοράς στο myDATA για αυτό το διάστημα."}<div class="cell-sub" style="margin-top:6px;">Ένα τιμολόγιο φαίνεται εδώ μόλις το διαβιβάσει ο προμηθευτής (συνήθως αμέσως, μερικές φορές σε λίγες ώρες).</div></div>`)
+        + (hidden && !showAll ? `<div class="cell-sub" style="margin-top:8px;">${hidden} ήδη καταχωρημένα/ακυρωμένα κρυμμένα.</div>` : "")
+        + (res.more ? '<div class="cell-sub" style="margin-top:8px;color:var(--amber);">Πάρα πολλά αποτελέσματα — διάλεξε μικρότερο διάστημα.</div>' : "");
+      $$("#mdi-list [data-mdinv]").forEach(el => el.addEventListener("click", () => {
+        const inv = res.invoices.find(i => i.mark === el.dataset.mdinv);
+        if (inv.registered_id) { openPurchaseInvoice(inv.registered_id); return; }
+        openPurchaseInvoiceForm({ supplier_id: inboxSupplierName(inv).id || ctx.supplier_id || "", mark: inv.mark, source:"mydata",
+          file: ctx.file, qr_raw: ctx.qr_raw, url: ctx.url, doc_date: inv.issue_date ? inv.issue_date.slice(0, 10) : undefined });
+      }));
+    };
+    const load = async () => {
+      clearMsg($("#mdi-msg")); $("#mdi-list").innerHTML = '<div class="cell-sub"><span class="spinner"></span> Αναζήτηση στο myDATA…</div>';
+      const r = await fetchMyDataInbox({ days, vat: onlySup ? sup.vat_number : "" });
+      if (!$("#mdi-list")) return;
+      if (!r.ok) { $("#mdi-list").innerHTML = ""; showMsg($("#mdi-msg"), r.error || "Σφάλμα myDATA.", "error"); return; }
+      res = r; render();
+      resolveInboxNames(r.invoices || []).then(any => { if (any && res === r) render(); });
+    };
+    $$("#mdi-days [data-d]").forEach(b => b.addEventListener("click", () => {
+      days = Number(b.dataset.d); $$("#mdi-days [data-d]").forEach(x => x.classList.toggle("active", x === b)); load(); }));
+    if ($("#mdi-only")) $("#mdi-only").addEventListener("change", (e) => { onlySup = e.target.checked; load(); });
+    $("#mdi-all").addEventListener("change", (e) => { showAll = e.target.checked; if (res) render(); });
+    if (ctx.preset) { res = ctx.preset; render(); resolveInboxNames(res.invoices || []).then(any => { if (any) render(); }); } else load();
+  }
+  // QR χωρίς ΜΑΡΚ / PDF / φωτογραφία χωρίς QR: βρες το μόνο του στο myDATA
+  async function autoFindInMyData(info, ctx){
+    if (!(PROFILE && PROFILE.role === "owner")) return false;
+    await loadSuppliers();
+    const sup = ctx && ctx.supplier_id ? SUPPLIERS_CACHE.find(s => s.id === ctx.supplier_id) : null;
+    const vat = (sup && sup.vat_number) || info.vat || "";
+    if ($("#qr-status")) $("#qr-status").innerHTML = '<span class="spinner"></span> Ψάχνω το τιμολόγιο στο myDATA…';
+    const r = await fetchMyDataInbox({ days: 60, vat });
+    if (!r.ok) return false;
+    let cands = inboxPending(r);
+    if (info.doc_date) { const same = cands.filter(i => (i.issue_date || "").slice(0, 10) === info.doc_date); if (same.length) cands = same; }
+    const extra = { file: ctx && ctx.file, qr_raw: info.qr_raw, url: info.url };
+    if (cands.length === 1 && vat) {
+      const inv = cands[0];
+      await openPurchaseInvoiceForm({ ...(ctx || {}), ...extra, supplier_id: inboxSupplierName(inv).id || (ctx && ctx.supplier_id) || "", mark: inv.mark, source:"mydata_auto",
+                                      doc_date: inv.issue_date ? inv.issue_date.slice(0, 10) : undefined });
+      return true;
+    }
+    if (cands.length >= 1) {
+      await openMyDataInbox({ ...(ctx || {}), ...extra, preset: { ...r, invoices: cands }, note:
+        `🔎 Βρέθηκ${cands.length === 1 ? "ε 1 τιμολόγιο" : "αν " + cands.length + " τιμολόγια"} στο myDATA${vat && sup ? " από " + escapeHtml(sup.name) : ""} που δεν έχεις περάσει — πάτα αυτό που κρατάς.` });
+      return true;
+    }
+    return false;
+  }
+  // PDF (π.χ. από email): κείμενο για ΜΑΡΚ + εικόνα σελίδων για QR
+  let PDFJS_PROMISE = null;
+  function loadPdfJs(){
+    if (window.pdfjsLib) return Promise.resolve(window.pdfjsLib);
+    if (!PDFJS_PROMISE) PDFJS_PROMISE = loadScript("https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js", "pdfjsLib").then(lib => {
+      lib.GlobalWorkerOptions.workerSrc = "https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js"; return lib;
+    }).catch(e => { PDFJS_PROMISE = null; throw e; });
+    return PDFJS_PROMISE;
+  }
+  function findMarkInText(text){
+    const t = String(text || "").replace(/\s+/g, " ");
+    const lab = t.match(/(?:Μ\.?\s?Α\.?\s?Ρ\.?\s?Κ\.?|M\.?\s?A\.?\s?R\.?\s?K\.?)\s*[:：#.]?\s*(\d[\d ]{14,20})/i);
+    if (lab) { const d = lab[1].replace(/\D/g, ""); if (d.length >= 15) return d.slice(0, 15); }
+    const any = t.match(/(?<!\d)4\d{14}(?!\d)/);
+    return any ? any[0] : null;
+  }
+  function findVatInText(text){
+    const m = String(text || "").match(/Α\.?\s?Φ\.?\s?Μ\.?\s*[:.]?\s*(?:EL)?\s*(\d{9})/gi) || [];
+    return m.map(x => x.replace(/\D/g, "").slice(-9));
+  }
+  async function readInvoicePdf(file){
+    const lib = await loadPdfJs();
+    const pdf = await lib.getDocument({ data: new Uint8Array(await file.arrayBuffer()) }).promise;
+    let text = "", qr = null;
+    for (let p = 1; p <= Math.min(pdf.numPages, 3); p++) {
+      const page = await pdf.getPage(p);
+      const tc = await page.getTextContent();
+      text += " " + tc.items.map(i => i.str).join(" ");
+      if (!qr) {
+        for (const scale of [2, 3.2]) {
+          const vp = page.getViewport({ scale });
+          const c = document.createElement("canvas"); c.width = Math.round(vp.width); c.height = Math.round(vp.height);
+          const g = c.getContext("2d"); g.fillStyle = "#fff"; g.fillRect(0, 0, c.width, c.height);
+          await page.render({ canvasContext: g, viewport: vp }).promise;
+          qr = await decodeQrFromCanvas(c);
+          if (qr) break;
+        }
+      }
+    }
+    return { text, qr, mark: findMarkInText(text), vats: findVatInText(text) };
   }
 
   function openQrScanner(ctx){
@@ -4909,15 +5115,32 @@
         </div>
         <div class="qr-status" id="qr-status">${canCamera ? "Στόχευσε το QR του τιμολογίου…" : "Η κάμερα δεν είναι διαθέσιμη εδώ — τράβηξε φωτογραφία."}</div>
         <div class="qr-actions">
-          <label class="btn-ghost btn-sm qr-photo-btn">🖼 Από φωτογραφία
-            <input type="file" id="qr-file" accept="image/*" capture="environment" hidden></label>
+          <label class="btn-ghost btn-sm qr-photo-btn">📎 Φωτογραφία ή PDF (π.χ. από email)
+            <input type="file" id="qr-file" accept="image/*,application/pdf,.pdf" hidden></label>
+          <button type="button" class="btn-ghost btn-sm owner-only" id="qr-inbox">📥 Από myDATA</button>
           <button type="button" class="btn-ghost btn-sm" id="qr-manual">Χωρίς QR (με το χέρι)</button>
         </div>
       </div>`, true);
     $("#qr-manual").addEventListener("click", () => { stopQrCamera(); openPurchaseInvoiceForm(ctx); });
+    $("#qr-inbox").addEventListener("click", () => { stopQrCamera(); openMyDataInbox(ctx); });
     $("#qr-file").addEventListener("change", async (e) => {
       const f = e.target.files && e.target.files[0];
       if (!f) return;
+      const isPdf = f.type === "application/pdf" || /\.pdf$/i.test(f.name || "");
+      if (isPdf) {
+        stopQrCamera();
+        $("#qr-status").innerHTML = '<span class="spinner"></span> Διαβάζω το PDF…';
+        try {
+          const r = await readInvoicePdf(f);
+          if (!BIZ || !BIZ.vat_number) { try { await loadSeries(true); } catch (e2) {} }
+          const me = (BIZ && BIZ.vat_number) || "";
+          const vat = r.vats.find(v => v !== me) || "";
+          await handleQrResult(r.qr || "", { ...(ctx || {}), file: f, source:"pdf" }, { mark: r.mark, vat });
+        } catch (err) {
+          $("#qr-status").textContent = /pdfjsLib/.test(err.message) ? "Δεν φόρτωσε ο αναγνώστης PDF — έλεγξε τη σύνδεση." : "Δεν διαβάστηκε το PDF (" + err.message + ").";
+        }
+        return;
+      }
       $("#qr-status").textContent = "Διαβάζω τη φωτογραφία…";
       try {
         const bmp = await createImageBitmap(f);
@@ -4929,6 +5152,7 @@
           const txt = await decodeQrFromCanvas(c);
           if (txt) { await handleQrResult(txt, { ...(ctx || {}), file: f }); return; }
         }
+        if (await autoFindInMyData({ qr_raw:"" }, { ...(ctx || {}), file: f })) return;
         $("#qr-status").innerHTML = 'Δεν βρέθηκε QR στη φωτογραφία. Δοκίμασε πιο κοντά και με καλό φως — ή <button type="button" class="add-link" id="qr-use-photo">κράτα τη φωτογραφία και συμπλήρωσε με το χέρι</button>.';
         $("#qr-use-photo").addEventListener("click", () => openPurchaseInvoiceForm({ ...(ctx || {}), file: f }));
       } catch (err) {
@@ -4962,6 +5186,7 @@
   }
 
   $("#qr-scan-btn").addEventListener("click", () => openQrScanner());
+  $("#mydata-inbox-btn").addEventListener("click", () => openMyDataInbox());
   $("#new-purchase-btn").addEventListener("click", () => openPurchaseInvoiceForm());
   $("#new-supplier-btn2").addEventListener("click", () => openSupplierDrawer());
   $("#sup-q").addEventListener("input", renderSuppliersList);
