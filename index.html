@@ -6623,11 +6623,13 @@
     const until = valid ? new Date(new Date(q.quote_date + "T00:00:00").getTime() + valid * 86400000).toLocaleDateString("el-GR") : "";
     const goods = items.filter(l => quoteLineKind(l) === "item"), extras = items.filter(l => quoteLineKind(l) !== "item");
     const lineSum = (arr) => r2(arr.reduce((s, l) => s + Number(l.qty) * Number(l.unit_price), 0));
-    const priceHead = `Τιμή ${pwv ? "(με ΦΠΑ)" : "(χωρίς ΦΠΑ)"}`, valHead = pwv ? "Σύνολο" : "Αξία";
+    // κεφαλαία χωρίς τόνους (κάποιοι browsers κρατούν τον τόνο στο text-transform)
+    const UP = (t) => String(t).normalize("NFD").replace(/\u0301/g, "").normalize("NFC").toUpperCase();
+    const priceHead = UP(`Τιμή ${pwv ? "(με ΦΠΑ)" : "(χωρίς ΦΠΑ)"}`), valHead = UP(pwv ? "Σύνολο" : "Αξία");
     const table = (arr, title, subLabel) => !arr.length ? "" : `
-  <div class="qsec">${title}</div>
+  <div class="qsec">${UP(title)}</div>
   <table class="qtab"><colgroup><col style="width:28px"><col><col style="width:60px"><col style="width:120px"><col style="width:105px"></colgroup>
-    <thead><tr><th>#</th><th>Περιγραφή</th><th class="r">Ποσ.</th><th class="r">${priceHead}</th><th class="r">${valHead}</th></tr></thead>
+    <thead><tr><th>#</th><th>${UP("Περιγραφή")}</th><th class="r">${UP("Ποσ.")}</th><th class="r">${priceHead}</th><th class="r">${valHead}</th></tr></thead>
     <tbody>${arr.map((l, i) => `<tr><td>${i + 1}</td><td>${escapeHtml(l.description)}${l.sku ? `<div style="color:#777;font-size:10px;">${escapeHtml(l.sku)}</div>` : ""}</td><td class="r">${fmtQty(l.qty)}</td><td class="r">${eur(l.unit_price)}</td><td class="r">${eur(Number(l.qty) * Number(l.unit_price))}</td></tr>`).join("")}
     ${goods.length && extras.length ? `<tr class="qsub"><td></td><td colspan="3">${subLabel}</td><td class="r">${eur(lineSum(arr))}</td></tr>` : ""}</tbody></table>`;
     const terms = [
@@ -6636,7 +6638,10 @@
     ].filter(Boolean);
     return `<!doctype html><html lang="el"><head><meta charset="UTF-8"><title>${escapeHtml(q.code)} — Προσφορά</title>
 <meta name="viewport" content="width=device-width, initial-scale=1"><style>${PRINT_CSS}
-  .qsec{margin:18px 0 6px;font-weight:700;font-size:12px;letter-spacing:.4px;text-transform:uppercase;color:#1A2426;border-left:4px solid #0E7C7B;padding-left:8px;}
+  .qtab th{text-transform:none;}
+  .qto{margin-top:16px;border:1px solid #cfd8d8;border-radius:8px;padding:9px 14px;font-size:13px;display:flex;gap:10px;align-items:baseline;}
+  .qto span{font-size:10px;font-weight:700;letter-spacing:.5px;color:#666;}
+  .qsec{margin:18px 0 6px;font-weight:700;font-size:12px;letter-spacing:.4px;color:#1A2426;border-left:4px solid #0E7C7B;padding-left:8px;}
   .qsub td{font-weight:700;background:#f2f4f4;}
   .qterms{margin-top:18px;border:1px solid #cfd8d8;border-radius:8px;padding:10px 14px;line-height:1.55;}
   .qterms ul{margin:4px 0 0;padding-left:18px;}
@@ -6647,11 +6652,11 @@
   .qtab td{word-wrap:break-word;}
 </style></head><body>
   <div class="top">${issuerHtml(b)}
-    <div class="docbox"><div class="t">Προσφορά</div><div class="no">${escapeHtml(q.code)}</div>
+    <div class="docbox"><div class="t">${UP("Προσφορά")}</div><div class="no">${escapeHtml(q.code)}</div>
       <div>Ημερομηνία: <b>${new Date(q.quote_date + "T00:00:00").toLocaleDateString("el-GR")}</b></div>
       ${until ? `<div>Ισχύει έως: <b>${until}</b></div>` : ""}</div>
   </div>
-  <div class="grid2">${clientBoxHtml({ ...c, is_walkin:false })}</div>
+  <div class="qto"><span>${UP("Πελάτης")}:</span><b>${escapeHtml(c.name || "")}</b></div>
   ${extras.length ? table(goods, "Εξοπλισμός", "Σύνολο εξοπλισμού") + table(extras, "Εργασία & μικροϋλικά", "Σύνολο εργασίας & υλικών")
                   : table(goods, "Είδη", "")}
   <div class="bottom"><div class="vat"></div>
