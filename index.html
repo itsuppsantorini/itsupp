@@ -246,6 +246,23 @@
   .pq-row{display:grid;grid-template-columns:1fr auto;gap:6px 12px;padding:12px 0;border-bottom:1px solid var(--line);}
   .pq-row:last-child{border-bottom:0;}
   .pq-btns{grid-column:1/-1;display:flex;gap:8px;align-items:center;flex-wrap:wrap;}
+  .qline-extra{background:var(--surface-2);}
+  .qmarkup{border:1px dashed var(--line);border-radius:10px;padding:10px 12px;margin-top:12px;}
+  .qmarkup label{font-weight:600;font-size:13px;}
+  .qmarkup-row{display:flex;gap:6px;align-items:center;flex-wrap:wrap;margin:6px 0;}
+  .qmarkup-row input{width:80px;}
+  .table-scroll{overflow-x:auto;-webkit-overflow-scrolling:touch;max-width:100%;}
+  .inv-toolbar{padding:12px 20px 4px;display:flex;flex-direction:column;gap:8px;}
+  .inv-toolbar input[type=search]{max-width:420px;}
+  .inv-chips{display:flex;gap:6px;flex-wrap:wrap;}
+  .inv-chips:empty{display:none;}
+  .inv-chips .chip{border:0;}
+  .inv-chips .chip small{opacity:.75;font-weight:500;margin-left:3px;}
+  .inv-sub .chip{font-size:11.5px;padding:4px 10px;}
+  .inv-selbar{position:sticky;top:0;z-index:5;display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin:6px 20px;padding:10px 12px;border-radius:10px;background:var(--teal-light);color:var(--teal-dark);font-weight:600;font-size:13px;}
+  .inv-group td{background:var(--surface-2);font-weight:700;font-size:12px;letter-spacing:.3px;padding:7px 12px;color:var(--ink-soft);}
+  tr.inv-picked td{background:var(--teal-light);}
+  .inv-ck input{width:18px;height:18px;}
   .qadd-row{display:flex;gap:14px;flex-wrap:wrap;align-items:center;}
   .qsum{border-top:1px solid var(--line);margin-top:8px;padding-top:10px;}
   .qsum div{display:flex;justify-content:space-between;padding:3px 0;font-size:13.5px;}
@@ -833,7 +850,8 @@
       <div class="panel">
         <div class="panel-head">
           <h2>Αποθήκη</h2>
-          <div style="display:flex;gap:8px;">
+          <div style="display:flex;gap:8px;flex-wrap:wrap;justify-content:flex-end;">
+            <button class="btn-ghost btn-sm" id="inv-select-btn">🧾 Προσφορά</button>
             <button class="btn-ghost btn-sm owner-only" id="inv-purchase-btn">📥 Τιμολόγιο αγοράς</button>
             <button class="btn-ghost btn-sm" id="new-supplier-btn">+ Νέος προμηθευτής</button>
             <button class="btn-primary btn-sm" id="new-item-btn">+ Νέο είδος</button>
@@ -841,10 +859,23 @@
         </div>
         <div class="panel-body">
           <div id="inventory-msg" style="padding:0 20px;"></div>
-          <table>
-            <thead><tr><th>Είδος</th><th>Απόθεμα</th><th>Τιμή</th><th>Προμηθευτής</th></tr></thead>
+          <div class="inv-toolbar">
+            <input id="stock-q" type="search" placeholder="🔎 Αναζήτηση είδους (όνομα, κωδικός)" autocomplete="off">
+            <div class="inv-chips" id="inv-cats"></div>
+            <div class="inv-chips inv-sub" id="inv-subcats"></div>
+            <div class="cell-sub" id="inv-summary"></div>
+          </div>
+          <div class="inv-selbar hidden" id="inv-selbar">
+            <span id="inv-sel-text">Διάλεξε είδη για την προσφορά</span>
+            <span style="flex:1;"></span>
+            <button type="button" class="btn-ghost btn-sm" id="inv-sel-cat">🏷 Κατηγορία</button>
+            <button type="button" class="btn-ghost btn-sm" id="inv-sel-cancel">Άκυρο</button>
+            <button type="button" class="btn-primary btn-sm" id="inv-sel-ok">✓ ΟΚ — Προσφορά</button>
+          </div>
+          <div class="table-scroll"><table id="inventory-table">
+            <thead><tr><th class="inv-ck hidden"></th><th>Είδος</th><th>Απόθεμα</th><th>Τιμή</th><th>Προμηθευτής</th></tr></thead>
             <tbody id="inventory-tbody"></tbody>
-          </table>
+          </table></div>
         </div>
       </div>
     </div>
@@ -966,10 +997,10 @@
         <div class="filterbar" id="quote-filters"></div>
         <div class="panel-body">
           <div id="quotes-msg" style="padding:0 20px;"></div>
-          <table>
+          <div class="table-scroll"><table>
             <thead><tr><th>Κωδικός</th><th>Πελάτης</th><th>Ημερομηνία</th><th>Σύνολο</th><th>Κατάσταση</th></tr></thead>
             <tbody id="quotes-tbody"></tbody>
-          </table>
+          </table></div>
         </div>
       </div>
     </div>
@@ -5298,29 +5329,86 @@
     if (error) { showMsg($("#inventory-msg"), "Σφάλμα φόρτωσης: " + error.message, "error"); return; }
     clearMsg($("#inventory-msg"));
     INVENTORY_CACHE = data || [];
-    if (INVENTORY_CACHE.length === 0) {
-      tbody.innerHTML = '<tr><td colspan="4"><div class="empty-state">Δεν υπάρχουν ακόμα είδη στην αποθήκη.</div></td></tr>';
-      return;
-    }
-    tbody.innerHTML = INVENTORY_CACHE.map(it => {
+    renderInventory();
+  }
+
+  // ---- κατηγορίες αποθήκης: «Κατηγορία» ή «Κατηγορία / Υποκατηγορία» ----
+  const INVENTORY_CATEGORIES = ["Κάμερες", "Καταγραφικά", "Δικτυακά", "Rack & καλωδίωση", "Συναγερμοί", "Τηλεφωνικά (PBX)", "POS & ταμειακά",
+                                "Υπολογιστές & αξεσουάρ", "Ηλεκτρολογικά", "Εργαλεία", "Διάφορα γραφείου", "Αναλώσιμα"];
+  const catMain = (c) => String(c || "").split(" / ")[0].trim();
+  const catSub = (c) => String(c || "").split(" / ").slice(1).join(" / ").trim();
+  const catOrder = (c) => { const i = INVENTORY_CATEGORIES.indexOf(c); return i < 0 ? 99 : i; };
+  function inventoryCategoryList(){
+    const set = new Set(INVENTORY_CATEGORIES);
+    INVENTORY_CACHE.forEach(it => { if (catMain(it.category)) set.add(catMain(it.category)); });
+    return [...set].sort((a, b) => catOrder(a) - catOrder(b) || a.localeCompare(b, "el"));
+  }
+  let INV_FILTER = { cat:"all", sub:"all", q:"" };
+  let INV_SELECT = null;   // null = κανονικά· Set = επιλογή ειδών για προσφορά
+  function renderInventory(){
+    const tbody = $("#inventory-tbody"); if (!tbody) return;
+    const all = INVENTORY_CACHE;
+    // chips κατηγοριών (με πλήθος)
+    const counts = {}; all.forEach(it => { const m = catMain(it.category) || "—"; counts[m] = (counts[m] || 0) + 1; });
+    const mains = Object.keys(counts).sort((a, b) => (a === "—") - (b === "—") || catOrder(a) - catOrder(b) || a.localeCompare(b, "el"));
+    if (INV_FILTER.cat !== "all" && !counts[INV_FILTER.cat]) INV_FILTER = { ...INV_FILTER, cat:"all", sub:"all" };
+    $("#inv-cats").innerHTML = all.length ? [`<button type="button" class="chip ${INV_FILTER.cat === "all" ? "active" : ""}" data-icat="all">Όλα<small>${all.length}</small></button>`,
+      ...mains.map(m => `<button type="button" class="chip ${INV_FILTER.cat === m ? "active" : ""}" data-icat="${escapeHtml(m)}">${m === "—" ? "Χωρίς κατηγορία" : escapeHtml(m)}<small>${counts[m]}</small></button>`)].join("") : "";
+    // υποκατηγορίες της επιλεγμένης
+    const subs = {}; if (INV_FILTER.cat !== "all") all.filter(it => (catMain(it.category) || "—") === INV_FILTER.cat && catSub(it.category)).forEach(it => { const sc = catSub(it.category); subs[sc] = (subs[sc] || 0) + 1; });
+    const subKeys = Object.keys(subs).sort((a, b) => a.localeCompare(b, "el"));
+    $("#inv-subcats").innerHTML = subKeys.length ? [`<button type="button" class="chip ${INV_FILTER.sub === "all" ? "active" : ""}" data-isub="all">Όλες</button>`,
+      ...subKeys.map(k => `<button type="button" class="chip ${INV_FILTER.sub === k ? "active" : ""}" data-isub="${escapeHtml(k)}">${escapeHtml(k)}<small>${subs[k]}</small></button>`)].join("") : "";
+    $$("#inv-cats [data-icat]").forEach(b => b.addEventListener("click", () => { INV_FILTER = { ...INV_FILTER, cat: b.dataset.icat, sub:"all" }; renderInventory(); }));
+    $$("#inv-subcats [data-isub]").forEach(b => b.addEventListener("click", () => { INV_FILTER = { ...INV_FILTER, sub: b.dataset.isub }; renderInventory(); }));
+    // φίλτρο
+    const words = norm(INV_FILTER.q.trim()).split(/\s+/).filter(Boolean);
+    const rows = all.filter(it => (INV_FILTER.cat === "all" || (catMain(it.category) || "—") === INV_FILTER.cat)
+                               && (INV_FILTER.sub === "all" || catSub(it.category) === INV_FILTER.sub)
+                               && (!words.length || words.every(w => norm([it.name, it.sku, it.category].join(" ")).includes(w))))
+      .sort((a, b) => catOrder(catMain(a.category) || "—") - catOrder(catMain(b.category) || "—") || (catMain(a.category) || "ω").localeCompare(catMain(b.category) || "ω", "el")
+                   || catSub(a.category).localeCompare(catSub(b.category), "el") || a.name.localeCompare(b.name, "el"));
+    const stockPcs = rows.reduce((t, it) => t + Math.max(0, Number(it.stock) || 0), 0);
+    const stockVal = rows.reduce((t, it) => t + Math.max(0, Number(it.stock) || 0) * Number(it.last_cost || 0), 0);
+    $("#inv-summary").textContent = all.length ? `${rows.length} είδη · ${stockPcs} τεμ. σε απόθεμα${stockVal ? " · αξία αποθέματος " + eur(stockVal) + " (κόστος)" : ""}` : "";
+    const sel = INV_SELECT;
+    $$("#inventory-table .inv-ck").forEach(th => th.classList.toggle("hidden", !sel));
+    if (all.length === 0) { tbody.innerHTML = '<tr><td colspan="5"><div class="empty-state">Δεν υπάρχουν ακόμα είδη στην αποθήκη.</div></td></tr>'; return; }
+    if (!rows.length) { tbody.innerHTML = '<tr><td colspan="5"><div class="empty-state">Κανένα είδος δεν ταιριάζει.</div></td></tr>'; return; }
+    let lastGroup = null;
+    tbody.innerHTML = rows.map(it => {
       const pct = it.max_stock > 0 ? Math.min(100, Math.round(100 * it.stock / it.max_stock)) : 100;
       const low = it.max_stock > 0 && it.stock / it.max_stock < 0.25;
-      return `
-      <tr data-id="${it.id}">
-        <td><strong>${escapeHtml(it.name)}</strong><div class="cell-sub">${escapeHtml(it.category || "")}</div></td>
+      const g = (catMain(it.category) || "Χωρίς κατηγορία") + (catSub(it.category) ? " / " + catSub(it.category) : "");
+      const head = INV_FILTER.cat === "all" || catSub(it.category) ? g : null;
+      const groupRow = head && head !== lastGroup ? `<tr class="inv-group"><td colspan="5">${escapeHtml(head)}</td></tr>` : "";
+      if (head) lastGroup = head;
+      return groupRow + `
+      <tr data-id="${it.id}" class="${sel && sel.has(it.id) ? "inv-picked" : ""}">
+        <td class="inv-ck ${sel ? "" : "hidden"}"><input type="checkbox" data-ipick="${it.id}" ${sel && sel.has(it.id) ? "checked" : ""} aria-label="Επιλογή"></td>
+        <td><strong>${escapeHtml(it.name)}</strong><div class="cell-sub">${escapeHtml(it.sku || "")}${it.category ? " · " + escapeHtml(it.category) : ""}</div></td>
         <td>${it.stock}${it.max_stock ? " / " + it.max_stock : ""}<div class="stock-bar"><div class="stock-bar-fill ${low?'low':''}" style="width:${pct}%;"></div></div></td>
-        <td>${Number(it.price).toFixed(2)}€</td>
+        <td>${Number(it.price).toFixed(2)}€<div class="cell-sub">χωρίς ΦΠΑ ${eur(Number(it.price) / 1.24)}</div></td>
         <td>${escapeHtml(it.suppliers ? it.suppliers.name : "—")}
-          <div><button type="button" class="btn-sm btn-primary" data-assign="${it.id}" style="margin-top:6px;">Καταχώρηση σε πελάτη</button></div>
+          ${sel ? "" : `<div><button type="button" class="btn-sm btn-primary" data-assign="${it.id}" style="margin-top:6px;">Καταχώρηση σε πελάτη</button></div>`}
         </td>
       </tr>`;
     }).join("");
     tbody.querySelectorAll("tr[data-id]").forEach(tr => {
       tr.addEventListener("click", (e) => {
         if (e.target.closest("[data-assign]")) return;
+        if (INV_SELECT) {
+          const id = tr.dataset.id;
+          if (INV_SELECT.has(id)) INV_SELECT.delete(id); else INV_SELECT.add(id);
+          tr.classList.toggle("inv-picked", INV_SELECT.has(id));
+          const ck = tr.querySelector("[data-ipick]"); if (ck) ck.checked = INV_SELECT.has(id);
+          updateInvSelBar();
+          return;
+        }
         openInventoryDrawer(tr.dataset.id);
       });
     });
+    tbody.querySelectorAll("[data-ipick]").forEach(ck => ck.addEventListener("click", (e) => { e.preventDefault(); }));
     tbody.querySelectorAll("[data-assign]").forEach(btn => {
       btn.addEventListener("click", async (e) => {
         e.stopPropagation();
@@ -5328,7 +5416,57 @@
         openAssignDrawer(btn.dataset.assign);
       });
     });
+    updateInvSelBar();
   }
+  function updateInvSelBar(){
+    const bar = $("#inv-selbar"); if (!bar) return;
+    bar.classList.toggle("hidden", !INV_SELECT);
+    if (!INV_SELECT) return;
+    const n = INV_SELECT.size;
+    $("#inv-sel-text").textContent = n ? `${n} επιλεγμέν${n === 1 ? "ο είδος" : "α είδη"}` : "Πάτα τα είδη που θέλεις στην προσφορά";
+    $("#inv-sel-ok").disabled = !n; $("#inv-sel-cat").disabled = !n;
+    $("#inv-select-btn").classList.toggle("active", true);
+  }
+  function setInvSelect(on){
+    INV_SELECT = on ? new Set() : null;
+    $("#inv-select-btn").textContent = on ? "✕ Τέλος επιλογής" : "🧾 Προσφορά";
+    renderInventory();
+  }
+  $("#inv-select-btn").addEventListener("click", () => setInvSelect(!INV_SELECT));
+  $("#inv-sel-cancel").addEventListener("click", () => setInvSelect(false));
+  $("#stock-q").addEventListener("input", () => { INV_FILTER = { ...INV_FILTER, q: $("#stock-q").value }; renderInventory(); });
+  $("#inv-sel-ok").addEventListener("click", async () => {
+    if (!INV_SELECT || !INV_SELECT.size) return;
+    const ids = INVENTORY_CACHE.filter(it => INV_SELECT.has(it.id)).map(it => it.id);   // με τη σειρά της λίστας
+    setInvSelect(false);
+    goToView("quotes");
+    if (CLIENTS_CACHE.length === 0) await loadClients();
+    await openQuoteDrawer(null, { inventory_ids: ids });
+  });
+  // αλλαγή κατηγορίας σε πολλά μαζί
+  $("#inv-sel-cat").addEventListener("click", () => {
+    if (!INV_SELECT || !INV_SELECT.size) return;
+    const ids = [...INV_SELECT];
+    openDrawer("🏷 Κατηγορία για " + ids.length + " είδη", `
+      <form id="invcat-form">
+        <div id="invcat-msg"></div>
+        <div class="form-row">
+          <div class="field"><label>Κατηγορία *</label><input id="invcat-main" list="inv-cat-list" required placeholder="π.χ. Δικτυακά"></div>
+          <div class="field"><label>Υποκατηγορία (προαιρετικά)</label><input id="invcat-sub" placeholder="π.χ. Access points"></div>
+        </div>
+        <datalist id="inv-cat-list">${inventoryCategoryList().map(c => `<option value="${escapeHtml(c)}">`).join("")}</datalist>
+        <div class="drawer-foot" style="margin:22px -22px -20px;"><span></span><button type="submit" class="btn-primary">Αποθήκευση</button></div>
+      </form>`);
+    $("#invcat-form").addEventListener("submit", async (e) => {
+      e.preventDefault();
+      const main = $("#invcat-main").value.trim().replace(/\s*\/\s*/g, " "), sub = $("#invcat-sub").value.trim().replace(/\s*\/\s*/g, " ");
+      if (!main) return;
+      const { error } = await sb.from("inventory_items").update({ category: sub ? main + " / " + sub : main }).in("id", ids);
+      if (error) { showMsg($("#invcat-msg"), "Σφάλμα: " + error.message, "error"); return; }
+      closeDrawer(); setInvSelect(false); await loadInventory();
+      showToast(`Η κατηγορία άλλαξε σε ${ids.length} είδη.`);
+    });
+  });
 
   $("#new-item-btn").addEventListener("click", async () => { await loadSuppliers(); openInventoryDrawer(null); });
 
@@ -5345,7 +5483,11 @@
           <div class="field"><label>SKU *</label><input id="it-sku" required value="${escapeHtml(item.sku)}"></div>
           <div class="field"><label>Επωνυμία *</label><input id="it-name" required value="${escapeHtml(item.name)}"></div>
         </div>
-        <div class="field"><label>Κατηγορία</label><input id="it-category" value="${escapeHtml(item.category || "")}"></div>
+        <div class="form-row">
+          <div class="field"><label>Κατηγορία</label><input id="it-category" list="it-cat-list" placeholder="π.χ. Κάμερες" value="${escapeHtml(catMain(item.category))}"></div>
+          <div class="field"><label>Υποκατηγορία <span style="font-weight:400;color:var(--ink-soft);">(προαιρετικά)</span></label><input id="it-subcategory" placeholder="π.χ. Dome" value="${escapeHtml(catSub(item.category))}"></div>
+        </div>
+        <datalist id="it-cat-list">${inventoryCategoryList().map(c => `<option value="${escapeHtml(c)}">`).join("")}</datalist>
         <div class="form-row">
           <div class="field"><label>Απόθεμα</label><input type="number" id="it-stock" value="${item.stock}"></div>
           <div class="field"><label>Μέγιστο απόθεμα</label><input type="number" id="it-max" value="${item.max_stock}"></div>
@@ -5375,7 +5517,8 @@
       const payload = {
         sku: $("#it-sku").value.trim(),
         name: $("#it-name").value.trim(),
-        category: $("#it-category").value.trim() || null,
+        category: (() => { const m = $("#it-category").value.trim().replace(/\s*\/\s*/g, " "), sb2 = $("#it-subcategory").value.trim().replace(/\s*\/\s*/g, " ");
+                            return m ? (sb2 ? m + " / " + sb2 : m) : null; })(),
         stock: parseInt($("#it-stock").value || "0", 10),
         max_stock: parseInt($("#it-max").value || "0", 10),
         price: parseFloat($("#it-price").value || "0"),
@@ -5525,28 +5668,45 @@
     openQuoteDrawer(null);
   });
 
-  async function openQuoteDrawer(quoteId){
+  async function openQuoteDrawer(quoteId, prefill){
+    prefill = prefill || {};
     if (INVENTORY_CACHE.length === 0) await loadInventory();
     if (CLIENTS_CACHE.length === 0) await loadClients();
     await loadBizOnly();
-    let quote = { client_id:"", quote_date: new Date().toISOString().slice(0,10), status:"draft", note:"" };
+    let quote = { client_id: prefill.client_id || "", quote_date: new Date().toISOString().slice(0,10), status:"draft", note:"" };
     let items = [{ sku:"", description:"", qty:1, unit_price:"" }];
+    let pricing = null;
     if (quoteId) {
       const { data } = await sb.from("quotes").select("*").eq("id", quoteId).single();
       if (data) quote = data;
-      const { data: qi } = await sb.from("quote_items").select("*").eq("quote_id", quoteId);
-      if (qi && qi.length) items = qi;
-    }
+      let qr = await sb.from("quote_items").select("*").eq("quote_id", quoteId).order("line_no").order("id");
+      if (qr.error) qr = await sb.from("quote_items").select("*").eq("quote_id", quoteId);
+      if (qr.data && qr.data.length) items = qr.data;
+      const pr = await sb.from("quote_pricing").select("*").eq("quote_id", quoteId).maybeSingle();
+      if (!pr.error && pr.data) pricing = pr.data;
+    } else if (prefill.items && prefill.items.length) items = prefill.items;
     const { pwv, rate } = quoteMode(quoteId ? quote : null);
+    if (!quoteId && prefill.inventory_ids && prefill.inventory_ids.length) {
+      const net = (it) => pwv ? Number(it.price || 0) : r2(Number(it.price || 0) / (1 + rate / 100));
+      items = prefill.inventory_ids.map(id => INVENTORY_CACHE.find(i => i.id === id)).filter(Boolean)
+        .map(it => ({ sku: it.sku, description: it.name, qty: 1, unit_price: net(it), base: net(it), kind: "item" }));
+    }
+    let markup = Number((pricing && pricing.markup_pct) || 0);
+    const savedBases = (pricing && Array.isArray(pricing.bases)) ? pricing.bases : [];
 
     const LABOR_DESC = "Εργασία εγκατάστασης & παραμετροποίησης";
     const MATERIALS_DESC = "Υλικά εγκατάστασης (καλώδια, βύσματα, αναλώσιμα)";
+    const KIND_BADGE = { labor:"🛠 Εργασία — εκτός ποσοστού κέρδους", materials:"🧰 Υλικά — εκτός ποσοστού κέρδους" };
+    const kindOf = (l) => l.kind && l.kind !== "item" ? l.kind : l.description === LABOR_DESC ? "labor" : l.description === MATERIALS_DESC ? "materials" : "item";
     // τιμή είδους για την προσφορά: η αποθήκη κρατά τιμή ΜΕ ΦΠΑ
     const itemQuotePrice = (it) => pwv ? Number(it.price || 0) : r2(Number(it.price || 0) / (1 + rate / 100));
     function lineHtml(line, idx){
+      const kind = kindOf(line);
+      const base = line.base != null ? line.base : (typeof idx === "number" && idx < 100000 && savedBases[idx] != null ? savedBases[idx] : "");
       return `
-      <div class="qline" data-line-row data-idx="${idx}">
-        <div class="qline-top">
+      <div class="qline ${kind !== "item" ? "qline-extra" : ""}" data-line-row data-idx="${idx}" data-kind="${kind}" data-base="${base}">
+        ${kind !== "item" ? `<div style="display:flex;justify-content:space-between;align-items:center;gap:8px;margin-bottom:6px;"><span class="cell-sub" style="font-weight:600;">${KIND_BADGE[kind]}</span><button type="button" class="remove-x" data-line-remove2>✕</button></div>` : ""}
+        <div class="qline-top ${kind !== "item" ? "hidden" : ""}">
           <div class="qsearch">
             <input data-line-search placeholder="🔎 Αναζήτηση είδους αποθήκης (όνομα ή κωδικός)" autocomplete="off" enterkeyhint="search">
             <div class="qsearch-res hidden" data-line-res></div>
@@ -5590,6 +5750,14 @@
           <button type="button" class="add-link" id="qt-add-labor">+ 🛠 Εργασία</button>
           <button type="button" class="add-link" id="qt-add-mat">+ 🧰 Υλικά</button>
         </div>
+        <div class="qmarkup">
+          <label for="qt-markup">📈 Ποσοστό κέρδους στα είδη</label>
+          <div class="qmarkup-row">
+            <input type="number" id="qt-markup" step="0.5" min="0" max="500" inputmode="decimal" value="${markup || ""}" placeholder="0"><span>%</span>
+            ${[0, 10, 15, 20, 25, 30].map(v => `<button type="button" class="chip ${v === markup ? "active" : ""}" data-mk="${v}">${v ? v + "%" : "χωρίς"}</button>`).join("")}
+          </div>
+          <div class="cell-sub" id="qt-markup-info">Ανεβάζει τις τιμές των ειδών — όχι την εργασία και τα υλικά. Ο πελάτης βλέπει μόνο τις τελικές τιμές.</div>
+        </div>
         <div class="qsum">
           <div><span>Καθαρή αξία</span><span id="qt-net">0,00€</span></div>
           <div><span>ΦΠΑ ${rate}%</span><span id="qt-vat">0,00€</span></div>
@@ -5629,7 +5797,8 @@
         skuInput.value = it.sku || "";
         row.querySelector("[data-line-skuinfo]").textContent = it.sku ? "📦 Κωδικός " + it.sku : "";
         descInput.value = it.name;
-        priceInput.value = itemQuotePrice(it).toFixed(2);
+        row.dataset.base = itemQuotePrice(it);
+        priceInput.value = r2(itemQuotePrice(it) * (1 + markup / 100)).toFixed(2);
         search.value = ""; res.classList.add("hidden");
         refreshTotal();
         qtyInput.focus(); qtyInput.select();
@@ -5650,25 +5819,62 @@
       search.addEventListener("blur", () => setTimeout(() => res.classList.add("hidden"), 150));
       search.addEventListener("keydown", (e) => { if (e.key === "Enter") { e.preventDefault(); const first = res.querySelector("[data-hit]"); if (first) first.dispatchEvent(new MouseEvent("mousedown")); } });
       qtyInput.addEventListener("input", refreshTotal);
-      priceInput.addEventListener("input", refreshTotal);
+      priceInput.addEventListener("input", () => {
+        // τιμή που γράφεις με το χέρι = τελική· η «βάση» βγαίνει αφαιρώντας το ποσοστό
+        const v = parseFloat(priceInput.value);
+        if (row.dataset.kind === "item") row.dataset.base = isNaN(v) ? "" : v / (1 + markup / 100);
+        refreshTotal();
+      });
       removeBtn.addEventListener("click", () => { row.remove(); refreshGrandTotal(); });
+      const rm2 = row.querySelector("[data-line-remove2]");
+      if (rm2) rm2.addEventListener("click", () => { row.remove(); refreshGrandTotal(); });
+    }
+    // ---- ποσοστό κέρδους: τιμή = βάση × (1 + %) μόνο στα είδη ----
+    const rowBase = (row) => {
+      if (row.dataset.base !== undefined && row.dataset.base !== "") return Number(row.dataset.base);
+      const p = parseFloat(row.querySelector("[data-line-price]").value);
+      return isNaN(p) ? null : p / (1 + markup / 100);
+    };
+    function applyMarkup(m){
+      m = Math.max(0, Number(m) || 0);
+      $$("[data-line-row]").forEach(row => {
+        if (row.dataset.kind !== "item") return;
+        const b = rowBase(row); if (b == null) return;
+        row.dataset.base = b;
+        const pi = row.querySelector("[data-line-price]");
+        pi.value = r2(b * (1 + m / 100)).toFixed(2);
+        row.querySelector("[data-line-total]").textContent = eur((parseFloat(row.querySelector("[data-line-qty]").value) || 0) * Number(pi.value));
+      });
+      markup = m;
+      $$("#quote-form [data-mk]").forEach(c => c.classList.toggle("active", Number(c.dataset.mk) === m));
+      refreshGrandTotal();
     }
     function refreshGrandTotal(){
       const items = $$("[data-line-row]").map(row => ({ qty: parseFloat(row.querySelector("[data-line-qty]").value) || 0, unit_price: parseFloat(row.querySelector("[data-line-price]").value) || 0 }));
       const t = quoteTotals(items, { prices_with_vat: pwv });
       $("#qt-net").textContent = eur(t.net); $("#qt-vat").textContent = eur(t.vat); $("#qt-total").textContent = eur(t.total);
+      const info = $("#qt-markup-info");
+      if (info) {
+        let gain = 0;
+        $$("[data-line-row]").forEach(row => { if (row.dataset.kind !== "item") return; const b = rowBase(row); if (b == null) return;
+          gain += (parseFloat(row.querySelector("[data-line-qty]").value) || 0) * ((parseFloat(row.querySelector("[data-line-price]").value) || 0) - b); });
+        info.innerHTML = markup ? `+${markup}% στα είδη → κέρδος από το ποσοστό <b>${eur(gain)}</b> ${pwv ? "(με ΦΠΑ)" : "(καθαρό)"}. Εργασία και υλικά μένουν όπως τα γράφεις. Ο πελάτης βλέπει μόνο τις τελικές τιμές.`
+                                : "Ανεβάζει τις τιμές των ειδών — όχι την εργασία και τα υλικά. Ο πελάτης βλέπει μόνο τις τελικές τιμές.";
+      }
     }
     $$("[data-line-row]").forEach(wireLine);
     refreshGrandTotal();
+    $("#qt-markup").addEventListener("input", () => applyMarkup($("#qt-markup").value));
+    $$("#quote-form [data-mk]").forEach(c => c.addEventListener("click", () => { $("#qt-markup").value = c.dataset.mk === "0" ? "" : c.dataset.mk; applyMarkup(c.dataset.mk); }));
+    // από την αποθήκη: τα είδη μπαίνουν με την τιμή της αποθήκης ως βάση
+    if (!quoteId && prefill.items && prefill.items.length) refreshGrandTotal();
 
     const addLine = (line, focusSel) => {
       // αν η τελευταία γραμμή είναι κενή, τη χρησιμοποιεί
       const last = $("#qt-lines").lastElementChild;
-      let row = last && !last.querySelector("[data-line-desc]").value.trim() && !last.querySelector("[data-line-item]").value ? last : null;
-      if (!row) {
-        $("#qt-lines").insertAdjacentHTML("beforeend", lineHtml({ sku:"", description:"", qty:1, unit_price:"" }, Date.now()));
-        row = $("#qt-lines").lastElementChild; wireLine(row);
-      }
+      if (last && last.dataset.kind === "item" && !last.querySelector("[data-line-desc]").value.trim() && !last.querySelector("[data-line-item]").value) last.remove();
+      $("#qt-lines").insertAdjacentHTML("beforeend", lineHtml({ sku:"", description:"", qty:1, unit_price:"", kind: line.kind || "item", base:"" }, Date.now()));
+      const row = $("#qt-lines").lastElementChild; wireLine(row);
       if (line.description) row.querySelector("[data-line-desc]").value = line.description;
       if (line.qty != null) row.querySelector("[data-line-qty]").value = line.qty;
       refreshGrandTotal();
@@ -5680,8 +5886,8 @@
       wireLine(newRow); refreshGrandTotal();
       newRow.querySelector("[data-line-search]").focus();
     });
-    $("#qt-add-labor").addEventListener("click", () => addLine({ description: LABOR_DESC, qty: 1 }, "[data-line-price]"));
-    $("#qt-add-mat").addEventListener("click", () => addLine({ description: MATERIALS_DESC, qty: 1 }, "[data-line-price]"));
+    $("#qt-add-labor").addEventListener("click", () => addLine({ description: LABOR_DESC, qty: 1, kind:"labor" }, "[data-line-price]"));
+    $("#qt-add-mat").addEventListener("click", () => addLine({ description: MATERIALS_DESC, qty: 1, kind:"materials" }, "[data-line-price]"));
 
     if (quoteId) {
       $("#qt-print").addEventListener("click", () => { const w = window.open("", "_blank"); printQuote(quoteId, w); });
@@ -5727,14 +5933,23 @@
       }
       if (savedId) {
         await sb.from("quote_items").delete().eq("quote_id", savedId);
-        const lines = $$("[data-line-row]").map(row => ({
-          quote_id: savedId,
+        const rows = $$("[data-line-row]").filter(row => row.querySelector("[data-line-desc]").value.trim());
+        const lines = rows.map((row, i) => ({
+          quote_id: savedId, line_no: i + 1, kind: row.dataset.kind || "item",
           sku: row.querySelector("[data-line-item]").value || null,
           description: row.querySelector("[data-line-desc]").value.trim(),
           qty: parseFloat(row.querySelector("[data-line-qty]").value) || 0,
           unit_price: parseFloat(row.querySelector("[data-line-price]").value) || 0
-        })).filter(l => l.description);
-        if (lines.length) await sb.from("quote_items").insert(lines);
+        }));
+        if (lines.length) {
+          const { error: liErr } = await sb.from("quote_items").insert(lines);
+          // χωρίς το v25 δεν υπάρχουν kind/line_no — αποθήκευση χωρίς αυτά
+          if (liErr) await sb.from("quote_items").insert(lines.map(({ kind, line_no, ...rest }) => rest));
+        }
+        // ποσοστό & βάσεις: ξεχωριστός πίνακας που δεν τον βλέπει ο πελάτης
+        const bases = rows.map(row => { const b = row.dataset.kind === "item" ? rowBase(row) : null; return b == null ? null : Math.round(b * 10000) / 10000; });
+        await sb.from("quote_pricing").delete().eq("quote_id", savedId);
+        if (markup || bases.some(b => b != null)) await sb.from("quote_pricing").insert({ quote_id: savedId, markup_pct: markup, bases, updated_at: new Date().toISOString() });
       }
       closeDrawer();
       await loadQuotes();
@@ -6807,7 +7022,7 @@
   const BACKUP_TABLES = [
     // σειρά: πρώτα όσα δεν εξαρτώνται από άλλα
     "clients","suppliers","profiles","inventory_items","doc_counters","doc_series","business_info","app_settings",
-    "tickets","ticket_notes","visit_logs","equipment","remote_access","quotes","quote_items",
+    "tickets","ticket_notes","visit_logs","equipment","remote_access","quotes","quote_items","quote_pricing",
     "ledger_entries","expenses","other_incomes","money_accounts","money_movements",
     "purchase_invoices","purchase_invoice_lines","supplier_item_map",
     "sales_docs","sales_doc_lines","supplier_requests","supplier_request_lines",
