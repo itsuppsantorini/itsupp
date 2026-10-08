@@ -1300,7 +1300,7 @@
       business_info: [ { id:1, legal_name:"ΠΑΠΑΔΟΠΟΥΛΟΣ ΓΙΑΝΝΗΣ (επίδειξη)", trade_name:"ITSUPP", profession:"Υπηρεσίες πληροφορικής & συστήματα ασφαλείας",
         vat_number:"000000000", tax_office:"Θήρας", address:"Κεντρική πλατεία 1", city:"Φηρά", postal_code:"84700", phone:"210 000 0000", email:"demo@itsupp.gr",
         website:"app.itsupp.gr", gemi:null, bank_info:"Τράπεζα Πειραιώς GR00 0000 0000 0000 0000 0000 001", footer_note:"Ευχαριστούμε για την προτίμηση!",
-        show_logo:true, quote_terms:"Προκαταβολή 50% με την ανάθεση. Εγγύηση εξοπλισμού 2 έτη.", quote_valid_days:30, quote_prices_with_vat:false, quote_vat_rate:24 } ],
+        show_logo:true, quote_terms:"Για να ξεκινήσει το έργο απαιτείται κατάθεση προκαταβολής 50% του συνολικού ποσού.\nΤο υπόλοιπο 50% εξοφλείται με την παράδοση του έργου.", quote_valid_days:15, quote_prices_with_vat:false, quote_vat_rate:24 } ],
       doc_series: [
         { id:"demo-ser1", code:"ΑΠΛ", title:"Απόδειξη Λιανικής Πώλησης", kind:"retail", mydata_type:"11.1", prices_with_vat:true, next_number:1, active:true, sort_order:1, print_note:null, created_at: ts(-200) },
         { id:"demo-ser2", code:"ΑΠΥ", title:"Απόδειξη Παροχής Υπηρεσιών", kind:"retail", mydata_type:"11.2", prices_with_vat:true, next_number:1, active:true, sort_order:2, print_note:null, created_at: ts(-200) },
@@ -5694,8 +5694,7 @@
     let markup = Number((pricing && pricing.markup_pct) || 0);
     const savedBases = (pricing && Array.isArray(pricing.bases)) ? pricing.bases : [];
 
-    const LABOR_DESC = "Εργασία εγκατάστασης & παραμετροποίησης";
-    const MATERIALS_DESC = "Υλικά εγκατάστασης (καλώδια, βύσματα, αναλώσιμα)";
+    const LABOR_DESC = QUOTE_LABOR_DESC, MATERIALS_DESC = QUOTE_MATERIALS_DESC;
     const KIND_BADGE = { labor:"🛠 Εργασία — εκτός ποσοστού κέρδους", materials:"🧰 Υλικά — εκτός ποσοστού κέρδους" };
     const kindOf = (l) => l.kind && l.kind !== "item" ? l.kind : l.description === LABOR_DESC ? "labor" : l.description === MATERIALS_DESC ? "materials" : "item";
     // τιμή είδους για την προσφορά: η αποθήκη κρατά τιμή ΜΕ ΦΠΑ
@@ -6611,29 +6610,56 @@
       showToast(/html2canvas|jspdf/i.test(e.message || "") ? "Δεν φόρτωσε το εργαλείο PDF — έλεγξε τη σύνδεση." : "Σφάλμα PDF: " + e.message);
     } finally { if (btn) { btn.disabled = false; btn.innerHTML = lbl; } }
   }
+  // γραμμές προσφοράς: είδη / εργασία / υλικά (kind από v25, αλλιώς από την έτοιμη περιγραφή)
+  const QUOTE_LABOR_DESC = "Εργασία εγκατάστασης & παραμετροποίησης";
+  const QUOTE_MATERIALS_DESC = "Υλικά εγκατάστασης (καλώδια, βύσματα, αναλώσιμα)";
+  const quoteLineKind = (l) => l.kind && l.kind !== "item" ? l.kind : l.description === QUOTE_LABOR_DESC ? "labor" : l.description === QUOTE_MATERIALS_DESC ? "materials" : "item";
   function buildQuoteHtml(q, items, c, b){
     const { pwv, rate } = quoteMode(q);
+    items = [...items].sort((a, b2) => (a.line_no ?? 0) - (b2.line_no ?? 0));
     const sum = r2(items.reduce((s, l) => s + Number(l.qty) * Number(l.unit_price), 0));
-    const qtyTot = items.reduce((s, l) => s + Number(l.qty || 0), 0);
     const net = pwv ? r2(sum / (1 + rate / 100)) : sum, vat = pwv ? r2(sum - net) : r2(sum * rate / 100), total = r2(net + vat);
     const valid = Number(b.quote_valid_days || 0);
     const until = valid ? new Date(new Date(q.quote_date + "T00:00:00").getTime() + valid * 86400000).toLocaleDateString("el-GR") : "";
+    const goods = items.filter(l => quoteLineKind(l) === "item"), extras = items.filter(l => quoteLineKind(l) !== "item");
+    const lineSum = (arr) => r2(arr.reduce((s, l) => s + Number(l.qty) * Number(l.unit_price), 0));
+    const priceHead = `Τιμή ${pwv ? "(με ΦΠΑ)" : "(χωρίς ΦΠΑ)"}`, valHead = pwv ? "Σύνολο" : "Αξία";
+    const table = (arr, title, subLabel) => !arr.length ? "" : `
+  <div class="qsec">${title}</div>
+  <table class="qtab"><colgroup><col style="width:28px"><col><col style="width:60px"><col style="width:120px"><col style="width:105px"></colgroup>
+    <thead><tr><th>#</th><th>Περιγραφή</th><th class="r">Ποσ.</th><th class="r">${priceHead}</th><th class="r">${valHead}</th></tr></thead>
+    <tbody>${arr.map((l, i) => `<tr><td>${i + 1}</td><td>${escapeHtml(l.description)}${l.sku ? `<div style="color:#777;font-size:10px;">${escapeHtml(l.sku)}</div>` : ""}</td><td class="r">${fmtQty(l.qty)}</td><td class="r">${eur(l.unit_price)}</td><td class="r">${eur(Number(l.qty) * Number(l.unit_price))}</td></tr>`).join("")}
+    ${goods.length && extras.length ? `<tr class="qsub"><td></td><td colspan="3">${subLabel}</td><td class="r">${eur(lineSum(arr))}</td></tr>` : ""}</tbody></table>`;
+    const terms = [
+      valid ? `Η προσφορά ισχύει για ${valid} ημέρες (έως ${until}) και οι τιμές είναι κλειδωμένες για αυτό το διάστημα.` : "",
+      ...String(b.quote_terms || "").split("\n").map(x => x.trim()).filter(Boolean)
+    ].filter(Boolean);
     return `<!doctype html><html lang="el"><head><meta charset="UTF-8"><title>${escapeHtml(q.code)} — Προσφορά</title>
-<meta name="viewport" content="width=device-width, initial-scale=1"><style>${PRINT_CSS}</style></head><body>
+<meta name="viewport" content="width=device-width, initial-scale=1"><style>${PRINT_CSS}
+  .qsec{margin:18px 0 6px;font-weight:700;font-size:12px;letter-spacing:.4px;text-transform:uppercase;color:#1A2426;border-left:4px solid #0E7C7B;padding-left:8px;}
+  .qsub td{font-weight:700;background:#f2f4f4;}
+  .qterms{margin-top:18px;border:1px solid #cfd8d8;border-radius:8px;padding:10px 14px;line-height:1.55;}
+  .qterms ul{margin:4px 0 0;padding-left:18px;}
+  .qbank{margin-top:10px;border:1px solid #cfd8d8;border-radius:8px;padding:10px 14px;line-height:1.55;white-space:pre-line;}
+  .qbank b{display:block;margin-bottom:2px;}
+  tr{page-break-inside:avoid;}
+  .qtab{table-layout:fixed;width:100%;}
+  .qtab td{word-wrap:break-word;}
+</style></head><body>
   <div class="top">${issuerHtml(b)}
     <div class="docbox"><div class="t">Προσφορά</div><div class="no">${escapeHtml(q.code)}</div>
       <div>Ημερομηνία: <b>${new Date(q.quote_date + "T00:00:00").toLocaleDateString("el-GR")}</b></div>
       ${until ? `<div>Ισχύει έως: <b>${until}</b></div>` : ""}</div>
   </div>
   <div class="grid2">${clientBoxHtml({ ...c, is_walkin:false })}</div>
-  <table><thead><tr><th style="width:26px;">#</th><th>Περιγραφή</th><th class="r">Ποσ.</th><th class="r">Τιμή ${pwv ? "(με ΦΠΑ)" : "(χωρίς ΦΠΑ)"}</th><th class="r">${pwv ? "Σύνολο" : "Αξία"}</th></tr></thead>
-    <tbody>${items.map((l, i) => `<tr><td>${i + 1}</td><td>${escapeHtml(l.description)}${l.sku ? `<div style="color:#777;font-size:10px;">${escapeHtml(l.sku)}</div>` : ""}</td><td class="r">${fmtQty(l.qty)}</td><td class="r">${eur(l.unit_price)}</td><td class="r">${eur(Number(l.qty) * Number(l.unit_price))}</td></tr>`).join("")}</tbody></table>
+  ${extras.length ? table(goods, "Εξοπλισμός", "Σύνολο εξοπλισμού") + table(extras, "Εργασία & μικροϋλικά", "Σύνολο εργασίας & υλικών")
+                  : table(goods, "Είδη", "")}
   <div class="bottom"><div class="vat"></div>
     <div class="totals"><div><span>Καθαρή αξία</span><span>${eur(net)}</span></div><div><span>ΦΠΑ ${rate}%</span><span>${eur(vat)}</span></div>
       <div class="g"><span>ΣΥΝΟΛΟ</span><span>${eur(total)}</span></div></div></div>
+  ${terms.length ? `<div class="qterms"><b>Όροι προσφοράς</b><ul>${terms.map(t => `<li>${escapeHtml(t)}</li>`).join("")}</ul></div>` : ""}
+  ${b.bank_info ? `<div class="qbank"><b>Τραπεζικοί λογαριασμοί για την κατάθεση</b>${escapeHtml(b.bank_info)}</div>` : ""}
   ${q.note ? `<div class="notes"><b>Σημειώσεις:</b> ${escapeHtml(q.note)}</div>` : ""}
-  ${b.quote_terms ? `<div class="notes"><b>Όροι:</b>\n${escapeHtml(b.quote_terms)}</div>` : ""}
-  ${b.bank_info ? `<div class="notes"><b>Τραπεζικοί λογαριασμοί:</b>\n${escapeHtml(b.bank_info)}</div>` : ""}
   <div class="sign"><div>Για την ${escapeHtml(b.trade_name || b.legal_name || "επιχείρηση")}</div><div>Αποδοχή πελάτη</div></div>
   ${b.footer_note ? `<div class="foot">${escapeHtml(b.footer_note)}</div>` : ""}
   <button class="print-btn" onclick="window.print()">🖨 Εκτύπωση / Αποθήκευση ως PDF</button>
