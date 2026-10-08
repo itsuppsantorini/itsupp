@@ -6630,7 +6630,7 @@
   <div class="qsec">${UP(title)}</div>
   <table class="qtab"><colgroup><col style="width:28px"><col><col style="width:60px"><col style="width:120px"><col style="width:105px"></colgroup>
     <thead><tr><th>#</th><th>${UP("Περιγραφή")}</th><th class="r">${UP("Ποσ.")}</th><th class="r">${priceHead}</th><th class="r">${valHead}</th></tr></thead>
-    <tbody>${arr.map((l, i) => `<tr><td>${i + 1}</td><td>${escapeHtml(l.description)}${l.sku ? `<div style="color:#777;font-size:10px;">${escapeHtml(l.sku)}</div>` : ""}</td><td class="r">${fmtQty(l.qty)}</td><td class="r">${eur(l.unit_price)}</td><td class="r">${eur(Number(l.qty) * Number(l.unit_price))}</td></tr>`).join("")}
+    <tbody>${arr.map((l, i) => `<tr><td>${i + 1}</td><td>${escapeHtml(l.description)}</td><td class="r">${fmtQty(l.qty)}</td><td class="r">${eur(l.unit_price)}</td><td class="r">${eur(Number(l.qty) * Number(l.unit_price))}</td></tr>`).join("")}
     ${goods.length && extras.length ? `<tr class="qsub"><td></td><td colspan="3">${subLabel}</td><td class="r">${eur(lineSum(arr))}</td></tr>` : ""}</tbody></table>`;
     const terms = [
       valid ? `Η προσφορά ισχύει για ${valid} ημέρες (έως ${until}) και οι τιμές είναι κλειδωμένες για αυτό το διάστημα.` : "",
@@ -6649,7 +6649,7 @@
   .qbank b{display:block;margin-bottom:2px;}
   tr{page-break-inside:avoid;}
   .qtab{table-layout:fixed;width:100%;}
-  .qtab td{word-wrap:break-word;}
+  .qtab td{word-wrap:break-word;padding-top:5px;padding-bottom:5px;}
 </style></head><body>
   <div class="top">${issuerHtml(b)}
     <div class="docbox"><div class="t">${UP("Προσφορά")}</div><div class="no">${escapeHtml(q.code)}</div>
