@@ -3018,6 +3018,13 @@
 
   $("#new-client-btn").addEventListener("click", () => openClientDrawer(null));
 
+  // «κλειδί» ονόματος πελάτη: χωρίς κεφαλαία/τόνους/κενά/σημεία (ίδιο με το client_name_key της βάσης, v27)
+  const clientNameKey = (n) => String(n || "").toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/ς/g, "σ").replace(/[^a-z0-9α-ω]+/g, "");
+  function findDuplicateClient(name, vat, exceptId){
+    const k = clientNameKey(name), v = normalizeVat(vat || "");
+    return CLIENTS_CACHE.find(c => c.id !== exceptId && !c.is_walkin &&
+      ((k && clientNameKey(c.name) === k) || (v && normalizeVat(c.vat_number || "") === v))) || null;
+  }
   async function openClientDrawer(clientId, tab){
     let client = { name:"", type:"Άλλο", city:"", contact:"", phone:"", email:"", contract_until:"" };
     let remoteAccess = [];
@@ -3293,6 +3300,20 @@
       e.preventDefault();
       const saveBtn = $("#cl-save");
       saveBtn.disabled = true; saveBtn.innerHTML = '<span class="spinner"></span>Αποθήκευση...';
+      // δικλείδα: όχι δεύτερος πελάτης με το ίδιο όνομα ή ΑΦΜ
+      const nmNow = $("#cl-name").value.trim(), vatNow = normalizeVat($("#cl-vat").value) || null;
+      if (!clientId || nmNow !== (client.name || "") || (vatNow || null) !== (normalizeVat(client.vat_number || "") || null)) {
+        if (CLIENTS_CACHE.length === 0) await loadClients();
+        const dup = findDuplicateClient(nmNow, vatNow, clientId);
+        if (dup) {
+          saveBtn.disabled = false; saveBtn.textContent = "Αποθήκευση";
+          const sameVat = vatNow && normalizeVat(dup.vat_number || "") === vatNow;
+          $("#client-form-msg").innerHTML = `<div class="msg msg-error">Υπάρχει ήδη πελάτης <b>${escapeHtml(dup.name)}</b> ${sameVat ? "με τον ίδιο ΑΦΜ" : "με το ίδιο όνομα"} — δεν τον ξαναφτιάχνω. <button type="button" class="add-link" id="cl-open-dup">Άνοιγμα υπάρχοντος</button></div>`;
+          $("#cl-open-dup").addEventListener("click", () => openClientDrawer(dup.id));
+          $("#client-form-msg").scrollIntoView({ block:"center", behavior:"smooth" });
+          return;
+        }
+      }
       const payload = {
         name: $("#cl-name").value.trim(),
         type: $("#cl-type").value,
@@ -3321,7 +3342,11 @@
       if (err && isMissing(err) && /postal_code/.test(err.message || "")) { const { postal_code, ...rest } = payload; await writeClient(rest); }
       if (err) {
         saveBtn.disabled = false; saveBtn.textContent = "Αποθήκευση";
-        showMsg($("#client-form-msg"), "Σφάλμα αποθήκευσης: " + err.message, "error");
+        const m = /DUPLICATE_CLIENT:([0-9a-f-]{36}):(.*)$/.exec(err.message || "");
+        if (m) {
+          $("#client-form-msg").innerHTML = `<div class="msg msg-error">${escapeHtml(m[2])} — δεν τον ξαναφτιάχνω. <button type="button" class="add-link" id="cl-open-dup">Άνοιγμα υπάρχοντος</button></div>`;
+          $("#cl-open-dup").addEventListener("click", () => openClientDrawer(m[1]));
+        } else showMsg($("#client-form-msg"), "Σφάλμα αποθήκευσης: " + err.message, "error");
         return;
       }
       // remote access: replace all rows for this client (simple + reliable)
@@ -5335,7 +5360,7 @@
   }
 
   // ---- κατηγορίες αποθήκης: «Κατηγορία» ή «Κατηγορία / Υποκατηγορία» ----
-  const INVENTORY_CATEGORIES = ["Κάμερες", "Καταγραφικά", "Δικτυακά", "Rack & καλωδίωση", "Συναγερμοί", "Τηλεφωνικά (PBX)", "POS & ταμειακά",
+  const INVENTORY_CATEGORIES = ["CCTV", "Κάμερες", "Καταγραφικά", "Δικτυακά", "Rack & καλωδίωση", "Συναγερμοί", "Τηλεφωνικά (PBX)", "POS & ταμειακά",
                                 "Υπολογιστές & αξεσουάρ", "Ηλεκτρολογικά", "Εργαλεία", "Διάφορα γραφείου", "Αναλώσιμα"];
   const catMain = (c) => String(c || "").split(" / ")[0].trim();
   const catSub = (c) => String(c || "").split(" / ").slice(1).join(" / ").trim();
