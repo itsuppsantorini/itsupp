@@ -1495,7 +1495,8 @@
       },
       sales_docs_view: () => tbl("sales_docs").map(d => ({ ...d,
         paid_amount: Math.round(tbl("ledger_entries").filter(l => Number(l.payment) > 0 && l.settles_doc === d.doc_no && (l.client_id === d.client_id || l.sales_doc_id === d.id))
-          .reduce((s, l) => s + Number(l.payment), 0) * 100) / 100 })),
+          .reduce((s, l) => s + Number(l.payment), 0) * 100) / 100,
+        credited_amount: Math.round(tbl("sales_docs").filter(c => c.related_doc_id === d.id && c.kind === "credit" && c.status === "issued").reduce((s, c) => s + Number(c.total), 0) * 100) / 100 })),
       money_balances: () => {
         const L = VIEWS.money_ledger();
         return tbl("money_accounts").map(a => ({ ...a,
@@ -6198,10 +6199,13 @@
   }
   const isSeriesId = (v) => !!(v && SERIES && SERIES.some(s => s.id === v));
 
+  // υπόλοιπο παραστατικού: σύνολο − εξοφλήσεις − πιστωτικά που το αφορούν (v29)
+  const sdOpen = (d) => r2(Number(d.total) - Number(d.paid_amount || 0) - Number(d.credited_amount || 0));
   function sdStatus(d){
     if (d.status === "cancelled") return { key:"cancelled", label:"Ακυρωμένο", cls:"st-cancelled" };
     if (d.kind === "credit") return { key:"credit", label:"Πιστωτικό", cls:"st-waiting" };
-    const open = r2(Number(d.total) - Number(d.paid_amount || 0));
+    const open = sdOpen(d);
+    if (open <= 0.004 && Number(d.credited_amount) >= Number(d.total) - 0.004) return { key:"credited", label:"Πιστώθηκε", cls:"st-waiting" };
     if (open <= 0.004) return { key:"paid", label:"Εξοφλημένο", cls:"st-done" };
     if (Number(d.paid_amount) > 0) return { key:"partial", label:"Μερικώς · υπόλ. " + eur(open), cls:"st-progress" };
     return { key:"open", label:"Ανεξόφλητο · " + eur(open), cls:"st-new" };
@@ -6221,8 +6225,8 @@
     const sign = (d) => d.kind === "credit" ? -1 : 1;
     const sales = inMonth.reduce((s, d) => s + sign(d) * Number(d.total), 0);
     const vat = inMonth.reduce((s, d) => s + sign(d) * Number(d.vat), 0);
-    const open = live.filter(d => d.kind !== "credit" && Number(d.total) - Number(d.paid_amount || 0) > 0.004);
-    const openSum = open.reduce((s, d) => s + Number(d.total) - Number(d.paid_amount || 0), 0);
+    const open = live.filter(d => d.kind !== "credit" && sdOpen(d) > 0.004);
+    const openSum = open.reduce((s, d) => s + sdOpen(d), 0);
     const noMark = live.filter(d => !d.mark).length;
     $("#inv-stats").innerHTML = `
       <div class="stat-tile"><div class="num">${eur(sales)}</div><div class="lbl">Πωλήσεις μήνα (${inMonth.length})</div></div>
@@ -6738,7 +6742,7 @@
     if (dr.error || !dr.data) { showToast("Σφάλμα: " + ((dr.error && dr.error.message) || "δεν βρέθηκε")); return; }
     const d = dr.data, lines = lr.data || [], c = d.client_snapshot || {}, st = sdStatus(d);
     const owner = PROFILE && PROFILE.role === "owner";
-    const open = r2(Number(d.total) - Number(d.paid_amount || 0));
+    const open = sdOpen(d);
     let related = null;
     if (d.related_doc_id) { const { data: rd } = await sb.from("sales_docs").select("id, doc_no").eq("id", d.related_doc_id).maybeSingle(); related = rd; }
     const { data: credits } = await sb.from("sales_docs").select("id, doc_no, status").eq("related_doc_id", id);
@@ -6760,7 +6764,8 @@
           <td style="text-align:right;">${Number(l.vat_rate)}%</td><td style="text-align:right;">${eur(l.line_total)}</td></tr>`).join("")}</tbody></table>
       <div class="sd-totals"><div><span>Καθαρή αξία</span><span>${eur(d.net)}</span></div><div><span>ΦΠΑ</span><span>${eur(d.vat)}</span></div>
         <div class="grand"><span>Σύνολο</span><span>${eur(d.total)}</span></div>
-        ${d.kind !== "credit" && d.status === "issued" ? `<div><span>Εξοφλήθηκαν</span><span>${eur(d.paid_amount)}</span></div>` : ""}</div>
+        ${d.kind !== "credit" && d.status === "issued" ? `<div><span>Εξοφλήθηκαν</span><span>${eur(d.paid_amount)}</span></div>` : ""}
+        ${d.kind !== "credit" && Number(d.credited_amount) > 0 ? `<div><span>Πιστώθηκαν</span><span>${eur(d.credited_amount)}</span></div>` : ""}</div>
       ${d.note ? `<div class="cell-sub" style="margin-top:8px;">Σημείωση: ${escapeHtml(d.note)}</div>` : ""}
       ${d.status === "cancelled" ? `<div class="msg msg-error" style="margin-top:12px;">Ακυρώθηκε ${d.cancelled_at ? new Date(d.cancelled_at).toLocaleDateString("el-GR") : ""}${d.cancel_reason ? " — " + escapeHtml(d.cancel_reason) : ""}. Ο αριθμός δεν ξαναδίνεται.</div>` : `
       <div class="section-title">ΜΑΡΚ (ΑΑΔΕ / πάροχος)</div>
@@ -7277,7 +7282,7 @@
     const rows = data || [];
     const n = $("#cl-docs-n"); if (n) n.textContent = rows.length ? `(${rows.length})` : "";
     const live = rows.filter(d => d.status === "issued");
-    const openSum = live.filter(d => d.kind !== "credit").reduce((s, d) => s + Math.max(0, Number(d.total) - Number(d.paid_amount || 0)), 0);
+    const openSum = live.filter(d => d.kind !== "credit").reduce((s, d) => s + Math.max(0, sdOpen(d)), 0);
     const total = live.reduce((s, d) => s + (d.kind === "credit" ? -1 : 1) * Number(d.total), 0);
     box.innerHTML = `
       <div class="stat-row" style="padding:0 0 10px;grid-template-columns:1fr 1fr;">
