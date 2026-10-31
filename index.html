@@ -1897,6 +1897,23 @@
     const functions = {
       invoke: async (name, { body } = {}) => {
         const b = body || {};
+        if (name === "parochos") {
+          // επίδειξη: «εκδίδει» αμέσως με φανταστικό ΜΑΡΚ — καμία κλήση έξω
+          if (b.action === "status") return { data:{ ok:true, version:"parochos-2", env:"prod", url1:"srv3.parochos.gr (επίδειξη)" }, error:null };
+          const d = tbl("sales_docs").find(x => x.id === b.doc_id);
+          if (!d) return { data:{ ok:false, error:"Δεν βρέθηκε." }, error:null };
+          const s = tbl("doc_series").find(x => x.id === d.series_id) || {};
+          if (b.action === "send") {
+            if (d.mark) return { data:{ ok:false, error:"Έχει ήδη ΜΑΡΚ " + d.mark + "." }, error:null };
+            if (s.external) return { data:{ ok:false, error:"Η σειρά " + s.code + " είναι του netinvoice — από το ITSUPP εκδίδεις στις σειρές IT-…." }, error:null };
+            Object.assign(d, { mark: "4000" + String(Date.now()).slice(-11), uid: "DEMO" + d.id.slice(-6).toUpperCase(), qr_url: "https://example.com/parochos-demo",
+                               pdf_url: null, parochos_status: "done", parochos_error: null, parochos_sent_at: nowIso() });
+            save(); return { data:{ ok:true, status:"done", mark:d.mark, uid:d.uid, doc_no:d.doc_no }, error:null };
+          }
+          if (b.action === "check") return { data:{ ok: !!d.mark, status: d.mark ? "done" : "pending", mark: d.mark }, error:null };
+          if (b.action === "pdf") return { data:{ ok:false, error:"Στην επίδειξη δεν υπάρχει PDF παρόχου." }, error:null };
+          return { data:{ ok:false, error:"Άγνωστη ενέργεια." }, error:null };
+        }
         if (b.action === "afm") {
           const afm = String(b.afm || "").replace(/\D/g, "");
           if (!vatOk(afm)) return { data:{ ok:false, error:"Ο ΑΦΜ δεν είναι έγκυρος (9 ψηφία με σωστό ψηφίο ελέγχου)." }, error:null };
@@ -2049,6 +2066,23 @@
       }
       return data || { ok:false, error:"Κενή απάντηση." };
     } catch (e) { return { ok:false, error: "Σφάλμα: " + e.message }; }
+  }
+  // ================= PAROCHOS (Edge Function «parochos») =================
+  async function parochosCall(body){
+    if (!sb.functions || !sb.functions.invoke) return { ok:false, error:"Δεν υπάρχει σύνδεση με τον Parochos." };
+    try {
+      const { data, error } = await sb.functions.invoke("parochos", { body });
+      if (error) {
+        const st = error.context && error.context.status;
+        let j = null; try { j = error.context && typeof error.context.json === "function" ? await error.context.json() : null; } catch (e) {}
+        if (j && j.error) return { ...j, http: st };
+        if (st === 404) return { ok:false, setup:true, error:"Δεν βρέθηκε η Edge Function «parochos» στο Supabase — ανέβασέ την (parochos.ts) και πάτα Deploy." };
+        if (st === 401) return { ok:false, setup:true, error:"Το Supabase απέρριψε την κλήση (401). Άνοιξε τη function «parochos» → Details και κλείσε το «Verify JWT»." };
+        if (st >= 500) return { ok:false, setup:true, error:"Η function «parochos» δεν ξεκινά (σφάλμα " + st + "). Ξαναεπικόλλησε όλο το parochos.ts και πάτα Deploy." };
+        return { ok:false, http:st, error:(j && (j.message || j.msg)) || error.message || "Σφάλμα σύνδεσης με τον Parochos." };
+      }
+      return data || { ok:false, error:"Κενή απάντηση." };
+    } catch (e) { return { ok:false, error:"Σφάλμα: " + e.message }; }
   }
   // μαντεύει τον «τύπο» πελάτη από τη δραστηριότητα της ΑΑΔΕ
   function guessClientType(info){
@@ -6768,6 +6802,7 @@
         ${d.kind !== "credit" && Number(d.credited_amount) > 0 ? `<div><span>Πιστώθηκαν</span><span>${eur(d.credited_amount)}</span></div>` : ""}</div>
       ${d.note ? `<div class="cell-sub" style="margin-top:8px;">Σημείωση: ${escapeHtml(d.note)}</div>` : ""}
       ${d.status === "cancelled" ? `<div class="msg msg-error" style="margin-top:12px;">Ακυρώθηκε ${d.cancelled_at ? new Date(d.cancelled_at).toLocaleDateString("el-GR") : ""}${d.cancel_reason ? " — " + escapeHtml(d.cancel_reason) : ""}. Ο αριθμός δεν ξαναδίνεται.</div>` : `
+      ${parochosBlockHtml(d, owner)}
       <div class="section-title">ΜΑΡΚ (ΑΑΔΕ / πάροχος)</div>
       ${d.mark ? `<div class="sdv-mark ok">✓ ΜΑΡΚ <b>${escapeHtml(d.mark)}</b>${d.uid ? `<div class="cell-sub">UID ${escapeHtml(d.uid)}</div>` : ""}</div>`
                : `<div class="sd-legal" style="margin-top:0;">Δεν έχει ΜΑΡΚ — <b>δεν είναι ακόμα νόμιμο φορολογικό στοιχείο</b>. Όταν το εκδώσεις στον πάροχο, πέρασε εδώ τον ΜΑΡΚ.</div>`}
@@ -6792,6 +6827,7 @@
       </div>`, true);
     $$("[data-open-sd]").forEach(a => a.addEventListener("click", (e) => { e.preventDefault(); openSalesDoc(a.dataset.openSd); }));
     $("#sdv-print").addEventListener("click", () => { const w = window.open("", "_blank"); printSalesDoc(id, w); });
+    wireParochosBlock(d, id);
     if ($("#sdv-client")) $("#sdv-client").addEventListener("click", async () => { if (CLIENTS_CACHE.length === 0) await loadClients(); openClientDrawer(d.client_id, "docs"); });
     if ($("#sdv-pay")) $("#sdv-pay").addEventListener("click", () => openLedgerEntryDrawer(d.client_id, c.name || "", { type:"payment", settles: d.doc_no, amount: open, backToDoc: id }));
     if ($("#sdv-credit")) $("#sdv-credit").addEventListener("click", () => openSalesDocForm({
@@ -6827,6 +6863,59 @@
     });
   }
   const fmtQty = (q) => Number(q).toLocaleString("el-GR", { maximumFractionDigits:3 });
+
+  // ---------------- έκδοση στην ΑΑΔΕ μέσω Parochos ----------------
+  const sdSeries = (d) => (SERIES || []).find(s => s.id === d.series_id) || null;
+  function parochosBlockHtml(d, owner){
+    if (!owner || d.status !== "issued") return "";
+    const ser = sdSeries(d);
+    if (d.mark) {
+      return (d.pdf_url || d.parochos_status === "done") ? `<div class="sdv-parochos" style="margin:14px 0 4px;display:flex;gap:8px;flex-wrap:wrap;align-items:center;">
+          <span class="cell-sub">📤 Εκδόθηκε μέσω Parochos${d.parochos_sent_at ? " · " + new Date(d.parochos_sent_at).toLocaleString("el-GR") : ""}</span>
+          <button type="button" class="btn-ghost btn-sm" id="sdv-par-pdf">⬇ PDF παρόχου</button>
+          ${d.qr_url ? `<a class="btn-ghost btn-sm" href="${escapeHtml(d.qr_url)}" target="_blank" rel="noopener">🔗 Παραστατικό (QR)</a>` : ""}</div>` : "";
+    }
+    if (d.source === "mydata" || (ser && ser.external)) return "";
+    const pend = d.parochos_status === "sent" || d.parochos_status === "pending";
+    return `<div class="section-title">Έκδοση στην ΑΑΔΕ (Parochos)</div>
+      ${d.parochos_status === "failed" ? `<div class="msg msg-error" style="margin-bottom:8px;">Ο Parochos το απέρριψε: ${escapeHtml(d.parochos_error || "άγνωστο σφάλμα")}</div>` : ""}
+      ${pend ? `<div class="money-warn" style="margin-bottom:8px;">⏳ Στάλθηκε — περιμένει απάντηση της ΑΑΔΕ.</div>` : ""}
+      <div id="sdv-par-msg"></div>
+      <div style="display:flex;gap:8px;flex-wrap:wrap;">
+        ${pend ? '<button type="button" class="btn-ghost btn-sm" id="sdv-par-check">🔄 Έλεγχος</button>' : ""}
+        <button type="button" class="btn-primary btn-sm" id="sdv-par-send">📤 Έκδοση στην ΑΑΔΕ${d.parochos_status === "failed" ? " (ξανά)" : ""}</button>
+      </div>`;
+  }
+  function wireParochosBlock(d, id){
+    const c = d.client_snapshot || {};
+    const done = (r) => { ISSUED_MEMO = {}; refreshSalesViews(); openSalesDoc(id).then(() => {
+      if (r && !r.ok && $("#sdv-par-msg")) showMsg($("#sdv-par-msg"), escapeHtml(r.error || "Σφάλμα."), "error"); }); };
+    if ($("#sdv-par-send")) $("#sdv-par-send").addEventListener("click", async () => {
+      const b = $("#sdv-par-send");
+      if (!b.dataset.armed) {
+        b.dataset.armed = "1"; b.textContent = "✔ Ναι, έκδοση τώρα";
+        showMsg($("#sdv-par-msg"), `Θα εκδοθεί <b>κανονικό ${escapeHtml(d.title)} ${escapeHtml(d.doc_no)}</b> προς <b>${escapeHtml(c.is_walkin ? "πελάτη λιανικής" : (c.name || "—"))}</b>
+          για <b>${eur(d.total)}</b> και θα πάει στην ΑΑΔΕ. Μετά δεν αλλάζει ούτε ακυρώνεται — διορθώνεται μόνο με πιστωτικό. Πάτα ξανά για έκδοση.`, "ok");
+        return;
+      }
+      b.disabled = true; b.innerHTML = '<span class="spinner"></span> Έκδοση…';
+      const r = await parochosCall({ action:"send", doc_id: id });
+      if (r.ok) showToast(`✓ ${d.doc_no}: ΜΑΡΚ ${r.mark}`);
+      done(r);
+    });
+    if ($("#sdv-par-check")) $("#sdv-par-check").addEventListener("click", async () => {
+      const b = $("#sdv-par-check"); b.disabled = true; b.innerHTML = '<span class="spinner"></span>';
+      const r = await parochosCall({ action:"check", doc_id: id });
+      if (r.ok) showToast(`✓ ${d.doc_no}: ΜΑΡΚ ${r.mark}`);
+      done(r.ok || r.status === "failed" ? null : { ok:false, error: r.error || "Δεν έχει απαντήσει ακόμα η ΑΑΔΕ — δοκίμασε σε λίγο." });
+    });
+    if ($("#sdv-par-pdf")) $("#sdv-par-pdf").addEventListener("click", async () => {
+      const w = window.open("", "_blank");
+      const r = await parochosCall({ action:"pdf", doc_id: id });
+      if (r.ok && r.url) { if (w) w.location = r.url; else location.href = r.url; }
+      else { if (w) w.close(); showToast(r.error || "Δεν βρέθηκε PDF."); }
+    });
+  }
 
   // ---------------- εκτύπωση Α4 ----------------
   function brandLogoSrc(){ const im = document.querySelector(".brand-mark img"); return im ? im.src : ""; }
