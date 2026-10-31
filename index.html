@@ -6512,7 +6512,7 @@
   function issuedFromInvoice(i){
     const t = i.totals || {}, net = Number(t.net) || 0, vat = Number(t.vat) || 0;
     const pay = (i.payments || []).find(p => p && p.type) || {};
-    return { key: i.mark, mark: i.mark, uid: i.uid || null, type: i.invoice_type || "1.1", series: i.series && i.series !== "0" ? i.series : "", aa: i.aa || "",
+    return { key: i.mark, mark: i.mark, uid: i.uid || null, auth_code: i.auth_code || null, download_url: i.download_url || null, type: i.invoice_type || "1.1", series: i.series && i.series !== "0" ? i.series : "", aa: i.aa || "",
       date: String(i.issue_date || "").slice(0, 10), cvat: i.counterpart_vat || "", cname: i.counterpart_name || "", caddr: i.counterpart_address || null,
       cancelled: !!i.cancelled, summary: false, importable: !i.cancelled && !!i.mark,
       lines: (i.lines || []).map(l => ({ description: l.description || "", item_code: l.item_code || null, qty: Number(l.qty) || 1,
@@ -6545,6 +6545,9 @@
       (data || []).forEach(x => have.set(x.mark, x.id));
     }
     items = items.map(x => ({ ...x, registered_id: (x.mark && have.get(x.mark)) || null })).sort((a, b) => String(b.date).localeCompare(String(a.date)));
+    // κωδικός ταυτοποίησης / σύνδεσμος παρόχου σε όσα έχουν ήδη περαστεί (schema_v31)
+    const fill = items.filter(x => x.registered_id && (x.auth_code || x.download_url)).map(x => ({ mark: x.mark, auth_code: x.auth_code, qr_url: x.download_url, uid: x.uid }));
+    if (fill.length) { try { await sb.rpc("set_sales_docs_auth", { p: fill }); } catch (e) {} }
     const res = { ok:true, source: r.source, items, more: r.more, debug: r.debug || null, from, to };
     ISSUED_MEMO[key] = { at: Date.now(), res };
     return res;
@@ -6701,6 +6704,7 @@
       }
       if (!data.ok) { if (data.error !== "duplicate") out.errors.push(`${[x.series, x.aa].filter(Boolean).join(" ") || x.mark}: ${data.error}`); continue; }
       out.ok++;
+      if (x.auth_code || x.download_url) { try { await sb.rpc("set_sales_docs_auth", { p: [{ mark: x.mark, auth_code: x.auth_code, qr_url: x.download_url, uid: x.uid }] }); } catch (e) {} }
       if (!p.client_id && x.cvat && data.client_id) { createdVat[x.cvat] = data.client_id; if (!CLIENTS_CACHE.some(cc => cc.id === data.client_id)) out.newClients++; }
     }
     return out;
@@ -7134,6 +7138,9 @@
     if ($("#sdv-par-fin")) $("#sdv-par-fin").addEventListener("click", async () => {
       const b = $("#sdv-par-fin"); b.disabled = true; b.innerHTML = '<span class="spinner"></span> Δημιουργία PDF…';
       try {
+        // πρώτα φέρνουμε από τον Parochos κωδικό ταυτοποίησης/QR ώστε να τυπωθούν στο PDF
+        if (!d.auth_code) { await parochosCall({ action:"check", doc_id: id, process_id: d.parochos_process_id || "" });
+          const { data: fresh } = await sb.from("sales_docs_view").select("*").eq("id", id).single(); if (fresh) d = fresh; }
         const { data: lines } = await sb.from("sales_doc_lines").select("*").eq("doc_id", id).order("line_no");
         let related = null;
         if (d.related_doc_id) { const { data } = await sb.from("sales_docs").select("doc_no, doc_date").eq("id", d.related_doc_id).maybeSingle(); related = data; }
@@ -7237,6 +7244,8 @@
     </div>`;
   }
 
+  // πάροχος ηλεκτρονικής τιμολόγησης (όπως τυπώνεται στα παραστατικά του Parochos)
+  const PROVIDER_INFO = { name: "PAROCHOS", license: "2024_01_119Parochos IT SA_001_Parochos Online_V1_05012024", url: "https://www.parochos.gr" };
   function buildSalesDocHtml(d, lines, opts){
     opts = opts || {};
     const b = d.issuer_snapshot && Object.keys(d.issuer_snapshot).length ? d.issuer_snapshot : (BIZ || {});
@@ -7253,6 +7262,11 @@
     const hasDisc = lines.some(l => Number(l.discount_pct));
     const noMark = !d.mark;
     const legalText = "ΧΩΡΙΣ ΜΑΡΚ — ΔΕΝ ΕΧΕΙ ΔΙΑΒΙΒΑΣΤΕΙ ΣΤΗΝ ΑΑΔΕ · ΔΕΝ ΑΠΟΤΕΛΕΙ ΦΟΡΟΛΟΓΙΚΟ ΣΤΟΙΧΕΙΟ";
+    // έκδοση μέσω παρόχου (ITSUPP → Parochos ή netinvoice): στοιχεία παρόχου όπως στο παραστατικό του Parochos
+    const viaProvider = !!(d.mark && (d.parochos_status || d.source === "mydata" || d.auth_code));
+    const issuedAt = d.parochos_sent_at && d.source !== "mydata"
+      ? new Date(d.parochos_sent_at).toLocaleString("el-GR", { day:"2-digit", month:"2-digit", year:"numeric", hour:"2-digit", minute:"2-digit" })
+      : new Date(d.doc_date + "T00:00:00").toLocaleDateString("el-GR");
     return `<!doctype html><html lang="el"><head><meta charset="UTF-8"><title>${escapeHtml(d.doc_no)} — ${escapeHtml(d.title)}</title>
 <meta name="viewport" content="width=device-width, initial-scale=1"><style>${PRINT_CSS}</style></head><body>
   ${d.status === "cancelled" ? '<div class="wm">ΑΚΥΡΩΜΕΝΟ</div>' : noMark ? '<div class="wm">ΠΡΟΣΧΕΔΙΟ</div>' : ""}
@@ -7260,7 +7274,7 @@
     ${issuerHtml(b)}
     <div class="docbox"><div class="t">${escapeHtml(d.title)}</div>
       <div class="no">${escapeHtml(d.series_code)} ${escapeHtml(String(d.number))}</div>
-      <div>Ημερομηνία: <b>${new Date(d.doc_date + "T00:00:00").toLocaleDateString("el-GR")}</b></div>
+      <div>Ημ/νία έκδοσης: <b>${escapeHtml(issuedAt)}</b></div>
       ${opts.related ? `<div>Συσχετιζόμενο: ${escapeHtml(opts.related.doc_no)}</div>` : ""}
     </div>
   </div>
@@ -7284,7 +7298,13 @@
       <div class="g"><span>${d.kind === "credit" ? "ΣΥΝΟΛΟ ΠΙΣΤΩΣΗΣ" : "ΠΛΗΡΩΤΕΟ"}</span><span>${eur(d.total)}</span></div></div>
   </div>
   ${d.note || (series && series.print_note) ? `<div class="notes">${d.note ? `<b>Σημειώσεις:</b> ${escapeHtml(d.note)}` : ""}${d.note && series && series.print_note ? "\n" : ""}${series && series.print_note ? escapeHtml(series.print_note) : ""}</div>` : ""}
-  ${d.mark ? `<div class="mark">${opts.qr || ""}<div><div>ΜΑΡΚ: <b>${escapeHtml(d.mark)}</b></div>${d.uid ? `<div>UID: ${escapeHtml(d.uid)}</div>` : ""}${d.qr_url && !opts.qr ? `<div style="word-break:break-all;">${escapeHtml(d.qr_url)}</div>` : ""}</div></div>`
+  ${d.mark ? `<div class="mark">${opts.qr || ""}<div style="line-height:1.55;">
+      <div><b>Έγγραφο:</b> ${escapeHtml(d.series_code)} ${escapeHtml(String(d.number))} (${escapeHtml(issuedAt)})${d.parochos_status === "completed" || d.source === "mydata" ? " · Ολοκληρώθηκε" : ""}</div>
+      ${d.uid ? `<div><b>UID:</b> ${escapeHtml(d.uid)}</div>` : ""}
+      <div><b>Μ.ΑΡ.Κ.:</b> ${escapeHtml(d.mark)}</div>
+      ${d.auth_code ? `<div><b>Κωδ. Ταυτ.:</b> ${escapeHtml(d.auth_code)}</div>` : ""}
+      ${viaProvider ? `<div>${escapeHtml(PROVIDER_INFO.name)}</div><div><b>Άδεια ΥΠΑΗΕΣ:</b> ${escapeHtml(PROVIDER_INFO.license)}</div><div>${escapeHtml(PROVIDER_INFO.url)}</div>` : ""}
+      ${d.qr_url && !opts.qr ? `<div style="word-break:break-all;">${escapeHtml(d.qr_url)}</div>` : ""}</div></div>`
            : d.status === "issued" ? `<div class="legal">${legalText}</div>` : ""}
   ${d.status === "cancelled" ? `<div class="legal">ΑΚΥΡΩΜΕΝΟ${d.cancel_reason ? " — " + escapeHtml(d.cancel_reason) : ""}</div>` : ""}
   ${!retail ? `<div class="sign"><div>Ο εκδότης</div><div>Ο παραλαβών</div></div>` : ""}
