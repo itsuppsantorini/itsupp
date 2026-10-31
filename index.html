@@ -6474,10 +6474,20 @@
           return `<div class="sd-row ${d.status === "cancelled" ? "cancelled" : ""}" data-sd="${d.id}" role="button" tabindex="0">
             <div class="sd-no"><b>${escapeHtml(d.doc_no)}</b><div class="cell-sub">${fmtShortDate(d.doc_date)}</div></div>
             <div class="sd-who"><div>${escapeHtml(c.is_walkin ? "Πελάτης λιανικής" : (c.name || "—"))}</div><div class="cell-sub">${escapeHtml(d.title)}${c.vat_number ? " · ΑΦΜ " + escapeHtml(c.vat_number) : ""}${d.source === "mydata" ? " · 📥 netinvoice" : ""}</div></div>
-            <div class="sd-badges"><span class="status-pill ${st.cls}">${escapeHtml(st.label)}</span>${d.status === "issued" ? (d.mark ? '<span class="sd-mark ok">ΜΑΡΚ ✓</span>' : '<span class="sd-mark">χωρίς ΜΑΡΚ</span>') : ""}</div>
+            <div class="sd-badges"><span class="status-pill ${st.cls}">${escapeHtml(st.label)}</span>${d.status === "issued" ? (d.mark ? '<span class="sd-mark ok">ΜΑΡΚ ✓</span>'
+              : d.parochos_status === "failed" ? `<button type="button" class="sd-mark" data-sd-retry="${d.id}" title="Ξανά ανέβασμα του ίδιου παραστατικού στην ΑΑΔΕ" style="cursor:pointer;color:var(--red);border-color:var(--red);">⚠️ δεν ανέβηκε · 🔁</button>`
+              : (d.parochos_status === "sent" || d.parochos_status === "pending") ? '<span class="sd-mark">⏳ στην ΑΑΔΕ…</span>' : '<span class="sd-mark">χωρίς ΜΑΡΚ</span>') : ""}</div>
             <div class="sd-amt">${d.kind === "credit" ? "−" : ""}${eur(d.total)}</div>
           </div>`;
         }).join("");
+    $$("#inv-list [data-sd-retry]").forEach(btn => btn.addEventListener("click", async (e) => {
+      e.stopPropagation();
+      if (btn.disabled) return;
+      btn.disabled = true; btn.innerHTML = '<span class="spinner"></span> ανέβασμα…';
+      const r = await parochosCall({ action:"send", doc_id: btn.dataset.sdRetry });
+      showToast(r.ok ? `✓ Ανέβηκε στην ΑΑΔΕ · ΜΑΡΚ ${r.mark}` : "Δεν ανέβηκε: " + parochosErrText(r.error));
+      ISSUED_MEMO = {}; loadInvoicingView();
+    }));
     $$("#inv-list [data-sd]").forEach(el => {
       el.addEventListener("click", () => openSalesDoc(el.dataset.sd));
       el.addEventListener("keydown", (e) => { if (e.key === "Enter") openSalesDoc(el.dataset.sd); });
@@ -7062,6 +7072,15 @@
 
   // ---------------- έκδοση στην ΑΑΔΕ μέσω Parochos ----------------
   const sdSeries = (d) => (SERIES || []).find(s => s.id === d.series_id) || null;
+  // πιο κατανοητά τα σφάλματα του Parochos
+  function parochosErrText(e){
+    e = String(e || "");
+    if (/00010039/.test(e)) return "ο Parochos δεν έχει προφίλ εκτύπωσης για το ITSUPP. Στο ξανά ανέβασμα στέλνεται μόνο στην ΑΑΔΕ και το τυπώνεις από εδώ (με ΜΑΡΚ & QR).";
+    if (/00010022/.test(e)) return "υπάρχει ήδη στην ΑΑΔΕ παραστατικό με αυτή τη σειρά/αριθμό.";
+    if (/00010029|00010030/.test(e)) return "η ΑΑΔΕ το απέρριψε — " + e.replace(/^\d+\s*—\s*/, "");
+    if (/00010032|00010040/.test(e)) return "η ΑΑΔΕ δεν απαντά αυτή τη στιγμή — δοκίμασε ξανά σε λίγο.";
+    return e || "άγνωστο σφάλμα";
+  }
   function parochosBlockHtml(d, owner){
     if (!owner || d.status !== "issued") return "";
     const ser = sdSeries(d);
@@ -7073,13 +7092,15 @@
     }
     if (d.source === "mydata" || (ser && ser.external)) return "";
     const pend = d.parochos_status === "sent" || d.parochos_status === "pending";
+    const retry = d.parochos_status === "failed";
     return `<div class="section-title">Έκδοση στην ΑΑΔΕ (Parochos)</div>
-      ${d.parochos_status === "failed" ? `<div class="msg msg-error" style="margin-bottom:8px;">Ο Parochos το απέρριψε: ${escapeHtml(d.parochos_error || "άγνωστο σφάλμα")}</div>` : ""}
+      ${retry ? `<div class="msg msg-error" style="margin-bottom:8px;">⚠️ Δεν ανέβηκε στην ΑΑΔΕ: ${escapeHtml(parochosErrText(d.parochos_error))}
+          <div style="margin-top:4px;">Πάτα <b>«🔁 Ξανά ανέβασμα»</b> — στέλνεται το <b>ίδιο</b> ${escapeHtml(d.doc_no)}, δεν κόβεται καινούργιο παραστατικό.</div></div>` : ""}
       ${pend ? `<div class="money-warn" style="margin-bottom:8px;">⏳ Στάλθηκε — περιμένει απάντηση της ΑΑΔΕ.</div>` : ""}
       <div id="sdv-par-msg"></div>
       <div style="display:flex;gap:8px;flex-wrap:wrap;">
         ${pend ? '<button type="button" class="btn-ghost btn-sm" id="sdv-par-check">🔄 Έλεγχος</button>' : ""}
-        <button type="button" class="btn-primary btn-sm" id="sdv-par-send">📤 Έκδοση στην ΑΑΔΕ${d.parochos_status === "failed" ? " (ξανά)" : ""}</button>
+        <button type="button" class="btn-primary btn-sm" id="sdv-par-send" ${retry ? 'data-retry="1"' : ""}>${retry ? "🔁 Ξανά ανέβασμα στην ΑΑΔΕ" : "📤 Έκδοση στην ΑΑΔΕ"}</button>
       </div>`;
   }
   function wireParochosBlock(d, id){
@@ -7088,13 +7109,13 @@
       if (r && !r.ok && $("#sdv-par-msg")) showMsg($("#sdv-par-msg"), escapeHtml(r.error || "Σφάλμα."), "error"); }); };
     if ($("#sdv-par-send")) $("#sdv-par-send").addEventListener("click", async () => {
       const b = $("#sdv-par-send");
-      if (!b.dataset.armed) {
+      if (!b.dataset.armed && !b.dataset.retry) {
         b.dataset.armed = "1"; b.textContent = "✔ Ναι, έκδοση τώρα";
         showMsg($("#sdv-par-msg"), `Θα εκδοθεί <b>κανονικό ${escapeHtml(d.title)} ${escapeHtml(d.doc_no)}</b> προς <b>${escapeHtml(c.is_walkin ? "πελάτη λιανικής" : (c.name || "—"))}</b>
           για <b>${eur(d.total)}</b> και θα πάει στην ΑΑΔΕ. Μετά δεν αλλάζει ούτε ακυρώνεται — διορθώνεται μόνο με πιστωτικό. Πάτα ξανά για έκδοση.`, "ok");
         return;
       }
-      b.disabled = true; b.innerHTML = '<span class="spinner"></span> Έκδοση…';
+      b.disabled = true; b.innerHTML = '<span class="spinner"></span> ' + (b.dataset.retry ? "Ανέβασμα…" : "Έκδοση…");
       const r = await parochosCall({ action:"send", doc_id: id });
       if (r.ok) showToast(`✓ ${d.doc_no}: ΜΑΡΚ ${r.mark}`);
       done(r);
