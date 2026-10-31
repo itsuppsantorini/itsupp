@@ -7068,7 +7068,7 @@
     if (d.mark) {
       return (d.pdf_url || d.parochos_status === "done") ? `<div class="sdv-parochos" style="margin:14px 0 4px;display:flex;gap:8px;flex-wrap:wrap;align-items:center;">
           <span class="cell-sub">📤 Εκδόθηκε μέσω Parochos${d.parochos_sent_at ? " · " + new Date(d.parochos_sent_at).toLocaleString("el-GR") : ""}</span>
-          <button type="button" class="btn-ghost btn-sm" id="sdv-par-pdf">⬇ PDF παρόχου</button>
+          ${d.pdf_url ? '<button type="button" class="btn-ghost btn-sm" id="sdv-par-pdf">⬇ PDF παρόχου</button>' : ""}
           ${d.qr_url ? `<a class="btn-ghost btn-sm" href="${escapeHtml(d.qr_url)}" target="_blank" rel="noopener">🔗 Παραστατικό (QR)</a>` : ""}</div>` : "";
     }
     if (d.source === "mydata" || (ser && ser.external)) return "";
@@ -7101,13 +7101,13 @@
     });
     if ($("#sdv-par-check")) $("#sdv-par-check").addEventListener("click", async () => {
       const b = $("#sdv-par-check"); b.disabled = true; b.innerHTML = '<span class="spinner"></span>';
-      const r = await parochosCall({ action:"check", doc_id: id });
+      const r = await parochosCall({ action:"check", doc_id: id, process_id: d.parochos_process_id || "" });
       if (r.ok) showToast(`✓ ${d.doc_no}: ΜΑΡΚ ${r.mark}`);
       done(r.ok || r.status === "failed" ? null : { ok:false, error: r.error || "Δεν έχει απαντήσει ακόμα η ΑΑΔΕ — δοκίμασε σε λίγο." });
     });
     if ($("#sdv-par-pdf")) $("#sdv-par-pdf").addEventListener("click", async () => {
       const w = window.open("", "_blank");
-      const r = await parochosCall({ action:"pdf", doc_id: id });
+      const r = await parochosCall({ action:"pdf", doc_id: id, process_id: d.parochos_process_id || "" });
       if (r.ok && r.url) { if (w) w.location = r.url; else location.href = r.url; }
       else { if (w) w.close(); showToast(r.error || "Δεν βρέθηκε PDF."); }
     });
