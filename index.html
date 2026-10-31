@@ -6765,7 +6765,8 @@
         </div>
         <div class="cell-sub hidden" id="sd-credit-note" style="margin-top:10px;">Το πιστωτικό μειώνει το υπόλοιπο του πελάτη (και επιστρέφει τα είδη στην αποθήκη).</div>
         <div class="field" style="margin-top:12px;"><label>Σημείωση (τυπώνεται)</label><textarea id="sd-note" rows="2">${escapeHtml(prefill.note || "")}</textarea></div>
-        <div class="sd-legal">Χωρίς ΜΑΡΚ από πάροχο ηλεκτρονικής τιμολόγησης το παραστατικό <b>δεν είναι ακόμα νόμιμο φορολογικό στοιχείο</b> — η εκτύπωση το γράφει. Τον ΜΑΡΚ τον περνάς μετά, από το ίδιο το παραστατικό.</div>
+        <label class="check-line" id="sd-aade-line" style="font-weight:600;"><input type="checkbox" id="sd-aade" checked> 📤 Αποστολή στην ΑΑΔΕ (Parochos) με την έκδοση</label>
+        <div class="sd-legal" id="sd-legal"></div>
         <label class="check-line"><input type="checkbox" id="sd-print" checked> Άνοιγμα εκτύπωσης μετά την έκδοση</label>
         <div class="drawer-foot" style="margin:22px -22px -20px;">
           <button type="button" class="btn-ghost" id="sd-cancel">Άκυρο</button>
@@ -6819,10 +6820,21 @@
       $("#sd-stock-line").classList.toggle("hidden", !anyItem);
       pick.refresh();
     };
+    // σειρές του ITSUPP (όχι του netinvoice): φεύγει αμέσως στην ΑΑΔΕ μέσω Parochos
+    const syncAade = () => {
+      const can = !series.external;
+      $("#sd-aade-line").classList.toggle("hidden", !can);
+      const on = can && $("#sd-aade").checked;
+      $("#sd-submit").textContent = "Έκδοση " + series.code + "-" + series.next_number + (on ? " στην ΑΑΔΕ" : "");
+      $("#sd-legal").innerHTML = on
+        ? `Με την έκδοση το παραστατικό <b>φεύγει αμέσως στην ΑΑΔΕ</b> μέσω Parochos, παίρνει ΜΑΡΚ και είναι νόμιμο. Μετά δεν αλλάζει ούτε ακυρώνεται — διορθώνεται μόνο με πιστωτικό.`
+        : `Χωρίς ΜΑΡΚ το παραστατικό <b>δεν είναι νόμιμο φορολογικό στοιχείο</b> (μένει πρόχειρο). Το στέλνεις στην ΑΑΔΕ αργότερα από το ίδιο το παραστατικό («📤 Έκδοση στην ΑΑΔΕ»).`;
+    };
+    $("#sd-aade").addEventListener("change", syncAade);
     const syncSeries = () => {
       $$("#sd-series .chip").forEach(c => c.classList.toggle("active", c.dataset.id === series.id));
       $("#sd-next").value = series.code + "-" + series.next_number;
-      $("#sd-submit").textContent = "Έκδοση " + series.code + "-" + series.next_number;
+      syncAade();
       const credit = series.kind === "credit";
       $("#sd-pay-wrap").classList.toggle("hidden", credit);
       $("#sd-credit-note").classList.toggle("hidden", !credit);
@@ -6921,6 +6933,23 @@
       if ((method === "cash" || method === "bank") && MONEY_ACCOUNTS.length) await ensureMoneyAccount(method, bank, payload.doc_date);
       await loadSeries(true);
       if (INVENTORY_CACHE.length && payload.affect_stock) loadInventory();
+      if (!series.external && $("#sd-aade").checked) {
+        btn.innerHTML = '<span class="spinner"></span>Αποστολή στην ΑΑΔΕ…';
+        if (w) try { w.document.body.innerHTML = '<p style="font-family:Arial;padding:30px;">Αποστολή στην ΑΑΔΕ…</p>'; } catch (e) {}
+        const r = await parochosCall({ action:"send", doc_id: data.id });
+        if (r.ok) {
+          showToast(`✓ ${data.doc_no} στην ΑΑΔΕ · ΜΑΡΚ ${r.mark}`);
+          if (w) await printSalesDoc(data.id, w);
+        } else {
+          if (w) w.close();                      // πρόχειρο χωρίς ΜΑΡΚ δεν τυπώνεται
+          showToast(`${data.doc_no}: δεν πήγε στην ΑΑΔΕ — δες το μήνυμα`);
+        }
+        ISSUED_MEMO = {};
+        await openSalesDoc(data.id);
+        if (!r.ok && $("#sdv-par-msg")) showMsg($("#sdv-par-msg"), escapeHtml(r.error || "Σφάλμα αποστολής."), "error");
+        refreshSalesViews();
+        return;
+      }
       showToast(`Εκδόθηκε ${data.doc_no} · ${eur(data.total)}`);
       if (w) await printSalesDoc(data.id, w);
       await openSalesDoc(data.id);
