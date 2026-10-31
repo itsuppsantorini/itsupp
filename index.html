@@ -924,6 +924,19 @@
         <div id="accounting-msg" style="padding:12px 20px 0;"></div>
         <div class="stat-row" id="accounting-stats"></div>
       </div>
+      <div class="panel" style="margin-bottom:16px;" id="vat-panel">
+        <div class="panel-head" style="flex-wrap:wrap;gap:8px;">
+          <h2>🧾 ΦΠΑ</h2>
+          <div style="display:flex;gap:6px;flex-wrap:nowrap;align-items:center;justify-content:flex-end;margin-left:auto;">
+            <div class="chip active" data-vat-mode="month">Μήνας</div>
+            <div class="chip" data-vat-mode="quarter">Τρίμηνο</div>
+            <button type="button" class="btn-ghost btn-sm" id="vat-prev" aria-label="Προηγούμενη περίοδος">‹</button>
+            <b id="vat-period" style="min-width:110px;text-align:center;"></b>
+            <button type="button" class="btn-ghost btn-sm" id="vat-next" aria-label="Επόμενη περίοδος">›</button>
+          </div>
+        </div>
+        <div class="panel-body" id="vat-body" style="padding:12px 20px 16px;"></div>
+      </div>
       <div class="panel">
         <div class="panel-head"><h2>Αρχείο τιμολογίων αγοράς</h2></div>
         <div class="arch-tools">
@@ -4228,7 +4241,7 @@
     const noFile = ARCHIVE_ROWS.filter(r => !r.file_path).length;
     $("#accounting-stats").innerHTML = `
       <div class="stat-tile"><div class="num">${eur(thisMonth.reduce((s, r) => s + piSigned(r), 0))}</div><div class="lbl">Αγορές μήνα (${thisMonth.length})</div></div>
-      <div class="stat-tile"><div class="num">${eur(thisMonth.reduce((s, r) => s + Number(r.vat), 0))}</div><div class="lbl">ΦΠΑ αγορών μήνα</div></div>
+      <div class="stat-tile"><div class="num">${eur(thisMonth.reduce((s, r) => s + piSigned(r, "vat"), 0))}</div><div class="lbl">ΦΠΑ αγορών μήνα</div></div>
       <div class="stat-tile ${unsent.length ? "balance-due" : ""}" data-acc-filter="unsent" role="button" tabindex="0"><div class="num">${unsent.length}</div><div class="lbl">Δεν έχουν σταλεί στον λογιστή</div></div>
       <div class="stat-tile" data-acc-filter="nofile" role="button" tabindex="0"><div class="num">${noFile}</div><div class="lbl">Χωρίς φωτογραφία</div></div>`;
     $$("#accounting-stats [data-acc-filter]").forEach(t => t.addEventListener("click", () => {
@@ -4237,6 +4250,160 @@
       renderInvoiceArchive();
       $("#purchases-recent").scrollIntoView({ behavior:"smooth", block:"start" });
     }));
+    loadVatPanel().catch(e => { $("#vat-body").innerHTML = `<div class="cell-sub">Σφάλμα: ${escapeHtml(e.message)}</div>`; });
+  }
+
+  // ================= ΦΠΑ: τι πρέπει να αποδοθεί ανά μήνα / τρίμηνο =================
+  // Εκροές = ΦΠΑ των παραστατικών πώλησης ΜΕ ΜΑΡΚ (Τιμολόγηση, και όσα ήρθαν από το netinvoice).
+  // Εισροές = ΦΠΑ των τιμολογίων αγοράς (Λογιστήριο). Πιστωτικά αφαιρούνται.
+  // Αν βγει αρνητικό, το πιστωτικό υπόλοιπο μεταφέρεται στην επόμενη περίοδο.
+  let VAT_MODE = "month", VAT_KEY = null, VAT_DATA = null;
+  const vatQuarter = (ym) => ym.slice(0, 4) + "-Q" + (Math.floor((Number(ym.slice(5, 7)) - 1) / 3) + 1);
+  const vatKeyOf = (iso, mode) => mode === "quarter" ? vatQuarter(iso.slice(0, 7)) : iso.slice(0, 7);
+  function vatRange(key){
+    if (/Q/.test(key)) { const y = Number(key.slice(0, 4)), q = Number(key.slice(-1)), m1 = (q - 1) * 3 + 1;
+      const last = new Date(Date.UTC(y, m1 + 2, 0)).getUTCDate();
+      return { from: `${y}-${String(m1).padStart(2, "0")}-01`, to: `${y}-${String(m1 + 2).padStart(2, "0")}-${last}`, label: `${q}ο τρίμηνο ${y}` }; }
+    const y = Number(key.slice(0, 4)), m = Number(key.slice(5, 7)), last = new Date(Date.UTC(y, m, 0)).getUTCDate();
+    return { from: `${key}-01`, to: `${key}-${last}`, label: new Date(Date.UTC(y, m - 1, 1)).toLocaleDateString("el-GR", { month:"long", year:"numeric", timeZone:"UTC" }) };
+  }
+  function vatShift(key, n){
+    if (/Q/.test(key)) { let y = Number(key.slice(0, 4)), q = Number(key.slice(-1)) + n; while (q > 4) { q -= 4; y++; } while (q < 1) { q += 4; y--; } return `${y}-Q${q}`; }
+    const d = new Date(Date.UTC(Number(key.slice(0, 4)), Number(key.slice(5, 7)) - 1 + n, 1)); return d.toISOString().slice(0, 7);
+  }
+  // προθεσμία: τελευταία εργάσιμη του επόμενου μήνα από το τέλος της περιόδου (χωρίς αργίες)
+  function vatDeadline(key){
+    const to = vatRange(key).to, y = Number(to.slice(0, 4)), m = Number(to.slice(5, 7));
+    const d = new Date(Date.UTC(y, m + 1, 0));
+    while ([0, 6].includes(d.getUTCDay())) d.setUTCDate(d.getUTCDate() - 1);
+    return d.toISOString().slice(0, 10);
+  }
+  async function loadVatData(){
+    const since = (() => { const d = new Date(); d.setMonth(d.getMonth() - 23); return isoDay(d).slice(0, 7) + "-01"; })();
+    const [sd, pi] = await Promise.all([
+      sb.from("sales_docs_view").select("id, doc_no, doc_date, kind, status, mark, net, vat, total").gte("doc_date", since).limit(5000),
+      sb.from("purchase_invoices").select("id, doc_date, doc_kind, net, vat, total, mark").gte("doc_date", since).limit(5000)
+    ]);
+    const sales = sd.error ? [] : (sd.data || []), purch = pi.error ? [] : (pi.data || []);
+    // ανάλυση ανά συντελεστή από τις γραμμές
+    const sIds = sales.filter(d => d.status === "issued" && d.mark).map(d => d.id), pIds = purch.map(p => p.id);
+    const sLines = [], pLines = [];
+    for (let i = 0; i < sIds.length; i += 150) { const r = await sb.from("sales_doc_lines").select("doc_id, vat_rate, line_net, line_vat").in("doc_id", sIds.slice(i, i + 150)); (r.data || []).forEach(x => sLines.push(x)); }
+    for (let i = 0; i < pIds.length; i += 150) { const r = await sb.from("purchase_invoice_lines").select("invoice_id, vat_rate, line_net").in("invoice_id", pIds.slice(i, i + 150)); (r.data || []).forEach(x => pLines.push(x)); }
+    VAT_DATA = { sales, purch, sLines, pLines, salesError: sd.error, at: Date.now() };
+    return VAT_DATA;
+  }
+  function vatTotals(key, mode){
+    const { sales, purch, sLines, pLines } = VAT_DATA;
+    const inP = (iso) => vatKeyOf(iso, mode) === key;
+    const sOk = sales.filter(d => d.status === "issued" && d.mark && inP(d.doc_date));
+    const sNoMark = sales.filter(d => d.status === "issued" && !d.mark && inP(d.doc_date));
+    const pOk = purch.filter(p => inP(p.doc_date));
+    const sg = (d) => d.kind === "credit" ? -1 : 1;
+    const out = r2(sOk.reduce((a, d) => a + sg(d) * Number(d.vat), 0)), outNet = r2(sOk.reduce((a, d) => a + sg(d) * Number(d.net), 0));
+    const inn = r2(pOk.reduce((a, p) => a + piSigned(p, "vat"), 0)), inNet = r2(pOk.reduce((a, p) => a + piSigned(p, "net"), 0));
+    const rates = {};
+    const sMap = new Map(sOk.map(d => [d.id, sg(d)])), pMap = new Map(pOk.map(p => [p.id, piSign(p)]));
+    sLines.filter(l => sMap.has(l.doc_id)).forEach(l => { const k = Number(l.vat_rate); rates[k] = rates[k] || { sn:0, sv:0, pn:0, pv:0 };
+      rates[k].sn += sMap.get(l.doc_id) * Number(l.line_net); rates[k].sv += sMap.get(l.doc_id) * Number(l.line_vat); });
+    pLines.filter(l => pMap.has(l.invoice_id)).forEach(l => { const k = Number(l.vat_rate); rates[k] = rates[k] || { sn:0, sv:0, pn:0, pv:0 };
+      rates[k].pn += pMap.get(l.invoice_id) * Number(l.line_net); rates[k].pv += pMap.get(l.invoice_id) * r2(Number(l.line_net) * k / 100); });
+    return { out, outNet, inn, inNet, nSales: sOk.length, nNoMark: sNoMark.length, noMarkVat: r2(sNoMark.reduce((a, d) => a + sg(d) * Number(d.vat), 0)), nPurch: pOk.length, rates };
+  }
+  // όλες οι περίοδοι από την πρώτη με κίνηση μέχρι την επιλεγμένη, με μεταφορά πιστωτικού
+  function vatChain(key, mode){
+    const dates = [...VAT_DATA.sales.filter(d => d.status === "issued" && d.mark).map(d => d.doc_date), ...VAT_DATA.purch.map(p => p.doc_date)].sort();
+    let k = dates.length ? vatKeyOf(dates[0], mode) : key;
+    if (k > key) k = key;
+    const rows = []; let carry = 0, guard = 0;
+    while (guard++ < 40) {
+      const t = vatTotals(k, mode), diff = r2(t.out - t.inn - carry);
+      const row = { key: k, ...t, carryIn: carry, payable: diff > 0 ? diff : 0, carryOut: diff < 0 ? -diff : 0 };
+      rows.push(row); carry = row.carryOut;
+      if (k === key) break; k = vatShift(k, 1);
+    }
+    return rows;
+  }
+  async function loadVatPanel(force){
+    if (!(PROFILE && PROFILE.role === "owner")) { $("#vat-panel").classList.add("hidden"); return; }
+    if (!VAT_KEY) VAT_KEY = vatKeyOf(isoDay(new Date()), VAT_MODE);
+    if (!VAT_DATA || force || Date.now() - VAT_DATA.at > 60e3) { $("#vat-body").innerHTML = '<div class="cell-sub"><span class="spinner"></span> Υπολογισμός…</div>'; await loadVatData(); }
+    renderVatPanel();
+  }
+  function renderVatPanel(){
+    const key = VAT_KEY, mode = VAT_MODE, rg = vatRange(key);
+    $("#vat-period").textContent = rg.label;
+    $$("#vat-panel [data-vat-mode]").forEach(c => c.classList.toggle("active", c.dataset.vatMode === mode));
+    const chain = vatChain(key, mode), t = chain[chain.length - 1];
+    const res = r2(t.out - t.inn - t.carryIn);
+    const today = isoDay(new Date()), dl = vatDeadline(key), open = today <= rg.to;
+    const rates = Object.entries(t.rates).filter(([, v]) => Math.abs(v.sn) + Math.abs(v.pn) > 0.004).sort((a, b) => Number(b[0]) - Number(a[0]));
+    $("#vat-body").innerHTML = `
+      ${VAT_DATA.salesError ? `<div class="msg msg-error" style="margin-bottom:10px;">Δεν διαβάστηκαν οι πωλήσεις: ${escapeHtml(VAT_DATA.salesError.message)}</div>` : ""}
+      <div class="stat-row" style="padding:0;margin-bottom:12px;">
+        <div class="stat-tile"><div class="num">${eur(t.out)}</div><div class="lbl">ΦΠΑ πωλήσεων (εκροές) · ${t.nSales} παραστ.</div></div>
+        <div class="stat-tile"><div class="num">−${eur(t.inn)}</div><div class="lbl">ΦΠΑ αγορών (εισροές) · ${t.nPurch} τιμολ.</div></div>
+        <div class="stat-tile"><div class="num">${t.carryIn ? "−" + eur(t.carryIn) : eur(0)}</div><div class="lbl">Πιστωτικό από προηγούμενη περίοδο</div></div>
+        <div class="stat-tile ${res > 0 ? "balance-due" : ""}"><div class="num">${res > 0 ? eur(res) : eur(-res)}</div>
+          <div class="lbl">${res > 0 ? "<b>Πληρωτέος ΦΠΑ</b>" : res < 0 ? "<b>Πιστωτικό</b> — μεταφέρεται" : "Τίποτα για απόδοση"}</div></div>
+      </div>
+      <div class="cell-sub" style="margin-bottom:10px;">
+        ${open ? "⏳ Η περίοδος δεν έχει κλείσει ακόμα — το ποσό αλλάζει με κάθε νέο παραστατικό. " : ""}Προθεσμία δήλωσης & πληρωμής: έως <b>${fmtShortDate(dl)}</b>${today > dl && res > 0 ? ' <span style="color:var(--red);">(πέρασε)</span>' : ""}.
+        ${t.nNoMark ? `<br>⚠️ ${t.nNoMark} παραστατικά χωρίς ΜΑΡΚ (ΦΠΑ ${eur(t.noMarkVat)}) <b>δεν</b> μετράνε μέχρι να εκδοθούν στην ΑΑΔΕ.` : ""}
+      </div>
+      ${rates.length ? `<div class="table-scroll"><table class="bal-table" style="width:100%;margin-bottom:10px;"><thead><tr><th>ΦΠΑ</th><th style="text-align:right;">Πωλήσεις καθ.</th><th style="text-align:right;">ΦΠΑ πωλ.</th><th style="text-align:right;">Αγορές καθ.</th><th style="text-align:right;">ΦΠΑ αγορ.</th></tr></thead><tbody>
+        ${rates.map(([k, v]) => `<tr><td>${k}%</td><td style="text-align:right;">${eur(v.sn)}</td><td style="text-align:right;">${eur(v.sv)}</td><td style="text-align:right;">${eur(v.pn)}</td><td style="text-align:right;">${eur(v.pv)}</td></tr>`).join("")}
+        <tr style="font-weight:700;"><td>Σύνολο</td><td style="text-align:right;">${eur(t.outNet)}</td><td style="text-align:right;">${eur(t.out)}</td><td style="text-align:right;">${eur(t.inNet)}</td><td style="text-align:right;">${eur(t.inn)}</td></tr>
+      </tbody></table></div>` : `<div class="empty-state">Καμία κίνηση με ΦΠΑ σε αυτή την περίοδο.</div>`}
+      ${chain.length > 1 ? `<details style="margin-bottom:10px;"><summary class="cell-sub" style="cursor:pointer;">Ιστορικό ${mode === "quarter" ? "τριμήνων" : "μηνών"} (μεταφορά πιστωτικού)</summary>
+        <div class="table-scroll"><table class="bal-table" style="width:100%;"><thead><tr><th>Περίοδος</th><th style="text-align:right;">Εκροές</th><th style="text-align:right;">Εισροές</th><th style="text-align:right;">Από πριν</th><th style="text-align:right;">Αποτέλεσμα</th></tr></thead><tbody>
+        ${chain.slice().reverse().map(c => `<tr data-vat-go="${c.key}" style="cursor:pointer;"><td>${escapeHtml(vatRange(c.key).label)}</td><td style="text-align:right;">${eur(c.out)}</td><td style="text-align:right;">${eur(c.inn)}</td>
+          <td style="text-align:right;">${c.carryIn ? "−" + eur(c.carryIn) : "—"}</td><td style="text-align:right;">${c.payable ? "<b>πληρωτέο " + eur(c.payable) + "</b>" : c.carryOut ? "πιστωτικό " + eur(c.carryOut) : "0"}</td></tr>`).join("")}
+        </tbody></table></div></details>` : ""}
+      <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;">
+        <button type="button" class="btn-ghost btn-sm" id="vat-mydata">🔎 Έλεγχος με myDATA</button>
+        <span class="cell-sub">Ενδεικτικός υπολογισμός — το τελικό ποσό το βγάζει ο λογιστής (π.χ. ΦΠΑ καυσίμων ΙΧ, γευμάτων, δώρων δεν εκπίπτει· μετράνε μόνο τιμολόγια, όχι αποδείξεις).</span>
+      </div>
+      <div id="vat-mydata-box"></div>`;
+    $$("#vat-body [data-vat-go]").forEach(tr => tr.addEventListener("click", () => { VAT_KEY = tr.dataset.vatGo; renderVatPanel(); }));
+    $("#vat-mydata").addEventListener("click", () => vatCheckMyData(key));
+  }
+  // σύγκριση με όσα λέει το myDATA για την ίδια περίοδο (εκδοθέντα + ληφθέντα)
+  async function vatCheckMyData(key){
+    const box = $("#vat-mydata-box"), rg = vatRange(key), mine = vatTotals(key, VAT_MODE);
+    box.innerHTML = '<div class="cell-sub" style="margin-top:10px;"><span class="spinner"></span> Ρωτάω το myDATA…</div>';
+    const [iss, inb] = await Promise.all([
+      aadeCall({ action:"mydata_issued", date_from: rg.from, date_to: rg.to }),
+      aadeCall({ action:"mydata_inbox", date_from: rg.from, date_to: rg.to, counter_vat: "" })
+    ]);
+    if (!$("#vat-mydata-box")) return;
+    const sgn = (i) => /^5\.|^11\.4$/.test(i.invoice_type || "") ? -1 : 1;
+    const own = String((BIZ && BIZ.vat_number) || "").replace(/\D/g, "");
+    const issList = iss.ok ? (iss.invoices || []).filter(i => !i.cancelled && (!own || own === "000000000" || !i.issuer_vat || i.issuer_vat === own)) : [];
+    const issVat = r2(issList.reduce((a, i) => a + sgn(i) * Number((i.totals || {}).vat || 0), 0))
+                 + r2((iss.ok ? (iss.income_rows || []) : []).reduce((a, x) => a + sgn({ invoice_type: x.invoice_type }) * Number(x.vat || 0), 0));
+    const inbList = inb.ok ? (inb.invoices || []).filter(i => !i.cancelled) : [];
+    const inbVat = r2(inbList.reduce((a, i) => a + sgn(i) * Number((i.totals || {}).vat || 0), 0));
+    let missing = [];
+    if (inbList.length) {
+      const marks = inbList.map(i => i.mark).filter(Boolean), have = new Set();
+      for (let i = 0; i < marks.length; i += 150) { const { data } = await sb.from("purchase_invoices").select("mark").in("mark", marks.slice(i, i + 150)); (data || []).forEach(x => have.add(x.mark)); }
+      missing = inbList.filter(i => !have.has(i.mark));
+    }
+    const missVat = r2(missing.reduce((a, i) => a + sgn(i) * Number((i.totals || {}).vat || 0), 0));
+    const row = (lbl, a, b, ok) => `<tr><td>${lbl}</td><td style="text-align:right;">${a}</td><td style="text-align:right;">${b}</td><td style="text-align:center;">${ok}</td></tr>`;
+    const same = (a, b) => Math.abs(a - b) < 0.05 ? "✓" : `<span style="color:var(--amber);">διαφορά ${eur(r2(b - a))}</span>`;
+    box.innerHTML = `<div class="table-scroll" style="margin-top:10px;"><table class="bal-table" style="width:100%;"><thead><tr><th></th><th style="text-align:right;">ITSUPP</th><th style="text-align:right;">myDATA</th><th></th></tr></thead><tbody>
+        ${row("ΦΠΑ πωλήσεων", eur(mine.out), iss.ok ? eur(issVat) : "—", iss.ok ? same(mine.out, issVat) : escapeHtml(iss.error || "σφάλμα"))}
+        ${row("ΦΠΑ αγορών", eur(mine.inn), inb.ok ? eur(inbVat) : "—", inb.ok ? same(mine.inn, inbVat) : escapeHtml(inb.error || "σφάλμα"))}
+      </tbody></table></div>
+      ${missing.length ? `<div class="money-warn" style="margin-top:8px;">📥 ${missing.length} τιμολόγια αγοράς είναι στο myDATA αλλά <b>όχι</b> στο ITSUPP (ΦΠΑ ${eur(missVat)}) — αν τα περάσεις, ο πληρωτέος ΦΠΑ μειώνεται.
+          <button type="button" class="btn-primary btn-sm" id="vat-open-inbox" style="margin-left:6px;">Καταχώρηση</button></div>` : inb.ok ? '<div class="cell-sub" style="margin-top:6px;">✓ Όλα τα τιμολόγια αγοράς του myDATA είναι περασμένα.</div>' : ""}
+      ${iss.ok && Math.abs(mine.out - issVat) >= 0.05 ? '<div class="cell-sub" style="margin-top:6px;">Για τις πωλήσεις: πέρασε στην Τιμολόγηση όσα λείπουν με «📥 Από netinvoice».</div>' : ""}`;
+    if ($("#vat-open-inbox")) $("#vat-open-inbox").addEventListener("click", () => {
+      const d = Math.ceil((Date.now() - Date.parse(rg.from)) / 864e5) + 1;
+      openMyDataInbox({ days: Math.min(365, Math.max(30, d)) });
+    });
   }
 
   // μετά από κάθε αλλαγή σε τιμολόγιο/πληρωμή ανανεώνεται ό,τι είναι ανοιχτό
@@ -7395,6 +7562,12 @@
   $("#inv-biz-btn").addEventListener("click", openBusinessSettings);
   $("#inv-quotes-btn").addEventListener("click", () => goToView("quotes"));
   $("#inv-import-btn").addEventListener("click", () => openIssuedImport());
+  $$("#vat-panel [data-vat-mode]").forEach(c => c.addEventListener("click", () => {
+    if (VAT_MODE === c.dataset.vatMode) return;
+    const ref = VAT_KEY ? vatRange(VAT_KEY).to : isoDay(new Date());
+    VAT_MODE = c.dataset.vatMode; VAT_KEY = vatKeyOf(ref, VAT_MODE); if (VAT_DATA) renderVatPanel(); }));
+  $("#vat-prev").addEventListener("click", () => { if (!VAT_KEY || !VAT_DATA) return; VAT_KEY = vatShift(VAT_KEY, -1); renderVatPanel(); });
+  $("#vat-next").addEventListener("click", () => { if (!VAT_KEY || !VAT_DATA) return; VAT_KEY = vatShift(VAT_KEY, 1); renderVatPanel(); });
   $("#inv-q").addEventListener("input", () => { SD_FILTER.q = $("#inv-q").value; renderInvoicingList(); });
   $("#inv-from").addEventListener("change", () => { SD_FILTER.from = $("#inv-from").value; renderInvoicingList(); });
   $("#inv-to").addEventListener("change", () => { SD_FILTER.to = $("#inv-to").value; renderInvoicingList(); });
