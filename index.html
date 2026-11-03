@@ -869,7 +869,7 @@
           <div class="inv-selbar hidden" id="inv-selbar">
             <span id="inv-sel-text">Διάλεξε είδη για την προσφορά</span>
             <span style="flex:1;"></span>
-            <button type="button" class="btn-ghost btn-sm" id="inv-sel-cat">🏷 Κατηγορία</button>
+            <button type="button" class="btn-ghost btn-sm" id="inv-sel-cat">🏷 Κατηγορία / χαρακτηρισμός</button>
             <button type="button" class="btn-ghost btn-sm" id="inv-sel-cancel">Άκυρο</button>
             <button type="button" class="btn-primary btn-sm" id="inv-sel-ok">✓ ΟΚ — Προσφορά</button>
           </div>
@@ -5389,6 +5389,25 @@
       const { data } = await sb.from("purchase_invoices").select("id, mark").in("mark", marks.slice(i, i + 150));
       (data || []).forEach(p => have.set(p.mark, p.id));
     }
+    // τιμολόγια που περάστηκαν ΧΩΡΙΣ ΜΑΡΚ (π.χ. από καρτέλα/χαρτί): ίδιος προμηθευτής + ίδιος αριθμός → είναι το ίδιο·
+    // συμπληρώνεται ο ΜΑΡΚ ώστε να μη διπλοπεραστεί
+    const pend = (r.invoices || []).filter(i => i.mark && !have.has(i.mark) && i.issuer_vat && i.aa);
+    if (pend.length) {
+      if (!SUPPLIERS_CACHE.length) { try { await loadSuppliers(); } catch (e) {} }
+      const supIds = [...new Set(pend.map(i => (SUPPLIERS_CACHE.find(s => s.vat_number === i.issuer_vat) || {}).id).filter(Boolean))];
+      if (supIds.length) {
+        const { data: nm } = await sb.from("purchase_invoices").select("id, supplier_id, doc_number, doc_date, total").is("mark", null).in("supplier_id", supIds);
+        const digits = (x) => String(x || "").replace(/\D/g, "").replace(/^0+/, "");
+        for (const i of pend) {
+          const sup = SUPPLIERS_CACHE.find(s => s.vat_number === i.issuer_vat); if (!sup) continue;
+          const aa = digits(i.aa); if (!aa) continue;
+          const hit = (nm || []).find(p => p.supplier_id === sup.id && (digits(p.doc_number) === aa || (aa.length >= 4 && digits(p.doc_number).endsWith(aa))));
+          if (!hit) continue;
+          have.set(i.mark, hit.id); nm.splice(nm.indexOf(hit), 1);
+          try { await sb.from("purchase_invoices").update({ mark: i.mark }).eq("id", hit.id); } catch (e) {}
+        }
+      }
+    }
     const invoices = (r.invoices || []).map(i => ({ ...i, registered_id: have.get(i.mark) || null }))
       .sort((a, b) => String(b.issue_date || "").localeCompare(String(a.issue_date || "")));
     const res = { ok:true, invoices, more: r.more, from, to, debug: r.debug || null };
@@ -5684,7 +5703,7 @@
       list.forEach(it => {
         const gross = Math.round(Number(it.price || 0) * 100) / 100, net = Math.round(gross / 1.24 * 100) / 100;
         const row = ws.addRow([it.sku || "", it.name || "", "Φ.Π.Α. 24% (2400%)", "Τεμάχια", "", "",
-          it.track_stock === false ? "Έσοδα από Παροχή Υπηρεσιών" : "Έσοδα από Πώληση Εμπορευμάτων", "", "Ναι", gross, net]);
+          "Έσοδα από " + itemMydataLabel(it), "", "Ναι", gross, net]);
         row.eachCell({ includeEmpty: true }, (c, n) => { c.font = { name: "Calibri", size: 11 }; if (n >= 10) c.numFmt = "#,##0.0000"; });
       });
       const buf = await wb.xlsx.writeBuffer();
@@ -5743,7 +5762,7 @@
         <td class="inv-ck ${sel ? "" : "hidden"}"><input type="checkbox" data-ipick="${it.id}" ${sel && sel.has(it.id) ? "checked" : ""} aria-label="Επιλογή"></td>
         <td><strong>${escapeHtml(it.name)}</strong><div class="cell-sub">${escapeHtml(it.sku || "")}${it.category ? " · " + escapeHtml(it.category) : ""}</div></td>
         <td>${it.track_stock === false ? '<span class="cell-sub">λογισμικό /<br>υπηρεσία</span>' : `${it.stock}${it.max_stock ? " / " + it.max_stock : ""}<div class="stock-bar"><div class="stock-bar-fill ${low?'low':''}" style="width:${pct}%;"></div></div>`}</td>
-        <td>${Number(it.price).toFixed(2)}€<div class="cell-sub">χωρίς ΦΠΑ ${eur(Number(it.price) / 1.24)}</div>${Number(it.maintenance_price) > 0 ? `<div class="cell-sub">🔧 συντ. ${eur(it.maintenance_price)}/έτος</div>` : ""}</td>
+        <td>${Number(it.price).toFixed(2)}€<div class="cell-sub">χωρίς ΦΠΑ ${eur(Number(it.price) / 1.24)}</div>${Number(it.maintenance_price) > 0 ? `<div class="cell-sub">🔧 συντ. ${eur(it.maintenance_price)}/έτος</div>` : ""}<div class="cell-sub">${itemMydataLabel(it) === "Παροχή Υπηρεσιών" ? "🛠 υπηρεσία" : "📦 εμπόρευμα"}</div></td>
         <td>${escapeHtml(it.suppliers ? it.suppliers.name : "—")}
           ${sel ? "" : `<div><button type="button" class="btn-sm btn-primary" data-assign="${it.id}" style="margin-top:6px;">Καταχώρηση σε πελάτη</button></div>`}
         </td>
@@ -5807,25 +5826,35 @@
       <form id="invcat-form">
         <div id="invcat-msg"></div>
         <div class="form-row">
-          <div class="field"><label>Κατηγορία *</label><input id="invcat-main" list="inv-cat-list" required placeholder="π.χ. Δικτυακά"></div>
+          <div class="field"><label>Κατηγορία</label><input id="invcat-main" list="inv-cat-list" placeholder="κενό = να μην αλλάξει"></div>
           <div class="field"><label>Υποκατηγορία (προαιρετικά)</label><input id="invcat-sub" placeholder="π.χ. Access points"></div>
         </div>
+        <div class="field"><label>Χαρακτηρισμός εσόδου (myDATA)</label><select id="invcat-mydata"><option value="keep">— να μην αλλάξει —</option>
+          ${MYDATA_CATS.map(([v, l]) => `<option value="${v}">${l}</option>`).join("")}</select></div>
         <datalist id="inv-cat-list">${inventoryCategoryList().map(c => `<option value="${escapeHtml(c)}">`).join("")}</datalist>
         <div class="drawer-foot" style="margin:22px -22px -20px;"><span></span><button type="submit" class="btn-primary">Αποθήκευση</button></div>
       </form>`);
     $("#invcat-form").addEventListener("submit", async (e) => {
       e.preventDefault();
       const main = $("#invcat-main").value.trim().replace(/\s*\/\s*/g, " "), sub = $("#invcat-sub").value.trim().replace(/\s*\/\s*/g, " ");
-      if (!main) return;
-      const { error } = await sb.from("inventory_items").update({ category: sub ? main + " / " + sub : main }).in("id", ids);
-      if (error) { showMsg($("#invcat-msg"), "Σφάλμα: " + error.message, "error"); return; }
+      const md = $("#invcat-mydata").value;
+      const upd = {};
+      if (main) upd.category = sub ? main + " / " + sub : main;
+      if (md !== "keep") upd.mydata_category = md || null;
+      if (!Object.keys(upd).length) { showMsg($("#invcat-msg"), "Γράψε κατηγορία ή διάλεξε χαρακτηρισμό.", "error"); return; }
+      const { error } = await sb.from("inventory_items").update(upd).in("id", ids);
+      if (error) { showMsg($("#invcat-msg"), "Σφάλμα: " + (/mydata_category/.test(error.message || "") ? V32_MSG : error.message), "error"); return; }
       closeDrawer(); setInvSelect(false); await loadInventory();
-      showToast(`Η κατηγορία άλλαξε σε ${ids.length} είδη.`);
+      showToast(`Άλλαξαν ${ids.length} είδη.`);
     });
   });
 
   $("#new-item-btn").addEventListener("click", async () => { await loadSuppliers(); openInventoryDrawer(null); });
 
+  // χαρακτηρισμός εσόδου myDATA ανά είδος (schema_v32)
+  const MYDATA_CATS = [["", "Αυτόματα (υπηρεσία αν είναι «χωρίς απόθεμα», αλλιώς εμπόρευμα)"], ["category1_1", "Πώληση εμπορευμάτων (category1_1)"], ["category1_3", "Παροχή υπηρεσιών (category1_3)"], ["category1_2", "Πώληση προϊόντων (category1_2)"]];
+  const itemMydataLabel = (it) => it.mydata_category === "category1_3" || (!it.mydata_category && it.track_stock === false) ? "Παροχή Υπηρεσιών" : it.mydata_category === "category1_2" ? "Πώληση Προϊόντων" : "Πώληση Εμπορευμάτων";
+  const V32_MSG = "τρέξε το schema_v32.sql για τον χαρακτηρισμό myDATA";
   async function openInventoryDrawer(itemId){
     let item = { sku:"", name:"", category:"", stock:0, max_stock:0, price:0, supplier_id:null, track_stock:true, maintenance_price:null, rental_price:null, notes:"" };
     if (itemId) {
@@ -5845,6 +5874,8 @@
         </div>
         <datalist id="it-cat-list">${inventoryCategoryList().map(c => `<option value="${escapeHtml(c)}">`).join("")}</datalist>
         <label class="check-line" style="margin-bottom:10px;"><input type="checkbox" id="it-nostock" ${item.track_stock === false ? "checked" : ""}> Χωρίς απόθεμα (λογισμικό / άδεια / υπηρεσία)</label>
+        <div class="field"><label>Χαρακτηρισμός εσόδου (myDATA)</label><select id="it-mydata">${MYDATA_CATS.map(([v, l]) => `<option value="${v}" ${(item.mydata_category || "") === v ? "selected" : ""}>${l}</option>`).join("")}</select>
+          <div class="cell-sub" style="margin-top:4px;">Αυτό στέλνεται στην ΑΑΔΕ όταν το πουλάς. Στα τιμολόγια/αποδείξεις <b>παροχής υπηρεσιών</b> μπαίνει πάντα «Παροχή υπηρεσιών».</div></div>
         <div class="form-row ${item.track_stock === false ? "hidden" : ""}" id="it-stock-row">
           <div class="field"><label>Απόθεμα</label><input type="number" id="it-stock" value="${item.stock}"></div>
           <div class="field"><label>Μέγιστο απόθεμα</label><input type="number" id="it-max" value="${item.max_stock}"></div>
@@ -5890,11 +5921,16 @@
         track_stock: !$("#it-nostock").checked,
         maintenance_price: $("#it-maint").value === "" ? null : parseFloat($("#it-maint").value),
         rental_price: $("#it-rental").value === "" ? null : parseFloat($("#it-rental").value),
-        notes: $("#it-notes").value.trim() || null
+        notes: $("#it-notes").value.trim() || null,
+        mydata_category: $("#it-mydata").value || null
       };
       if (!payload.track_stock) { payload.stock = 0; payload.max_stock = 0; }
       const write = (pl) => itemId ? sb.from("inventory_items").update(pl).eq("id", itemId) : sb.from("inventory_items").insert(pl);
       let { error } = await write(payload);
+      if (error && /mydata_category/.test(error.message || "")) {
+        delete payload.mydata_category; ({ error } = await write(payload));
+        if (!error) showToast("Αποθηκεύτηκε χωρίς χαρακτηρισμό — " + V32_MSG + ".");
+      }
       // χωρίς το v26 δεν υπάρχουν τα νέα πεδία
       if (error && /maintenance_price|rental_price|track_stock|notes/.test(error.message || "")) {
         ["track_stock", "maintenance_price", "rental_price", "notes"].forEach(k => delete payload[k]);
