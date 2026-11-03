@@ -1920,8 +1920,9 @@
             if (d.mark) return { data:{ ok:false, error:"Έχει ήδη ΜΑΡΚ " + d.mark + "." }, error:null };
             if (s.external) return { data:{ ok:false, error:"Η σειρά " + s.code + " είναι του netinvoice — από το ITSUPP εκδίδεις στις σειρές IT-…." }, error:null };
             Object.assign(d, { mark: "4000" + String(Date.now()).slice(-11), uid: "DEMO" + d.id.slice(-6).toUpperCase(), qr_url: "https://example.com/parochos-demo",
-                               pdf_url: null, parochos_status: "done", parochos_error: null, parochos_sent_at: nowIso() });
-            save(); return { data:{ ok:true, status:"done", mark:d.mark, uid:d.uid, doc_no:d.doc_no }, error:null };
+                               pdf_url: null, parochos_status: b.own_pdf ? "transmitted" : "done", parochos_process_id: "DEMO-" + d.id.slice(-6), auth_code: "DEMOAUTH" + d.id.slice(-8).toUpperCase(),
+                               parochos_error: null, parochos_sent_at: nowIso() });
+            save(); return { data:{ ok:true, status: b.own_pdf ? "transmitted" : "done", mark:d.mark, uid:d.uid, doc_no:d.doc_no }, error:null };
           }
           if (b.action === "check") return { data:{ ok: !!d.mark, status: d.mark ? "done" : "pending", mark: d.mark }, error:null };
           if (b.action === "finalize") { if (!String(b.pdf_base64 || "").includes("base64,JVBER")) return { data:{ ok:false, error:"Μη έγκυρο PDF." }, error:null };
@@ -6522,7 +6523,7 @@
       e.stopPropagation();
       if (btn.disabled) return;
       btn.disabled = true; btn.innerHTML = '<span class="spinner"></span> ανέβασμα…';
-      const r = await parochosCall({ action:"send", doc_id: btn.dataset.sdRetry });
+      const r = await parochosSendWithPdf(btn.dataset.sdRetry);
       showToast(r.ok ? `✓ Ανέβηκε στην ΑΑΔΕ · ΜΑΡΚ ${r.mark}` : "Δεν ανέβηκε: " + parochosErrText(r.error));
       ISSUED_MEMO = {}; loadInvoicingView();
     }));
@@ -6988,9 +6989,9 @@
       if (!series.external && $("#sd-aade").checked) {
         btn.innerHTML = '<span class="spinner"></span>Αποστολή στην ΑΑΔΕ…';
         if (w) try { w.document.body.innerHTML = '<p style="font-family:Arial;padding:30px;">Αποστολή στην ΑΑΔΕ…</p>'; } catch (e) {}
-        const r = await parochosCall({ action:"send", doc_id: data.id });
+        const r = await parochosSendWithPdf(data.id, () => { btn.innerHTML = '<span class="spinner"></span>Ανέβασμα PDF στον Parochos…'; });
         if (r.ok) {
-          showToast(`✓ ${data.doc_no} στην ΑΑΔΕ · ΜΑΡΚ ${r.mark}`);
+          showToast(`✓ ${data.doc_no} στην ΑΑΔΕ · ΜΑΡΚ ${r.mark}${r.pdf_ok === false ? " · το PDF δεν ανέβηκε (πάτα «📎 Ολοκλήρωση»)" : ""}`);
           if (w) await printSalesDoc(data.id, w);
         } else {
           if (w) w.close();                      // πρόχειρο χωρίς ΜΑΡΚ δεν τυπώνεται
@@ -7113,6 +7114,31 @@
   const fmtQty = (q) => Number(q).toLocaleString("el-GR", { maximumFractionDigits:3 });
 
   // ---------------- έκδοση στην ΑΑΔΕ μέσω Parochos ----------------
+  // Η ΔΙΚΗ ΜΑΣ εκτύπωση ανεβαίνει στον Parochos ως το PDF του παραστατικού («Ολοκληρώθηκε» εκεί)
+  async function parochosUploadOwnPdf(id){
+    let { data: d } = await sb.from("sales_docs_view").select("*").eq("id", id).single();
+    if (!d || !d.mark) return { ok:false, error:"Δεν έχει ακόμα ΜΑΡΚ." };
+    if (!d.auth_code || !d.qr_url) {   // κωδ. ταυτοποίησης / QR από τον Parochos ώστε να τυπωθούν στο PDF
+      await parochosCall({ action:"check", doc_id: id, process_id: d.parochos_process_id || "" });
+      const { data: fresh } = await sb.from("sales_docs_view").select("*").eq("id", id).single(); if (fresh) d = fresh;
+    }
+    if (!SERIES) await loadSeries();
+    const { data: lines } = await sb.from("sales_doc_lines").select("*").eq("doc_id", id).order("line_no");
+    let related = null;
+    if (d.related_doc_id) { const { data } = await sb.from("sales_docs").select("doc_no, doc_date").eq("id", d.related_doc_id).maybeSingle(); related = data; }
+    const qr = d.qr_url ? await qrSvg(d.qr_url) : "";
+    const blob = await htmlToPdfBlob(buildSalesDocHtml(d, lines || [], { qr, related }));
+    const b64 = await new Promise((res, rej) => { const fr = new FileReader(); fr.onload = () => res(String(fr.result)); fr.onerror = rej; fr.readAsDataURL(blob); });
+    return parochosCall({ action:"finalize", doc_id: id, process_id: d.parochos_process_id || "", pdf_base64: b64 });
+  }
+  // αποστολή στην ΑΑΔΕ + ανέβασμα της δικής μας εκτύπωσης (αν αποτύχει το 2ο, μένει «📎 Ολοκλήρωση»)
+  async function parochosSendWithPdf(id, onStep){
+    const r = await parochosCall({ action:"send", doc_id: id, own_pdf: true });
+    if (!r.ok || r.status !== "transmitted") return r;
+    if (onStep) onStep("pdf");
+    let f; try { f = await parochosUploadOwnPdf(id); } catch (e) { f = { ok:false, error: e.message }; }
+    return { ...r, status: f.ok ? "completed" : "transmitted", pdf_ok: !!f.ok, pdf_error: f.ok ? "" : (f.error || "") };
+  }
   const sdSeries = (d) => (SERIES || []).find(s => s.id === d.series_id) || null;
   // πιο κατανοητά τα σφάλματα του Parochos
   function parochosErrText(e){
@@ -7161,8 +7187,8 @@
         return;
       }
       b.disabled = true; b.innerHTML = '<span class="spinner"></span> ' + (b.dataset.retry ? "Ανέβασμα…" : "Έκδοση…");
-      const r = await parochosCall({ action:"send", doc_id: id });
-      if (r.ok) showToast(`✓ ${d.doc_no}: ΜΑΡΚ ${r.mark}`);
+      const r = await parochosSendWithPdf(id, () => { b.innerHTML = '<span class="spinner"></span> Ανέβασμα PDF…'; });
+      if (r.ok) showToast(`✓ ${d.doc_no}: ΜΑΡΚ ${r.mark}${r.pdf_ok === false ? " · το PDF δεν ανέβηκε — πάτα «📎 Ολοκλήρωση»" : ""}`);
       done(r);
     });
     if ($("#sdv-par-check")) $("#sdv-par-check").addEventListener("click", async () => {
@@ -7172,22 +7198,10 @@
       done(r.ok || r.status === "failed" ? null : { ok:false, error: r.error || "Δεν έχει απαντήσει ακόμα η ΑΑΔΕ — δοκίμασε σε λίγο." });
     });
     if ($("#sdv-par-fin")) $("#sdv-par-fin").addEventListener("click", async () => {
-      const b = $("#sdv-par-fin"); b.disabled = true; b.innerHTML = '<span class="spinner"></span> Δημιουργία PDF…';
-      try {
-        // πρώτα φέρνουμε από τον Parochos κωδικό ταυτοποίησης/QR ώστε να τυπωθούν στο PDF
-        if (!d.auth_code) { await parochosCall({ action:"check", doc_id: id, process_id: d.parochos_process_id || "" });
-          const { data: fresh } = await sb.from("sales_docs_view").select("*").eq("id", id).single(); if (fresh) d = fresh; }
-        const { data: lines } = await sb.from("sales_doc_lines").select("*").eq("doc_id", id).order("line_no");
-        let related = null;
-        if (d.related_doc_id) { const { data } = await sb.from("sales_docs").select("doc_no, doc_date").eq("id", d.related_doc_id).maybeSingle(); related = data; }
-        const qr = d.qr_url ? await qrSvg(d.qr_url) : "";
-        const blob = await htmlToPdfBlob(buildSalesDocHtml(d, lines || [], { qr, related }));
-        const b64 = await new Promise((res, rej) => { const fr = new FileReader(); fr.onload = () => res(String(fr.result)); fr.onerror = rej; fr.readAsDataURL(blob); });
-        b.innerHTML = '<span class="spinner"></span> Ανέβασμα στον Parochos…';
-        const r = await parochosCall({ action:"finalize", doc_id: id, process_id: d.parochos_process_id || "", pdf_base64: b64 });
-        if (r.ok) showToast(`✅ ${d.doc_no}: ολοκληρώθηκε στον Parochos`);
-        done(r);
-      } catch (e) { done({ ok:false, error: "Σφάλμα PDF: " + e.message }); }
+      const b = $("#sdv-par-fin"); b.disabled = true; b.innerHTML = '<span class="spinner"></span> Ανέβασμα PDF στον Parochos…';
+      let r; try { r = await parochosUploadOwnPdf(id); } catch (e) { r = { ok:false, error: "Σφάλμα PDF: " + e.message }; }
+      if (r.ok) showToast(`✅ ${d.doc_no}: ολοκληρώθηκε στον Parochos`);
+      done(r);
     });
     if ($("#sdv-par-pdf")) $("#sdv-par-pdf").addEventListener("click", async () => {
       const w = window.open("", "_blank");
