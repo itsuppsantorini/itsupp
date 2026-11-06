@@ -493,6 +493,9 @@
   .arch-tools{display:flex;flex-direction:column;gap:10px;padding:14px 20px 8px;}
   .br-card{border:1px solid var(--line);border-radius:10px;padding:10px 12px;margin-bottom:8px;background:var(--surface);}
   .br-card.br-edit{border-color:var(--teal);}
+  .br-actions{display:flex;flex-wrap:wrap;gap:6px;margin-top:8px;}
+  .br-actions .btn-sm{border:1px solid var(--line);}
+  .br-moves{border-top:1px dashed var(--line);margin-top:10px;padding-top:10px;}
   .arch-dates{display:flex;align-items:center;gap:6px;flex-wrap:wrap;}
   .arch-dates input[type=date]{width:auto;min-width:0;flex:0 1 150px;}
   .arch-all{padding:6px 0 4px;}
@@ -1456,6 +1459,12 @@
       if (t === "leave_requests" && r.start_date && r.end_date) r.days = leaveDays(r.start_date, r.end_date);
       if (t === "calendar_notes") r.done_at = r.done ? (r.done_at || nowIso()) : null;
       if (t === "tickets") r.updated_at = nowIso();
+      // ίδιο με το trigger ledger_entries_branch (v34)
+      if (t === "ledger_entries" && !r.branch_id && (r.sales_doc_id || r.settles_doc)) {
+        const d = tbl("sales_docs").find(x => x.id === r.sales_doc_id) || tbl("sales_docs").find(x => r.settles_doc && x.doc_no === r.settles_doc && x.client_id === r.client_id);
+        const bid = d && d.client_snapshot && d.client_snapshot.branch && d.client_snapshot.branch.id;
+        if (bid && tbl("client_branches").some(b => b.id === bid)) r.branch_id = bid;
+      }
       // επίδειξη: ο «προμηθευτής» απαντά μόνος του λίγα δευτερόλεπτα μετά την αποστολή
       if (t === "supplier_requests" && r.status === "sent" && !r.__sim && tbl("profiles").some(p => p.role === "supplier" && p.supplier_id === r.supplier_id)) {
         r.__sim = true;
@@ -1782,9 +1791,9 @@
           if (stock && l.inventory_item_id) { const it = tbl("inventory_items").find(x => x.id === l.inventory_item_id); if (it) it.stock = Number(it.stock) + (s.kind === "credit" ? 1 : -1) * Math.round(l.qty); } });
         const sign = s.kind === "credit" ? -1 : 1;
         tbl("ledger_entries").push({ id:newId(), client_id:clientId, entry_date:date, description:s.title + " — " + lines[0].description + (lines.length > 1 ? ` (+${lines.length - 1})` : "") + (branch ? " · " + branch.name : ""),
-          charge:sign * r2(total), payment:0, doc_number:docNo, method:null, bank:null, settles_doc:null, sales_doc_id:id, created_at:nowIso() });
+          charge:sign * r2(total), payment:0, branch_id: branch ? branch.id : null, doc_number:docNo, method:null, bank:null, settles_doc:null, sales_doc_id:id, created_at:nowIso() });
         if (["cash","card","bank"].includes(method) && total > 0)
-          tbl("ledger_entries").push({ id:newId(), client_id:clientId, entry_date:date, description:"Εξόφληση " + docNo, charge:0, payment:r2(total), doc_number:null,
+          tbl("ledger_entries").push({ id:newId(), client_id:clientId, entry_date:date, description:"Εξόφληση " + docNo, charge:0, payment:r2(total), branch_id: branch ? branch.id : null, doc_number:null,
             method, bank:method === "bank" ? (p.bank || null) : null, settles_doc:docNo, sales_doc_id:id, created_at:nowIso() });
         if (p.quote_id) { const q = tbl("quotes").find(x => x.id === p.quote_id); if (q) q.status = "accepted"; }
         save();
@@ -3165,6 +3174,20 @@
   }
   const branchesOf = (clientId) => CLIENT_BRANCHES.filter(b => b.client_id === clientId);
   const V33_MSG = "Για τα υποκαταστήματα τρέξε πρώτα το schema_v33.sql στο Supabase.";
+  const V34_MSG = "Για προσφορές / σύμβαση / κινήσεις ανά υποκατάστημα τρέξε πρώτα το schema_v34.sql στο Supabase.";
+  const branchById = (id) => id ? CLIENT_BRANCHES.find(b => b.id === id) || null : null;
+  const branchTag = (id) => { const b = branchById(id); return b ? "🏬 " + b.name : ""; };
+  // <option>: Κεντρικό + (ενεργά) υποκαταστήματα του πελάτη
+  const branchOptionsHtml = (clientId, cur) => {
+    const c = CLIENTS_CACHE.find(x => x.id === clientId) || {};
+    return `<option value="">🏢 Κεντρικό${c.city ? " — " + escapeHtml(c.city) : ""}</option>` + branchesOf(clientId).filter(b => b.active !== false || b.id === cur)
+      .map(b => `<option value="${b.id}" ${b.id === cur ? "selected" : ""}>🏬 ${escapeHtml(b.name)} (αρ. ${b.branch_no})${b.city ? " — " + escapeHtml(b.city) : ""}</option>`).join("");
+  };
+  const contractBadge = (until) => {
+    if (!until) return "";
+    const exp = until < isoDay(new Date());
+    return `<span class="pill" style="${exp ? "background:var(--red-bg);color:var(--red);" : "background:var(--green-bg);color:var(--green);"}">🔧 σύμβαση ${exp ? "έληξε" : "έως"} ${fmtFullDate(until)}</span>`;
+  };
 
   // αναζήτηση: λέξεις χωρίς τόνους/κεφαλαία σε όλα τα πεδία · αριθμοί (τηλ., ΑΦΜ) χωρίς κενά/παύλες
   function searchMatcher(q){
@@ -3238,6 +3261,7 @@
     if (clientId) {
       const { data } = await sb.from("clients").select("*").eq("id", clientId).single();
       if (data) client = data;
+      if (BRANCHES_OK === null) await loadClientBranches();
       const { data: ra } = await sb.from("remote_access").select("*").eq("client_id", clientId);
       remoteAccess = ra || [];
       const { data: eq } = await sb.from("equipment").select("*").eq("client_id", clientId).order("created_at", { ascending:false });
@@ -3360,7 +3384,7 @@
           <div class="note-item ${l.sales_doc_id ? "clickable" : ""}" ${l.sales_doc_id ? `data-ledger-sd="${l.sales_doc_id}" role="button" tabindex="0" title="Άνοιγμα παραστατικού"` : ""} style="display:flex;justify-content:space-between;gap:10px;">
             <div>
               <div style="font-size:13px;">${escapeHtml(l.description)}</div>
-              <div class="note-meta">${l.entry_date} ${l.doc_number ? '· ' + escapeHtml(l.doc_number) : ''} ${l.settles_doc ? '· εξοφλεί ' + escapeHtml(l.settles_doc) : ''} ${l.method ? '· ' + ({cash:'Μετρητά',card:'Κάρτα',bank:'Τραπεζική κατάθεση'}[l.method]||l.method) + (l.bank ? ' · ' + escapeHtml(l.bank) : '') : ''}</div>
+              <div class="note-meta">${l.entry_date} ${l.branch_id && branchById(l.branch_id) ? '· ' + escapeHtml(branchTag(l.branch_id)) + ' ' : ''}${l.doc_number ? '· ' + escapeHtml(l.doc_number) : ''} ${l.settles_doc ? '· εξοφλεί ' + escapeHtml(l.settles_doc) : ''} ${l.method ? '· ' + ({cash:'Μετρητά',card:'Κάρτα',bank:'Τραπεζική κατάθεση'}[l.method]||l.method) + (l.bank ? ' · ' + escapeHtml(l.bank) : '') : ''}</div>
             </div>
             <div class="ledger-amt ${Number(l.charge)>0 ? 'ledger-row-charge' : 'ledger-row-payment'}">${Number(l.charge)>0 ? '+' + Number(l.charge).toFixed(2) : Number(l.charge)<0 ? '−' + Math.abs(Number(l.charge)).toFixed(2) : '−' + Number(l.payment).toFixed(2)}€</div>
           </div>`).join("")}
@@ -3636,6 +3660,7 @@
     const outstanding = await outstandingDocs(clientId);
     if (preset.settles && !outstanding.includes(preset.settles)) outstanding.unshift(preset.settles);
     await loadSeries();
+    if (BRANCHES_OK === null) await loadClientBranches();
     openDrawer("Νέα κίνηση — " + clientName, `
       <form id="txn-form">
         <div id="txn-msg"></div>
@@ -3650,6 +3675,7 @@
           <div class="field"><label>Ημερομηνία</label><input type="date" id="txn-date" value="${new Date().toISOString().slice(0,10)}"></div>
         </div>
         <div class="field"><label>Περιγραφή</label><input id="txn-desc" placeholder="π.χ. Εργασία εγκατάστασης"></div>
+        ${branchesOf(clientId).length || preset.branch_id ? `<div class="field"><label>Υποκατάστημα</label><select id="txn-branch">${branchOptionsHtml(clientId, preset.branch_id || "")}</select></div>` : ""}
 
         <div id="txn-charge-fields">
           ${SERIES ? `<select id="txn-doc-series" class="hidden"><option value="">Χωρίς παραστατικό</option></select>
@@ -3735,7 +3761,9 @@
         bank: (!isCharge && $("#txn-method").value === "bank") ? $("#txn-bank").value : null,
         settles_doc: isCharge ? null : ($("#txn-settles").value || null)
       };
-      const { error } = await sb.from("ledger_entries").insert(payload);
+      if ($("#txn-branch") && $("#txn-branch").value) payload.branch_id = $("#txn-branch").value;
+      let { error } = await sb.from("ledger_entries").insert(payload);
+      if (error && /branch_id/.test(error.message || "")) { delete payload.branch_id; ({ error } = await sb.from("ledger_entries").insert(payload)); if (!error) showToast(V34_MSG); }
       if (error) {
         btn.disabled = false; btn.textContent = "Αποθήκευση";
         showMsg($("#txn-msg"), "Σφάλμα: " + error.message, "error");
@@ -3743,7 +3771,7 @@
       }
       if (!isCharge && payload.method !== "card" && MONEY_ACCOUNTS.length) await ensureMoneyAccount(payload.method, payload.bank, payload.entry_date);
       if (preset.backToDoc) { await openSalesDoc(preset.backToDoc); refreshSalesViews(); return; }
-      await openClientDrawer(clientId);
+      await openClientDrawer(clientId, preset.branch_id ? "branches" : undefined);
     });
   }
 
@@ -6121,6 +6149,7 @@
 
   async function loadQuotes(){
     await loadBizOnly();
+    if (BRANCHES_OK === null) await loadClientBranches();
     let q = sb.from("quotes_view").select("*, clients(name), quote_items(*)").order("created_at", { ascending:false });
     if (QUOTE_STATUS_FILTER !== "all") q = q.eq("status", QUOTE_STATUS_FILTER);
     const { data, error } = await q;
@@ -6136,7 +6165,7 @@
       return `
       <tr data-id="${qt.id}">
         <td class="mono">${escapeHtml(qt.code)}</td>
-        <td>${escapeHtml(qt.clients ? qt.clients.name : "—")}</td>
+        <td>${escapeHtml(qt.clients ? qt.clients.name : "—")}${qt.branch_id && branchById(qt.branch_id) ? `<div class="cell-sub">${escapeHtml(branchTag(qt.branch_id))}</div>` : ""}</td>
         <td>${qt.quote_date}</td>
         <td>${total.toFixed(2)}€</td>
         <td><span class="status-pill ${QUOTE_STATUS_PILL[qt.status]}">${QUOTE_STATUS_LABEL[qt.status]}</span></td>
@@ -6157,8 +6186,9 @@
     prefill = prefill || {};
     if (INVENTORY_CACHE.length === 0) await loadInventory();
     if (CLIENTS_CACHE.length === 0) await loadClients();
+    if (BRANCHES_OK === null) await loadClientBranches();
     await loadBizOnly();
-    let quote = { client_id: prefill.client_id || "", quote_date: new Date().toISOString().slice(0,10), status:"draft", note:"" };
+    let quote = { client_id: prefill.client_id || "", branch_id: prefill.branch_id || null, quote_date: new Date().toISOString().slice(0,10), status:"draft", note:"" };
     let items = [{ sku:"", description:"", qty:1, unit_price:"" }];
     let pricing = null;
     if (quoteId) {
@@ -6232,6 +6262,7 @@
           </div>
         </div>
 
+        <div class="field hidden" id="qt-branch-wrap"><label>Υποκατάστημα (ίδιο ΑΦΜ)</label><select id="qt-branch"></select></div>
         <div class="cell-sub" style="margin:-4px 0 10px;">👁 Ο πελάτης βλέπει (και κατεβάζει) την προσφορά στον λογαριασμό του όταν η κατάσταση <b>δεν</b> είναι «Πρόχειρη».</div>
         <div class="section-title">Είδη · τιμές ${pwv ? "με ΦΠΑ" : "χωρίς ΦΠΑ (ο ΦΠΑ " + rate + "% μπαίνει στο τέλος)"}</div>
         <div id="qt-lines">${items.map(lineHtml).join("")}</div>
@@ -6413,6 +6444,17 @@
       });
     }
 
+    // υποκατάστημα: εμφανίζεται όταν ο πελάτης έχει υποκαταστήματα
+    const syncQtBranch = () => {
+      const cid = $("#qt-client").value, cur = $("#qt-branch").dataset.client === cid ? $("#qt-branch").value : (cid === quote.client_id ? quote.branch_id || "" : "");
+      const has = cid && (branchesOf(cid).length || (cur && branchById(cur)));
+      $("#qt-branch-wrap").classList.toggle("hidden", !has);
+      $("#qt-branch").innerHTML = has ? branchOptionsHtml(cid, cur) : "";
+      $("#qt-branch").dataset.client = cid;
+    };
+    $("#qt-client").addEventListener("change", syncQtBranch);
+    syncQtBranch();
+
     $("#quote-form").addEventListener("submit", async (e) => {
       e.preventDefault();
       const btn = $("#qt-save");
@@ -6422,7 +6464,8 @@
         quote_date: $("#qt-date").value || new Date().toISOString().slice(0,10),
         status: $("#qt-status").value,
         note: $("#qt-note").value.trim() || null,
-        prices_with_vat: pwv
+        prices_with_vat: pwv,
+        branch_id: (!$("#qt-branch-wrap").classList.contains("hidden") && $("#qt-branch").value) || null
       };
       let savedId = quoteId;
       let err;
@@ -6434,6 +6477,8 @@
       err = await write(payload);
       // χωρίς το v24 δεν υπάρχει η στήλη prices_with_vat — αποθήκευση χωρίς αυτήν
       if (err && /prices_with_vat/.test(err.message || "")) { delete payload.prices_with_vat; err = await write(payload); }
+      // χωρίς το v34 δεν υπάρχει quotes.branch_id
+      if (err && /branch_id/.test(err.message || "")) { const hadBranch = !!payload.branch_id; delete payload.branch_id; err = await write(payload); if (!err && hadBranch) showToast(V34_MSG); }
       if (err) {
         btn.disabled = false; btn.textContent = "Αποθήκευση";
         showMsg($("#qt-msg"), "Σφάλμα: " + err.message, "error");
@@ -6965,9 +7010,10 @@
       const ci = $("#sd-contract-info");
       ci.classList.toggle("hidden", !nContract);
       if (nContract) {
-        const per = contractPeriod(clients.find(x => x.id === $("#sd-client").value), $("#sd-date").value);
+        const selB = !$("#sd-branch-wrap").classList.contains("hidden") && branchById($("#sd-branch").value);
+        const per = contractPeriod(selB || clients.find(x => x.id === $("#sd-client").value), $("#sd-date").value);
         const until = prefill.contract_until || per.end;
-        ci.innerHTML = `🔧 Συμβόλαιο συντήρησης${prefill.contract_until ? "" : ` ${fmtFullDate(per.start)} – ${fmtFullDate(per.end)}`}: με την έκδοση η σύμβαση του πελάτη γράφεται <b>έως ${fmtFullDate(until)}</b>.`;
+        ci.innerHTML = `🔧 Συμβόλαιο συντήρησης${prefill.contract_until ? "" : ` ${fmtFullDate(per.start)} – ${fmtFullDate(per.end)}`}: με την έκδοση η σύμβαση ${selB ? "του υποκαταστήματος <b>" + escapeHtml(selB.name) + "</b>" : "του πελάτη"} γράφεται <b>έως ${fmtFullDate(until)}</b>.`;
       }
       $("#sd-totals").innerHTML = `
         ${Object.keys(byRate).length > 1 ? Object.entries(byRate).sort((a, b) => b[0] - a[0]).map(([r, b]) => `<div class="cell-sub"><span>ΦΠΑ ${r}% σε ${eur(b.net)}</span><span>${eur(b.vat)}</span></div>`).join("") : ""}
@@ -7039,7 +7085,7 @@
     $("#sd-add-contract").addEventListener("click", async () => {
       const cid = $("#sd-client").value;
       if (!cid) { showMsg($("#sd-msg"), "Διάλεξε πρώτα πελάτη.", "error"); return; }
-      const src = await clientContractLines(cid);
+      const src = await clientContractLines(cid, (!$("#sd-branch-wrap").classList.contains("hidden") && $("#sd-branch").value) || null);
       if (!src) { showMsg($("#sd-msg"), "Αυτός ο πελάτης δεν έχει συμβόλαιο σε προσφορά ή σε παλιό παραστατικό. Διάλεξε το είδος (π.χ. Kalypso) σε γραμμή και πάτα «🔧 + Ετήσιο συμβόλαιο».", "error"); return; }
       clearMsg($("#sd-msg"));
       // σβήνεται η κενή πρώτη γραμμή
@@ -7070,7 +7116,7 @@
     });
     $("#sd-client-q").addEventListener("input", () => clientOpts($("#sd-client-q").value));
     $("#sd-client").addEventListener("change", showClientInfo);
-    $("#sd-branch").addEventListener("change", showBranchInfo);
+    $("#sd-branch").addEventListener("change", () => { showBranchInfo(); recalc(); });
     $("#sd-cancel").addEventListener("click", closeDrawer);
     pick.attach();
     syncSeries();
@@ -7124,10 +7170,13 @@
       if (INVENTORY_CACHE.length && payload.affect_stock) loadInventory();
       // συμβόλαιο συντήρησης στο παραστατικό → «Σύμβαση συντήρησης έως» στην καρτέλα του πελάτη
       if (client && series.kind !== "credit" && lines.some(l => isContractDesc(l.description))) {
-        const until = prefill.contract_until || contractPeriod(client, payload.doc_date).end;
-        if (!client.contract_until || client.contract_until < until) {
-          const { error: ce } = await sb.from("clients").update({ contract_until: until }).eq("id", client.id);
-          if (!ce) { client.contract_until = until; showToast(`🔧 Σύμβαση συντήρησης ${client.name}: έως ${fmtFullDate(until)}`); }
+        const br = branchId && branchById(branchId);       // υποκατάστημα → η σύμβαση γράφεται στο υποκατάστημα
+        const holder = br || client;
+        const until = (prefill.branch_id || null) === (branchId || null) && prefill.contract_until ? prefill.contract_until : contractPeriod(holder, payload.doc_date).end;
+        if (!holder.contract_until || holder.contract_until < until) {
+          const { error: ce } = await sb.from(br ? "client_branches" : "clients").update({ contract_until: until }).eq("id", holder.id);
+          if (!ce) { holder.contract_until = until; showToast(`🔧 Σύμβαση συντήρησης ${br ? br.name : client.name}: έως ${fmtFullDate(until)}`); }
+          else if (br && /contract_/.test(ce.message || "")) showToast(V34_MSG);
         }
       }
       if (!series.external && $("#sd-aade").checked) {
@@ -7519,7 +7568,9 @@
     if (qr.error) return { error: qr.error.message };
     const q = qr.data;
     const { data: c } = await sb.from("clients").select("*").eq("id", q.client_id).maybeSingle();
-    return { html: buildQuoteHtml(q, ir.data || [], c || {}, BIZ || {}), code: q.code || ("ΠΡ-" + q.quote_no) };
+    let branch = null;
+    if (q.branch_id) { const { data: br } = await sb.from("client_branches").select("*").eq("id", q.branch_id).maybeSingle(); branch = br; }
+    return { html: buildQuoteHtml(q, ir.data || [], { ...(c || {}), branch }, BIZ || {}), code: q.code || ("ΠΡ-" + q.quote_no) };
   }
   async function printQuote(quoteId, w){
     const r = await quoteHtml(quoteId);
@@ -7621,10 +7672,11 @@
   .qbank b{display:block;margin-bottom:2px;}
   tr{page-break-inside:avoid;}
   .qtab{table-layout:fixed;width:100%;}
+  .qbranch{font-size:12px;margin-top:4px;line-height:1.4;}
   .qtab td{word-wrap:break-word;padding-top:5px;padding-bottom:5px;}
 </style></head><body>
   <div class="top">${issuerHtml(b)}
-    <div class="docbox"><div class="t">${UP("Προσφορά")}</div><div class="qclient">${escapeHtml(c.name || "")}</div></div>
+    <div class="docbox"><div class="t">${UP("Προσφορά")}</div><div class="qclient">${escapeHtml(c.name || "")}</div>${c.branch ? `<div class="qbranch">Υποκατάστημα: <b>${escapeHtml(c.branch.name)}</b>${c.branch.address || c.branch.city ? "<br>" + escapeHtml([c.branch.address, [c.branch.postal_code, c.branch.city].filter(Boolean).join(" ")].filter(Boolean).join(", ")) : ""}</div>` : ""}</div>
   </div>
   ${extras.length ? table(goods, "Εξοπλισμός", "Σύνολο εξοπλισμού") + table(extras, "Εργασία & μικροϋλικά", "Σύνολο εργασίας & υλικών")
                   : table(goods, "Είδη", "")}
@@ -7660,10 +7712,16 @@
     return { start, end: isoAdd(start, { years: 1, days: -1 }) };
   }
   // γραμμές συμβολαίου του πελάτη: από το τελευταίο παραστατικό συμβολαίου, αλλιώς από την προσφορά του (τιμές ΧΩΡΙΣ ΦΠΑ)
-  async function clientContractLines(clientId){
-    const { data: docs } = await sb.from("sales_docs").select("id, doc_no, doc_date, kind, status, prices_with_vat").eq("client_id", clientId)
+  async function clientContractLines(clientId, branchId){
+    const exact = await contractLinesFor(clientId, branchId || null, true);
+    return exact || (branchId ? await contractLinesFor(clientId, null, false) : null);
+  }
+  // onlyHolder: μόνο του συγκεκριμένου (κεντρικό = χωρίς υποκατάστημα)
+  async function contractLinesFor(clientId, branchId, onlyHolder){
+    const docBranch = (d) => (d.client_snapshot && d.client_snapshot.branch && d.client_snapshot.branch.id) || null;
+    const { data: docs } = await sb.from("sales_docs").select("id, doc_no, doc_date, kind, status, prices_with_vat, client_snapshot").eq("client_id", clientId)
       .order("doc_date", { ascending:false }).limit(60);
-    const live = (docs || []).filter(d => d.status === "issued" && d.kind !== "credit");
+    const live = (docs || []).filter(d => d.status === "issued" && d.kind !== "credit" && (!onlyHolder || docBranch(d) === branchId));
     if (live.length) {
       const { data: dl } = await sb.from("sales_doc_lines").select("*").in("doc_id", live.map(d => d.id));
       for (const d of live) {
@@ -7674,7 +7732,7 @@
     }
     if (!BIZ) await loadBizOnly();
     const { data: qs } = await sb.from("quotes").select("*").eq("client_id", clientId);
-    const quotes = (qs || []).sort((a, b) => (b.status === "accepted") - (a.status === "accepted") || String(b.quote_date).localeCompare(String(a.quote_date)) || (b.quote_no || 0) - (a.quote_no || 0));
+    const quotes = (qs || []).filter(q => !onlyHolder || (q.branch_id || null) === branchId).sort((a, b) => (b.status === "accepted") - (a.status === "accepted") || String(b.quote_date).localeCompare(String(a.quote_date)) || (b.quote_no || 0) - (a.quote_no || 0));
     if (!quotes.length) return null;
     const { data: qi } = await sb.from("quote_items").select("*").in("quote_id", quotes.map(q => q.id));
     for (const q of quotes) {
@@ -7689,14 +7747,19 @@
   // σειρά Τιμολογίου Παροχής Υπηρεσιών του ITSUPP (το συμβόλαιο είναι υπηρεσία)
   const serviceSeriesCode = () => { const s = (SERIES || []).find(x => x.active && !x.external && x.mydata_type === "2.1"); return s ? s.code : undefined; };
   // «🔧 Τιμολόγηση συμβολαίου» (ανανέωση ή πρώτη φορά)
-  async function openContractInvoice(clientId){
+  // ποιος έχει τη σύμβαση: το υποκατάστημα ή ο πελάτης (κεντρικό)
+  async function contractHolder(clientId, branchId){
+    if (branchId) { const { data } = await sb.from("client_branches").select("*").eq("id", branchId).maybeSingle(); if (data) return data; }
+    const { data } = await sb.from("clients").select("*").eq("id", clientId).single();
+    return data;
+  }
+  async function openContractInvoice(clientId, branchId){
     await loadSeries(true);
     if (!SERIES) { showToast(V19_MSG); return; }
-    const src = await clientContractLines(clientId);
-    if (!src) { showToast("Δεν βρέθηκε συμβόλαιο για αυτόν τον πελάτη (ούτε σε προσφορά ούτε σε παλιό παραστατικό). Κάνε «+ Νέο παραστατικό», διάλεξε το είδος και πάτα «🔧 + Ετήσιο συμβόλαιο»."); return; }
-    const { data: c } = await sb.from("clients").select("*").eq("id", clientId).single();
-    const per = contractPeriod(c);
-    openSalesDocForm({ client_id: clientId, series_code: serviceSeriesCode(), prices_with_vat: false, contract_until: per.end, affect_stock: false,
+    const src = await clientContractLines(clientId, branchId);
+    if (!src) { showToast("Δεν βρέθηκε συμβόλαιο (ούτε σε προσφορά ούτε σε παλιό παραστατικό). Κάνε νέο παραστατικό, διάλεξε το είδος και πάτα «🔧 + Ετήσιο συμβόλαιο»."); return; }
+    const per = contractPeriod(await contractHolder(clientId, branchId));
+    openSalesDocForm({ client_id: clientId, branch_id: branchId || null, series_code: serviceSeriesCode(), prices_with_vat: false, contract_until: per.end, affect_stock: false,
       note: `Ετήσιο συμβόλαιο συντήρησης: ${fmtFullDate(per.start)} – ${fmtFullDate(per.end)}`,
       lines: src.lines.map(l => ({ description: l.description, qty: l.qty, unit: "τεμ.", unit_price: l.net.toFixed(2), vat_rate: l.vat_rate })) });
   }
@@ -7740,12 +7803,11 @@
     const lines = (mode === "goods" ? goods : mode === "contract" ? maints : [...goods, ...maints]).map(toLine);
     let note = "Βάσει της προσφοράς ΠΡ-" + qr.data.quote_no, until;
     if (mode !== "goods") {
-      const { data: c } = await sb.from("clients").select("*").eq("id", qr.data.client_id).single();
-      const per = contractPeriod(c);
+      const per = contractPeriod(await contractHolder(qr.data.client_id, qr.data.branch_id));
       until = per.end;
       note = `Ετήσιο συμβόλαιο συντήρησης: ${fmtFullDate(per.start)} – ${fmtFullDate(per.end)} · ` + note;
     }
-    openSalesDocForm({ client_id: qr.data.client_id, quote_id: quoteId, prices_with_vat: quoteMode(qr.data).pwv, note, lines, contract_until: until,
+    openSalesDocForm({ client_id: qr.data.client_id, branch_id: qr.data.branch_id || null, quote_id: quoteId, prices_with_vat: quoteMode(qr.data).pwv, note, lines, contract_until: until,
       series_code: mode === "contract" ? serviceSeriesCode() : undefined });
   }
 
@@ -7921,17 +7983,25 @@
     const addr = (x) => [x.address, [x.postal_code, x.city].filter(Boolean).join(" ")].filter(Boolean).join(", ");
     pane.innerHTML = `
       <div class="cell-sub" style="margin-bottom:10px;">Ίδιο ΑΦΜ${client.vat_number ? " (" + escapeHtml(client.vat_number) + ")" : ""}, άλλη εγκατάσταση. Στην έκδοση παραστατικού διαλέγεις κεντρικό ή υποκατάστημα· στην ΑΑΔΕ πηγαίνει ο αριθμός εγκατάστασης και η διεύθυνσή του.</div>
-      <div class="br-card"><div><b>Κεντρικό</b> <span class="cell-sub">· αρ. εγκατάστασης 0</span></div>
+      <div class="br-card"><div><b>Κεντρικό</b> <span class="cell-sub">· αρ. εγκατάστασης 0</span> ${contractBadge(client.contract_until)}</div>
         <div class="cell-sub">${escapeHtml(addr(client)) || "χωρίς διεύθυνση"}${client.phone ? " · " + escapeHtml(client.phone) : ""}</div></div>
       ${list.map(b => `
       <div class="br-card" data-br="${b.id}">
         <div style="display:flex;justify-content:space-between;gap:8px;align-items:flex-start;">
-          <div><b>${escapeHtml(b.name)}</b> <span class="cell-sub">· αρ. εγκατάστασης ${b.branch_no}</span>${b.active === false ? ' <span class="pill">ανενεργό</span>' : ""}</div>
+          <div><b>${escapeHtml(b.name)}</b> <span class="cell-sub">· αρ. εγκατάστασης ${b.branch_no}</span>${b.active === false ? ' <span class="pill">ανενεργό</span>' : ""} ${contractBadge(b.contract_until)}</div>
           <button type="button" class="add-link" data-br-edit="${b.id}">Επεξεργασία</button>
         </div>
         <div class="cell-sub">${escapeHtml(addr(b)) || "χωρίς διεύθυνση"}</div>
         ${b.phone || b.email || b.contact ? `<div class="cell-sub">${[b.contact, b.phone, b.email].filter(Boolean).map(escapeHtml).join(" · ")}</div>` : ""}
+        ${b.contract_note ? `<div class="cell-sub">🔧 ${escapeHtml(b.contract_note)}</div>` : ""}
         ${b.note ? `<div class="cell-sub">📝 ${escapeHtml(b.note)}</div>` : ""}
+        <div class="br-actions">
+          <button type="button" class="btn-ghost btn-sm" data-br-moves="${b.id}">📒 Κινήσεις</button>
+          <button type="button" class="btn-ghost btn-sm" data-br-quote="${b.id}">📝 Προσφορά</button>
+          <button type="button" class="btn-ghost btn-sm" data-br-doc="${b.id}">🧾 Παραστατικό</button>
+          <button type="button" class="btn-ghost btn-sm" data-br-contract="${b.id}">🔧 Τιμολόγηση συμβολαίου</button>
+        </div>
+        <div data-br-moves-box="${b.id}" class="hidden"></div>
       </div>`).join("")}
       <div id="cl-br-editor"></div>
       <button type="button" class="add-link" id="cl-br-add" style="margin-top:8px;">+ Νέο υποκατάστημα</button>`;
@@ -7958,6 +8028,10 @@
             <div class="field"><label>Email</label><input id="br-email" type="email" value="${escapeHtml(b.email || "")}"></div>
           </div>
           <div class="field"><label>Υπεύθυνος</label><input id="br-contact" value="${escapeHtml(b.contact || "")}"></div>
+          <div class="form-row">
+            <div class="field" style="max-width:190px;"><label>🔧 Σύμβαση συντήρησης έως</label><input type="date" id="br-contract" value="${escapeHtml(b.contract_until || "")}"></div>
+            <div class="field"><label>Σύμβαση: σημείωση</label><input id="br-cnote" value="${escapeHtml(b.contract_note || "")}" placeholder="π.χ. Kalypso 3 θέσεις, μόνο βλάβες"></div>
+          </div>
           <div class="field"><label>Σημειώσεις</label><input id="br-note" value="${escapeHtml(b.note || "")}"></div>
           ${isNew ? "" : `<label class="check-line" style="display:flex;gap:8px;align-items:center;margin-bottom:10px;"><input type="checkbox" id="br-active" ${b.active === false ? "" : "checked"}> Ενεργό (εμφανίζεται στην έκδοση)</label>`}
           <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:center;">
@@ -7979,10 +8053,17 @@
         const row = { client_id: client.id, name, branch_no: no,
           address: $("#br-address").value.trim() || null, city: $("#br-city").value.trim() || null, postal_code: $("#br-zip").value.trim() || null,
           phone: $("#br-phone").value.trim() || null, email: $("#br-email").value.trim() || null, contact: $("#br-contact").value.trim() || null,
-          note: $("#br-note").value.trim() || null };
+          note: $("#br-note").value.trim() || null,
+          contract_until: $("#br-contract").value || null, contract_note: $("#br-cnote").value.trim() || null };
         if (!isNew) row.active = $("#br-active").checked;
         const btn = $("#br-save"); btn.disabled = true;
-        const { error } = isNew ? await sb.from("client_branches").insert(row) : await sb.from("client_branches").update(row).eq("id", b.id);
+        const write = (r) => isNew ? sb.from("client_branches").insert(r) : sb.from("client_branches").update(r).eq("id", b.id);
+        let { error } = await write(row);
+        if (error && /contract_/.test(error.message || "")) {     // χωρίς το v34
+          const { contract_until, contract_note, ...rest } = row;
+          ({ error } = await write(rest));
+          if (!error && (contract_until || contract_note)) showToast(V34_MSG);
+        }
         if (error) { btn.disabled = false; showMsg($("#br-msg"), /duplicate|unique/i.test(error.message) ? `Υπάρχει ήδη υποκατάστημα με αριθμό ${no}.` : "Σφάλμα: " + error.message, "error"); return; }
         showToast(isNew ? "Προστέθηκε το υποκατάστημα" : "Αποθηκεύτηκε");
         await renderClientBranches(client);
@@ -7999,8 +8080,75 @@
       });
     };
     $("#cl-br-add").addEventListener("click", () => editor({}));
+    const brOf = (el, k) => list.find(b => b.id === el.dataset[k]);
+    $$("#cl-br-pane [data-br-moves]").forEach(x => x.addEventListener("click", () => {
+      const box = $(`[data-br-moves-box="${x.dataset.brMoves}"]`);
+      box.classList.toggle("hidden");
+      if (!box.classList.contains("hidden")) renderBranchMoves(box, client, brOf(x, "brMoves"));
+    }));
+    $$("#cl-br-pane [data-br-quote]").forEach(x => x.addEventListener("click", async () => {
+      if (INVENTORY_CACHE.length === 0) await loadInventory();
+      openQuoteDrawer(null, { client_id: client.id, branch_id: x.dataset.brQuote });
+    }));
+    $$("#cl-br-pane [data-br-doc]").forEach(x => x.addEventListener("click", () => openSalesDocForm({ client_id: client.id, branch_id: x.dataset.brDoc })));
+    $$("#cl-br-pane [data-br-contract]").forEach(x => x.addEventListener("click", () => openContractInvoice(client.id, x.dataset.brContract)));
     $$("#cl-br-pane [data-br-edit]").forEach(x => x.addEventListener("click", () => editor(list.find(b => b.id === x.dataset.brEdit))));
     if (prefill) editor(prefill);
+  }
+
+  // κινήσεις ενός υποκαταστήματος: λογαριασμός, παραστατικά, προσφορές
+  async function renderBranchMoves(box, client, b){
+    box.innerHTML = '<div class="cell-sub" style="padding:8px 0;">Φόρτωση…</div>';
+    const [dr, qr, lr] = await Promise.all([
+      sb.from("sales_docs_view").select("*").eq("client_id", client.id).order("doc_date", { ascending:false }),
+      sb.from("quotes_view").select("*, quote_items(*)").eq("client_id", client.id).order("quote_date", { ascending:false }),
+      sb.from("ledger_entries").select("*").eq("client_id", client.id).order("entry_date", { ascending:false }).order("created_at", { ascending:false })
+    ]);
+    const docs = (dr.data || []).filter(d => d.client_snapshot && d.client_snapshot.branch && d.client_snapshot.branch.id === b.id);
+    const quotes = (qr.data || []).filter(q => q.branch_id === b.id);
+    const ids = new Set(docs.map(d => d.id)), nos = new Set(docs.map(d => d.doc_no));
+    const led = (lr.data || []).filter(l => l.branch_id === b.id || (!l.branch_id && (ids.has(l.sales_doc_id) || nos.has(l.settles_doc))));
+    const ch = r2(led.reduce((a, l) => a + Number(l.charge || 0), 0)), pay = r2(led.reduce((a, l) => a + Number(l.payment || 0), 0)), bal = r2(ch - pay);
+    const v34 = !qr.error || !/branch_id/.test(qr.error.message || "");
+    box.innerHTML = `
+      <div class="br-moves">
+        ${v34 ? "" : `<div class="cell-sub" style="color:var(--amber);margin-bottom:6px;">${V34_MSG}</div>`}
+        <div class="stat-row" style="padding:0 0 8px;grid-template-columns:1fr 1fr 1fr;">
+          <div class="stat-tile"><div class="num">${eur(ch)}</div><div class="lbl">Χρεώσεις</div></div>
+          <div class="stat-tile"><div class="num">${eur(pay)}</div><div class="lbl">Πληρωμές</div></div>
+          <div class="stat-tile ${bal > 0.004 ? "balance-due" : ""}"><div class="num">${eur(bal)}</div><div class="lbl">Υπόλοιπο</div></div>
+        </div>
+        <div class="section-title" style="margin-top:4px;">Κινήσεις λογαριασμού</div>
+        ${led.length ? led.map(l => `
+          <div class="note-item ${l.sales_doc_id ? "clickable" : ""}" ${l.sales_doc_id ? `data-bm-sd="${l.sales_doc_id}" role="button" tabindex="0"` : ""} style="display:flex;justify-content:space-between;gap:10px;">
+            <div><div style="font-size:13px;">${escapeHtml(l.description)}</div>
+              <div class="note-meta">${l.entry_date}${l.doc_number ? " · " + escapeHtml(l.doc_number) : ""}${l.settles_doc ? " · εξοφλεί " + escapeHtml(l.settles_doc) : ""}${l.method ? " · " + ({ cash:"Μετρητά", card:"Κάρτα", bank:"Τραπεζική κατάθεση" }[l.method] || l.method) : ""}</div></div>
+            <div class="ledger-amt ${Number(l.charge) > 0 ? "ledger-row-charge" : "ledger-row-payment"}">${Number(l.charge) > 0 ? "+" + Number(l.charge).toFixed(2) : Number(l.charge) < 0 ? "−" + Math.abs(Number(l.charge)).toFixed(2) : "−" + Number(l.payment).toFixed(2)}€</div>
+          </div>`).join("") : '<div class="cell-sub" style="padding:4px 0;">Καμία κίνηση ακόμα.</div>'}
+        <div style="display:flex;gap:16px;flex-wrap:wrap;margin:6px 0 10px;">
+          <button type="button" class="add-link" data-bm-txn>+ Κίνηση / πληρωμή</button>
+          <button type="button" class="add-link" data-bm-print>Λήψη για εκτύπωση</button>
+        </div>
+        <div class="section-title">Παραστατικά (${docs.length})</div>
+        ${docs.length ? docs.map(d => { const st = sdStatus(d); return `<div class="sd-row compact ${d.status === "cancelled" ? "cancelled" : ""}" data-bm-sd="${d.id}" role="button" tabindex="0">
+          <div class="sd-no"><b>${escapeHtml(d.doc_no)}</b><div class="cell-sub">${fmtShortDate(d.doc_date)}</div></div>
+          <div class="sd-who"><div>${escapeHtml(d.title)}</div><div class="cell-sub"><span class="status-pill ${st.cls}">${escapeHtml(st.label)}</span></div></div>
+          <div class="sd-amt">${d.kind === "credit" ? "−" : ""}${eur(d.total)}</div></div>`; }).join("") : '<div class="cell-sub" style="padding:4px 0;">Κανένα παραστατικό.</div>'}
+        <div class="section-title" style="margin-top:10px;">Προσφορές (${quotes.length})</div>
+        ${quotes.length ? quotes.map(q => `<div class="sd-row compact" data-bm-q="${q.id}" role="button" tabindex="0">
+          <div class="sd-no"><b>${escapeHtml(q.code || "ΠΡ-" + q.quote_no)}</b><div class="cell-sub">${fmtShortDate(q.quote_date)}</div></div>
+          <div class="sd-who"><div><span class="status-pill ${QUOTE_STATUS_PILL[q.status] || ""}">${escapeHtml(QUOTE_STATUS_LABEL[q.status] || q.status)}</span></div></div>
+          <div class="sd-amt">${eur(quoteTotals(q.quote_items || [], q).total)}</div></div>`).join("") : '<div class="cell-sub" style="padding:4px 0;">Καμία προσφορά.</div>'}
+      </div>`;
+    box.querySelectorAll("[data-bm-sd]").forEach(el => el.addEventListener("click", () => openSalesDoc(el.dataset.bmSd)));
+    box.querySelectorAll("[data-bm-q]").forEach(el => el.addEventListener("click", async () => { if (INVENTORY_CACHE.length === 0) await loadInventory(); openQuoteDrawer(el.dataset.bmQ); }));
+    box.querySelector("[data-bm-txn]").addEventListener("click", () => openLedgerEntryDrawer(client.id, client.name, { branch_id: b.id }));
+    box.querySelector("[data-bm-print]").addEventListener("click", () => {
+      const w = window.open("", "_blank");
+      if (!w) { showToast("Ο browser μπλόκαρε το νέο παράθυρο — επίτρεψε pop-ups."); return; }
+      w.document.write(buildStatementHtml({ ...client, name: client.name + " — " + b.name, address: b.address || client.address, city: b.city || client.city, phone: b.phone || client.phone, email: b.email || client.email }, led, ch, pay, bal));
+      w.document.close();
+    });
   }
 
   async function renderClientDocs(clientId){
@@ -8022,7 +8170,7 @@
         const st = sdStatus(d);
         return `<div class="sd-row compact ${d.status === "cancelled" ? "cancelled" : ""}" data-cl-sd="${d.id}" role="button" tabindex="0">
           <div class="sd-no"><b>${escapeHtml(d.doc_no)}</b><div class="cell-sub">${fmtShortDate(d.doc_date)}</div></div>
-          <div class="sd-who"><div>${escapeHtml(d.title)}</div><div class="cell-sub"><span class="status-pill ${st.cls}">${escapeHtml(st.label)}</span> ${d.status === "issued" ? (d.mark ? '<span class="sd-mark ok">ΜΑΡΚ ✓</span>' : '<span class="sd-mark">χωρίς ΜΑΡΚ</span>') : ""}</div></div>
+          <div class="sd-who"><div>${escapeHtml(d.title)}${d.client_snapshot && d.client_snapshot.branch && d.client_snapshot.branch.name ? ` <span class="cell-sub">· 🏬 ${escapeHtml(d.client_snapshot.branch.name)}</span>` : ""}</div><div class="cell-sub"><span class="status-pill ${st.cls}">${escapeHtml(st.label)}</span> ${d.status === "issued" ? (d.mark ? '<span class="sd-mark ok">ΜΑΡΚ ✓</span>' : '<span class="sd-mark">χωρίς ΜΑΡΚ</span>') : ""}</div></div>
           <div class="sd-amt">${d.kind === "credit" ? "−" : ""}${eur(d.total)}</div></div>`; }).join("")}`;
     $("#cl-new-doc").addEventListener("click", () => openSalesDocForm({ client_id: clientId }));
     $("#cl-contract-doc").addEventListener("click", () => openContractInvoice(clientId));
