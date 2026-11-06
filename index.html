@@ -1335,14 +1335,19 @@
       sales_docs: [], sales_doc_lines: [],
       quotes: [
         { id:"demo-q1", quote_no:1, client_id:C[4], quote_date:day(-8), status:"accepted", prices_with_vat:true, note:"Κάμερες ταμείου και αποθήκης", created_at:ts(-8) },
-        { id:"demo-q2", quote_no:2, client_id:C[5], quote_date:day(-1), status:"sent", prices_with_vat:true, note:"Πλήρες σύστημα παραγγελιοληψίας", created_at:ts(-1) }
+        { id:"demo-q2", quote_no:2, client_id:C[5], quote_date:day(-1), status:"sent", prices_with_vat:true, note:"Πλήρες σύστημα παραγγελιοληψίας", created_at:ts(-1) },
+        { id:"demo-q3", quote_no:3, client_id:C[3], quote_date:day(-3), status:"accepted", prices_with_vat:false, note:"Kalypso για το εστιατόριο της βίλας", created_at:ts(-3) }
       ],
       quote_items: [
         { id:"demo-qi1", quote_id:"demo-q1", sku:"CAM-4MP-D", description:"IP κάμερα dome 4MP", qty:4, unit_price:89 },
         { id:"demo-qi2", quote_id:"demo-q1", sku:"NVR-16", description:"NVR 16 καναλιών", qty:1, unit_price:320 },
         { id:"demo-qi3", quote_id:"demo-q1", sku:null, description:"Εργασία εγκατάστασης", qty:1, unit_price:250 },
         { id:"demo-qi4", quote_id:"demo-q2", sku:"POS-TAB", description:"Tablet παραγγελιοληψίας", qty:4, unit_price:240 },
-        { id:"demo-qi5", quote_id:"demo-q2", sku:null, description:"Άδεια λογισμικού (1 έτος)", qty:1, unit_price:390 }
+        { id:"demo-qi5", quote_id:"demo-q2", sku:null, description:"Άδεια λογισμικού (1 έτος)", qty:1, unit_price:390 },
+        { id:"demo-qi6", quote_id:"demo-q3", line_no:1, sku:"KAL-CORE", description:"Kalypso Core Server & Back Office", qty:1, unit_price:300 },
+        { id:"demo-qi7", quote_id:"demo-q3", line_no:2, sku:"KAL-SUP-EXT", description:"Ετήσιο συμβόλαιο συντήρησης & αναβαθμίσεων — Kalypso Core Server & Back Office", qty:1, unit_price:70, kind:"maintenance" },
+        { id:"demo-qi8", quote_id:"demo-q3", line_no:3, sku:"KAL-WS", description:"Kalypso Θέση / Σταθμός εργασίας (PC, POS, PDA, Tablet, Togo)", qty:3, unit_price:50 },
+        { id:"demo-qi9", quote_id:"demo-q3", line_no:4, sku:"KAL-WS", description:"Ετήσιο συμβόλαιο συντήρησης & αναβαθμίσεων — Kalypso Θέση / Σταθμός εργασίας (PC, POS, PDA, Tablet, Togo)", qty:3, unit_price:15, kind:"maintenance" }
       ],
       expenses: [
         { id:"demo-x1", expense_date:day(0), category:"Καύσιμα", amount:45, method:"cash", payer:"shop", note:"Βαν", created_at:ts(0,8) },
@@ -6833,7 +6838,7 @@
     const itemOpts = (sel) => `<option value="">— Ελεύθερη γραμμή —</option>` + INVENTORY_CACHE.map(it =>
       `<option value="${it.id}" ${sel === it.id ? "selected" : ""}>${escapeHtml(it.name)} · ${eur(it.price)} · απόθ. ${it.stock}</option>`).join("");
     const lineHtml = (l) => `
-      <div class="sdl" data-sdl>
+      <div class="sdl" data-sdl ${l.contract_for ? `data-contract-for="${escapeHtml(l.contract_for)}"` : ""}>
         <div class="sdl-top">
           <select class="sdl-item">${itemOpts(l.inventory_item_id)}</select>
           <button type="button" class="remove-x sdl-del" title="Αφαίρεση γραμμής">✕</button>
@@ -6848,6 +6853,7 @@
           <div class="sdl-total">0,00€</div>
         </div>
         <div class="sdl-warn cell-sub"></div>
+        <div class="sdl-contract"></div>
       </div>`;
     const startLines = (prefill.lines && prefill.lines.length) ? prefill.lines : [{ qty:1, vat_rate:24 }];
     const pick = moneyPicker({ id:"sd-method", bankId:"sd-bank", sign:+1, allowCard:true, method:"cash", amountSel:"#sd-total-val" });
@@ -6873,7 +6879,8 @@
           <label class="check-line" style="margin:0;font-weight:400;text-transform:none;letter-spacing:0;"><input type="checkbox" id="sd-pwv" ${pwv ? "checked" : ""}> Οι τιμές περιλαμβάνουν ΦΠΑ</label>
         </div>
         <div id="sd-lines">${startLines.map(lineHtml).join("")}</div>
-        <button type="button" class="add-link" id="sd-add">+ Γραμμή</button>
+        <div style="display:flex;gap:16px;flex-wrap:wrap;"><button type="button" class="add-link" id="sd-add">+ Γραμμή</button><button type="button" class="add-link" id="sd-add-contract">🔧 + Συμβόλαιο πελάτη</button></div>
+        <div id="sd-contract-info" class="cell-sub hidden" style="margin-top:6px;"></div>
         <div class="sd-totals" id="sd-totals"></div><input type="hidden" id="sd-total-val" value="0">
         <label class="check-line hidden" id="sd-stock-line"><input type="checkbox" id="sd-stock" ${prefill.affect_stock === false ? "" : "checked"}> Αφαίρεση των ειδών από την αποθήκη</label>
         <div id="sd-pay-wrap">
@@ -6948,7 +6955,20 @@
           const it = INVENTORY_CACHE.find(i => i.id === itemId), q = parseFloat(el.querySelector(".sdl-qty").value) || 0;
           warn.textContent = it && it.track_stock !== false && series.kind !== "credit" && q > Number(it.stock) ? `⚠️ Στην αποθήκη υπάρχουν ${it.stock}` : "";
         } else warn.textContent = "";
+        // το είδος έχει ετήσιο συμβόλαιο συντήρησης (π.χ. Kalypso) → «+ συμβόλαιο» από κάτω
+        const ct = el.querySelector(".sdl-contract"), cit = itemId && INVENTORY_CACHE.find(i => i.id === itemId);
+        const hasNext = el.nextElementSibling && el.nextElementSibling.dataset.contractFor === itemId;
+        ct.innerHTML = cit && Number(cit.maintenance_price) > 0 && series.kind !== "credit" && !hasNext
+          ? `<button type="button" class="add-link" data-add-contract>🔧 + Ετήσιο συμβόλαιο συντήρησης (${eur(cit.maintenance_price)} + ΦΠΑ / έτος)</button>` : "";
       });
+      const nContract = $$("#sd-lines [data-sdl]").filter(el => isContractDesc(el.querySelector(".sdl-desc").value)).length;
+      const ci = $("#sd-contract-info");
+      ci.classList.toggle("hidden", !nContract);
+      if (nContract) {
+        const per = contractPeriod(clients.find(x => x.id === $("#sd-client").value), $("#sd-date").value);
+        const until = prefill.contract_until || per.end;
+        ci.innerHTML = `🔧 Συμβόλαιο συντήρησης${prefill.contract_until ? "" : ` ${fmtFullDate(per.start)} – ${fmtFullDate(per.end)}`}: με την έκδοση η σύμβαση του πελάτη γράφεται <b>έως ${fmtFullDate(until)}</b>.`;
+      }
       $("#sd-totals").innerHTML = `
         ${Object.keys(byRate).length > 1 ? Object.entries(byRate).sort((a, b) => b[0] - a[0]).map(([r, b]) => `<div class="cell-sub"><span>ΦΠΑ ${r}% σε ${eur(b.net)}</span><span>${eur(b.vat)}</span></div>`).join("") : ""}
         <div><span>Καθαρή αξία</span><span>${eur(net)}</span></div>
@@ -6995,6 +7015,16 @@
         recalc();
       });
       el.querySelectorAll("input, select").forEach(x => x.addEventListener("input", recalc));
+      el.querySelector(".sdl-contract").addEventListener("click", (e) => {
+        if (!e.target.closest("[data-add-contract]")) return;
+        const it = INVENTORY_CACHE.find(i => i.id === el.querySelector(".sdl-item").value);
+        if (!it) return;
+        const rate = Number(el.querySelector(".sdl-vat").value), m = Number(it.maintenance_price);
+        el.insertAdjacentHTML("afterend", lineHtml({ contract_for: it.id, description: contractLineDesc(it.name), qty: parseFloat(el.querySelector(".sdl-qty").value) || 1,
+          unit: "τεμ.", unit_price: (pwv ? r2(m * (1 + rate / 100)) : r2(m)).toFixed(2), vat_rate: rate }));
+        wireLine(el.nextElementSibling);
+        recalc();
+      });
       el.querySelector(".sdl-del").addEventListener("click", () => { if ($$("#sd-lines [data-sdl]").length > 1) { el.remove(); recalc(); } });
     };
     $$("#sd-lines [data-sdl]").forEach(wireLine);
@@ -7005,6 +7035,24 @@
       recalc();
     });
     $("#sd-pwv").addEventListener("change", recalc);
+    $("#sd-date").addEventListener("change", recalc);
+    $("#sd-add-contract").addEventListener("click", async () => {
+      const cid = $("#sd-client").value;
+      if (!cid) { showMsg($("#sd-msg"), "Διάλεξε πρώτα πελάτη.", "error"); return; }
+      const src = await clientContractLines(cid);
+      if (!src) { showMsg($("#sd-msg"), "Αυτός ο πελάτης δεν έχει συμβόλαιο σε προσφορά ή σε παλιό παραστατικό. Διάλεξε το είδος (π.χ. Kalypso) σε γραμμή και πάτα «🔧 + Ετήσιο συμβόλαιο».", "error"); return; }
+      clearMsg($("#sd-msg"));
+      // σβήνεται η κενή πρώτη γραμμή
+      $$("#sd-lines [data-sdl]").forEach(el => { if (!el.querySelector(".sdl-desc").value.trim() && !(parseFloat(el.querySelector(".sdl-price").value) > 0)) el.remove(); });
+      src.lines.forEach(l => {
+        const rate = Number(l.vat_rate ?? 24);
+        $("#sd-lines").insertAdjacentHTML("beforeend", lineHtml({ description: l.description, qty: l.qty, unit: "τεμ.", vat_rate: rate,
+          unit_price: (pwv ? r2(l.net * (1 + rate / 100)) : r2(l.net)).toFixed(2) }));
+        wireLine($("#sd-lines").lastElementChild);
+      });
+      showToast("Μπήκε το συμβόλαιο από " + src.from);
+      recalc();
+    });
     $$("#sd-series .chip").forEach(c => {
       const go = () => {
         series = active.find(s => s.id === c.dataset.id);
@@ -7074,6 +7122,14 @@
       if ((method === "cash" || method === "bank") && MONEY_ACCOUNTS.length) await ensureMoneyAccount(method, bank, payload.doc_date);
       await loadSeries(true);
       if (INVENTORY_CACHE.length && payload.affect_stock) loadInventory();
+      // συμβόλαιο συντήρησης στο παραστατικό → «Σύμβαση συντήρησης έως» στην καρτέλα του πελάτη
+      if (client && series.kind !== "credit" && lines.some(l => isContractDesc(l.description))) {
+        const until = prefill.contract_until || contractPeriod(client, payload.doc_date).end;
+        if (!client.contract_until || client.contract_until < until) {
+          const { error: ce } = await sb.from("clients").update({ contract_until: until }).eq("id", client.id);
+          if (!ce) { client.contract_until = until; showToast(`🔧 Σύμβαση συντήρησης ${client.name}: έως ${fmtFullDate(until)}`); }
+        }
+      }
       if (!series.external && $("#sd-aade").checked) {
         btn.innerHTML = '<span class="spinner"></span>Αποστολή στην ΑΑΔΕ…';
         if (w) try { w.document.body.innerHTML = '<p style="font-family:Arial;padding:30px;">Αποστολή στην ΑΑΔΕ…</p>'; } catch (e) {}
@@ -7587,17 +7643,110 @@
   <button class="print-btn" onclick="window.print()">🖨 Εκτύπωση / Αποθήκευση ως PDF</button>
 </body></html>`;
   }
+  // ---- ΕΤΗΣΙΟ ΣΥΜΒΟΛΑΙΟ ΣΥΝΤΗΡΗΣΗΣ (Kalypso κ.λπ.) ----
+  const contractLineDesc = (name) => QUOTE_MAINT_PREFIX + " — " + name;
+  const isContractDesc = (d) => String(d || "").startsWith(QUOTE_MAINT_PREFIX);
+  const fmtFullDate = (iso) => String(iso || "").slice(0, 10).split("-").reverse().join("/");   // 06/11/2026
+  const isoAdd = (iso, { days = 0, years = 0 } = {}) => {
+    const d = new Date(iso + "T12:00:00Z"); d.setUTCFullYear(d.getUTCFullYear() + years); d.setUTCDate(d.getUTCDate() + days);
+    return d.toISOString().slice(0, 10);
+  };
+  // περίοδος: από τη λήξη της τρέχουσας σύμβασης (ανανέωση) ή από σήμερα · 1 έτος
+  function contractPeriod(client, fromIso){
+    const today = fromIso || isoDay(new Date());
+    let start = today;
+    const cu = client && client.contract_until;
+    if (cu && isoAdd(cu, { days: 60 }) >= today) start = isoAdd(cu, { days: 1 });   // συνέχεια χωρίς κενό
+    return { start, end: isoAdd(start, { years: 1, days: -1 }) };
+  }
+  // γραμμές συμβολαίου του πελάτη: από το τελευταίο παραστατικό συμβολαίου, αλλιώς από την προσφορά του (τιμές ΧΩΡΙΣ ΦΠΑ)
+  async function clientContractLines(clientId){
+    const { data: docs } = await sb.from("sales_docs").select("id, doc_no, doc_date, kind, status, prices_with_vat").eq("client_id", clientId)
+      .order("doc_date", { ascending:false }).limit(60);
+    const live = (docs || []).filter(d => d.status === "issued" && d.kind !== "credit");
+    if (live.length) {
+      const { data: dl } = await sb.from("sales_doc_lines").select("*").in("doc_id", live.map(d => d.id));
+      for (const d of live) {
+        const ls = (dl || []).filter(l => l.doc_id === d.id && isContractDesc(l.description)).sort((a, b) => a.line_no - b.line_no);
+        if (ls.length) return { from: d.doc_no, lines: ls.map(l => ({ description: l.description, qty: Number(l.qty), vat_rate: Number(l.vat_rate),
+          net: r2(Number(l.unit_price) * (1 - Number(l.discount_pct || 0) / 100) / (d.prices_with_vat ? 1 + Number(l.vat_rate) / 100 : 1)) })) };
+      }
+    }
+    if (!BIZ) await loadBizOnly();
+    const { data: qs } = await sb.from("quotes").select("*").eq("client_id", clientId);
+    const quotes = (qs || []).sort((a, b) => (b.status === "accepted") - (a.status === "accepted") || String(b.quote_date).localeCompare(String(a.quote_date)) || (b.quote_no || 0) - (a.quote_no || 0));
+    if (!quotes.length) return null;
+    const { data: qi } = await sb.from("quote_items").select("*").in("quote_id", quotes.map(q => q.id));
+    for (const q of quotes) {
+      const ls = (qi || []).filter(l => l.quote_id === q.id && quoteLineKind(l) === "maintenance").sort((a, b) => (a.line_no ?? 0) - (b.line_no ?? 0));
+      if (!ls.length) continue;
+      const { pwv, rate } = quoteMode(q);
+      return { from: "ΠΡ-" + q.quote_no, quote: q, lines: ls.map(l => ({ description: isContractDesc(l.description) ? l.description : contractLineDesc(l.description),
+        qty: Number(l.qty), vat_rate: rate, net: r2(Number(l.unit_price) / (pwv ? 1 + rate / 100 : 1)) })) };
+    }
+    return null;
+  }
+  // σειρά Τιμολογίου Παροχής Υπηρεσιών του ITSUPP (το συμβόλαιο είναι υπηρεσία)
+  const serviceSeriesCode = () => { const s = (SERIES || []).find(x => x.active && !x.external && x.mydata_type === "2.1"); return s ? s.code : undefined; };
+  // «🔧 Τιμολόγηση συμβολαίου» (ανανέωση ή πρώτη φορά)
+  async function openContractInvoice(clientId){
+    await loadSeries(true);
+    if (!SERIES) { showToast(V19_MSG); return; }
+    const src = await clientContractLines(clientId);
+    if (!src) { showToast("Δεν βρέθηκε συμβόλαιο για αυτόν τον πελάτη (ούτε σε προσφορά ούτε σε παλιό παραστατικό). Κάνε «+ Νέο παραστατικό», διάλεξε το είδος και πάτα «🔧 + Ετήσιο συμβόλαιο»."); return; }
+    const { data: c } = await sb.from("clients").select("*").eq("id", clientId).single();
+    const per = contractPeriod(c);
+    openSalesDocForm({ client_id: clientId, series_code: serviceSeriesCode(), prices_with_vat: false, contract_until: per.end, affect_stock: false,
+      note: `Ετήσιο συμβόλαιο συντήρησης: ${fmtFullDate(per.start)} – ${fmtFullDate(per.end)}`,
+      lines: src.lines.map(l => ({ description: l.description, qty: l.qty, unit: "τεμ.", unit_price: l.net.toFixed(2), vat_rate: l.vat_rate })) });
+  }
+
+  // προσφορά → παραστατικό: αν έχει συμβόλαιο, διαλέγεις αγορά / συμβόλαιο / και τα δύο
+  function pickQuoteInvoiceMode(q, goods, maints){
+    const { pwv, rate } = quoteMode(q);
+    const net = (arr) => r2(arr.reduce((s, l) => s + Number(l.qty) * Number(l.unit_price), 0) / (pwv ? 1 + rate / 100 : 1));
+    return new Promise((resolve) => {
+      let done = false; const fin = (v) => { if (!done) { done = true; resolve(v); } };
+      openDrawer(`Τιμολόγηση ΠΡ-${q.quote_no}`, `
+        <div class="cell-sub" style="margin-bottom:12px;">Η προσφορά έχει και <b>ετήσιο συμβόλαιο συντήρησης</b>. Τι τιμολογείς τώρα;</div>
+        <div style="display:flex;flex-direction:column;gap:10px;">
+          ${goods.length ? `<button type="button" class="btn-primary" data-qmode="goods">📦 Την αγορά (${goods.length} γραμμ. · ${eur(net(goods))} + ΦΠΑ)</button>` : ""}
+          <button type="button" class="btn-primary" data-qmode="contract">🔧 Το συμβόλαιο (${maints.length} γραμμ. · ${eur(net(maints))} + ΦΠΑ / έτος)</button>
+          ${goods.length ? `<button type="button" class="btn-ghost" data-qmode="both" style="border:1px solid var(--line);">📦 + 🔧 Και τα δύο σε ένα παραστατικό (${eur(net(goods) + net(maints))} + ΦΠΑ)</button>` : ""}
+        </div>
+        <div class="cell-sub" style="margin-top:12px;">Το συμβόλαιο πάει σε Τιμολόγιο Παροχής Υπηρεσιών και γράφει στην καρτέλα του πελάτη «Σύμβαση συντήρησης έως». Μπορείς να τιμολογήσεις αγορά και συμβόλαιο χωριστά, ξαναπατώντας «→ Έκδοση παραστατικού».</div>`);
+      $$("[data-qmode]").forEach(b => b.addEventListener("click", () => fin(b.dataset.qmode)));
+      // κλείσιμο συρταριού χωρίς επιλογή
+      const obs = new MutationObserver(() => { if (!document.querySelector("[data-qmode]")) { obs.disconnect(); fin(null); } });
+      obs.observe(document.body, { childList:true, subtree:true });
+    });
+  }
   async function quoteToSalesDoc(quoteId){
     await loadSeries();
     if (!SERIES) { showToast(V19_MSG); return; }
     const [qr, ir] = await Promise.all([sb.from("quotes").select("*").eq("id", quoteId).single(), sb.from("quote_items").select("*").eq("quote_id", quoteId)]);
     if (qr.error) { showToast("Σφάλμα: " + qr.error.message); return; }
     if (INVENTORY_CACHE.length === 0) await loadInventory();
+    if (!BIZ) await loadBizOnly();
     const b = BIZ || {};
-    openSalesDocForm({ client_id: qr.data.client_id, quote_id: quoteId, prices_with_vat: quoteMode(qr.data).pwv,
-      note: "Βάσει της προσφοράς ΠΡ-" + qr.data.quote_no,
-      lines: (ir.data || []).filter(l => quoteLineKind(l) !== "maintenance").map(l => { const it = l.sku ? INVENTORY_CACHE.find(i => i.sku === l.sku) : null;
-        return { inventory_item_id: it ? it.id : null, sku: l.sku, description: l.description, qty: Number(l.qty), unit_price: Number(l.unit_price), vat_rate: Number(b.quote_vat_rate ?? 24) }; }) });
+    const all = [...(ir.data || [])].sort((x, y) => (x.line_no ?? 0) - (y.line_no ?? 0));
+    const maints = all.filter(l => quoteLineKind(l) === "maintenance"), goods = all.filter(l => quoteLineKind(l) !== "maintenance");
+    let mode = "goods";
+    if (maints.length) { mode = await pickQuoteInvoiceMode(qr.data, goods, maints); if (!mode) return; }
+    const toLine = (l) => { const contract = quoteLineKind(l) === "maintenance";
+      const it = !contract && l.sku ? INVENTORY_CACHE.find(i => i.sku === l.sku) : null;
+      return { inventory_item_id: it ? it.id : null, sku: contract ? null : l.sku, description: contract && !isContractDesc(l.description) ? contractLineDesc(l.description) : l.description,
+               qty: Number(l.qty), unit_price: Number(l.unit_price), vat_rate: Number(b.quote_vat_rate ?? 24) }; };
+    const lines = (mode === "goods" ? goods : mode === "contract" ? maints : [...goods, ...maints]).map(toLine);
+    let note = "Βάσει της προσφοράς ΠΡ-" + qr.data.quote_no, until;
+    if (mode !== "goods") {
+      const { data: c } = await sb.from("clients").select("*").eq("id", qr.data.client_id).single();
+      const per = contractPeriod(c);
+      until = per.end;
+      note = `Ετήσιο συμβόλαιο συντήρησης: ${fmtFullDate(per.start)} – ${fmtFullDate(per.end)} · ` + note;
+    }
+    openSalesDocForm({ client_id: qr.data.client_id, quote_id: quoteId, prices_with_vat: quoteMode(qr.data).pwv, note, lines, contract_until: until,
+      series_code: mode === "contract" ? serviceSeriesCode() : undefined });
   }
 
   // ---------------- στοιχεία επιχείρησης & εκτύπωσης ----------------
@@ -7868,7 +8017,7 @@
         <div class="stat-tile"><div class="num">${eur(total)}</div><div class="lbl">Σύνολο παραστατικών (${live.length})</div></div>
         <div class="stat-tile ${openSum > 0.004 ? "balance-due" : ""}"><div class="num">${eur(openSum)}</div><div class="lbl">Ανεξόφλητα</div></div>
       </div>
-      <button type="button" class="btn-primary btn-sm" id="cl-new-doc" style="margin-bottom:10px;">+ Νέο παραστατικό</button>
+      <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:10px;"><button type="button" class="btn-primary btn-sm" id="cl-new-doc">+ Νέο παραστατικό</button><button type="button" class="btn-ghost btn-sm" id="cl-contract-doc" style="border:1px solid var(--line);">🔧 Τιμολόγηση συμβολαίου</button></div>
       ${rows.length === 0 ? '<div class="cell-sub" style="padding:6px 0;">Δεν έχουν εκδοθεί παραστατικά σε αυτόν τον πελάτη.</div>' : rows.map(d => {
         const st = sdStatus(d);
         return `<div class="sd-row compact ${d.status === "cancelled" ? "cancelled" : ""}" data-cl-sd="${d.id}" role="button" tabindex="0">
@@ -7876,6 +8025,7 @@
           <div class="sd-who"><div>${escapeHtml(d.title)}</div><div class="cell-sub"><span class="status-pill ${st.cls}">${escapeHtml(st.label)}</span> ${d.status === "issued" ? (d.mark ? '<span class="sd-mark ok">ΜΑΡΚ ✓</span>' : '<span class="sd-mark">χωρίς ΜΑΡΚ</span>') : ""}</div></div>
           <div class="sd-amt">${d.kind === "credit" ? "−" : ""}${eur(d.total)}</div></div>`; }).join("")}`;
     $("#cl-new-doc").addEventListener("click", () => openSalesDocForm({ client_id: clientId }));
+    $("#cl-contract-doc").addEventListener("click", () => openContractInvoice(clientId));
     $$("[data-cl-sd]").forEach(el => el.addEventListener("click", () => openSalesDoc(el.dataset.clSd)));
   }
 
