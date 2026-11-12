@@ -496,6 +496,10 @@
   .br-actions{display:flex;flex-wrap:wrap;gap:6px;margin-top:8px;}
   .br-actions .btn-sm{border:1px solid var(--line);}
   .br-moves{border-top:1px dashed var(--line);margin-top:10px;padding-top:10px;}
+  .sl-line{display:flex;align-items:center;gap:10px;padding:7px 0;border-bottom:1px solid var(--line);cursor:pointer;}
+  .sl-line .sl-desc{flex:1;font-size:13.5px;line-height:1.35;font-weight:400;color:var(--ink);}
+  .sl-line .sl-qty{width:76px;flex:none;}
+  .sl-line input[type=checkbox]{width:18px;height:18px;flex:none;}
   .arch-dates{display:flex;align-items:center;gap:6px;flex-wrap:wrap;}
   .arch-dates input[type=date]{width:auto;min-width:0;flex:0 1 150px;}
   .arch-all{padding:6px 0 4px;}
@@ -6292,7 +6296,9 @@
           <button type="button" class="btn-ghost btn-sm" id="qt-print">🖨 Εκτύπωση προσφοράς</button>
           <button type="button" class="btn-ghost btn-sm" id="qt-pdf">⬇ PDF</button>
           <button type="button" class="btn-ghost btn-sm" id="qt-to-doc">→ Έκδοση παραστατικού</button>
-        </div><div class="cell-sub" style="margin-top:4px;">Η εκτύπωση και η έκδοση χρησιμοποιούν τα <b>αποθηκευμένα</b> στοιχεία — πάτα πρώτα «Αποθήκευση» αν άλλαξες κάτι.</div>` : ""}
+          ${quote.status === "accepted" ? '<button type="button" class="btn-ghost btn-sm" id="qt-sup-pdf" style="border:1px solid var(--line);">📦 Λίστα για προμηθευτή (χωρίς τιμές)</button>' : ""}
+        </div><div class="cell-sub" style="margin-top:4px;">Η εκτύπωση και η έκδοση χρησιμοποιούν τα <b>αποθηκευμένα</b> στοιχεία — πάτα πρώτα «Αποθήκευση» αν άλλαξες κάτι.</div>
+        <div id="qt-sup-box"></div>` : ""}
         <div class="drawer-foot" style="margin:22px -26px -22px;">
           ${quoteId ? '<span id="qt-delete-wrap"><button type="button" class="btn-danger" id="qt-delete">Διαγραφή</button></span>' : '<span></span>'}
           <button type="submit" class="btn-primary" id="qt-save">Αποθήκευση</button>
@@ -6431,6 +6437,7 @@
     if (quoteId) {
       $("#qt-print").addEventListener("click", () => { const w = window.open("", "_blank"); printQuote(quoteId, w); });
       $("#qt-pdf").addEventListener("click", (e) => downloadQuotePdf(quoteId, e.currentTarget));
+      if ($("#qt-sup-pdf")) $("#qt-sup-pdf").addEventListener("click", () => openSupplierListPanel(quoteId));
       $("#qt-to-doc").addEventListener("click", () => quoteToSalesDoc(quoteId));
       $("#qt-delete").addEventListener("click", () => {
         $("#qt-delete-wrap").innerHTML = `Σίγουρα; <button type="button" class="btn-sm btn-ghost" id="qt-del-no">Όχι</button> <button type="button" class="btn-sm btn-danger" id="qt-del-yes">Ναι, διαγραφή</button>`;
@@ -7265,11 +7272,14 @@
         </div>
         <div style="display:flex;gap:8px;flex-wrap:wrap;">
           ${d.status === "issued" && d.kind !== "credit" && open > 0.004 && d.client_id ? `<button type="button" class="btn-ghost btn-sm" id="sdv-pay">Εξόφληση ${eur(open)}</button>` : ""}
+          ${d.client_snapshot && !d.client_snapshot.is_walkin ? '<button type="button" class="btn-ghost btn-sm" id="sdv-mail" style="border:1px solid var(--line);">✉️ Αποστολή στον πελάτη</button>' : ""}
           <button type="button" class="btn-primary btn-sm" id="sdv-print">🖨 Εκτύπωση</button>
         </div>
-      </div>`, true);
+      </div>
+      <div id="sdv-mail-box"></div>`, true);
     $$("[data-open-sd]").forEach(a => a.addEventListener("click", (e) => { e.preventDefault(); openSalesDoc(a.dataset.openSd); }));
     $("#sdv-print").addEventListener("click", () => { const w = window.open("", "_blank"); printSalesDoc(id, w); });
+    if ($("#sdv-mail")) $("#sdv-mail").addEventListener("click", () => openMailSalesDoc(d));
     wireParochosBlock(d, id);
     if ($("#sdv-client")) $("#sdv-client").addEventListener("click", async () => { if (CLIENTS_CACHE.length === 0) await loadClients(); openClientDrawer(d.client_id, "docs"); });
     if ($("#sdv-pay")) $("#sdv-pay").addEventListener("click", () => openLedgerEntryDrawer(d.client_id, c.name || "", { type:"payment", settles: d.doc_no, amount: open, backToDoc: id }));
@@ -7415,6 +7425,93 @@
     if (!w) { w = window.open("", "_blank"); if (!w) { showToast("Ο browser μπλόκαρε την εκτύπωση — επίτρεψε τα pop-ups για αυτή τη σελίδα."); return; } }
     w.document.open(); w.document.write(html); w.document.close();
   }
+  // ---- αποστολή του παραστατικού στον πελάτη (PDF) από το email σου ----
+  async function salesDocPdfFile(id){
+    const [dr, lr] = await Promise.all([sb.from("sales_docs_view").select("*").eq("id", id).single(), sb.from("sales_doc_lines").select("*").eq("doc_id", id).order("line_no")]);
+    if (dr.error) throw new Error(dr.error.message);
+    if (!SERIES) await loadSeries();
+    let related = null;
+    if (dr.data.related_doc_id) { const { data } = await sb.from("sales_docs").select("doc_no, doc_date").eq("id", dr.data.related_doc_id).maybeSingle(); related = data; }
+    const qr = dr.data.qr_url ? await qrSvg(dr.data.qr_url) : "";
+    const blob = await htmlToPdfBlob(buildSalesDocHtml(dr.data, lr.data || [], { qr, related }));
+    const name = String(dr.data.doc_no || "parastatiko").replace(/[\\/:*?"<>|\s]+/g, "_") + ".pdf";
+    return new File([blob], name, { type: "application/pdf" });
+  }
+  async function openMailSalesDoc(d){
+    const box = $("#sdv-mail-box"); if (!box) return;
+    if (box.innerHTML) { box.innerHTML = ""; return; }
+    const c = d.client_snapshot || {};
+    let to = (c.branch && c.branch.email) || c.email || "";
+    if (!to && d.client_id) { const { data } = await sb.from("clients").select("email").eq("id", d.client_id).maybeSingle(); to = (data && data.email) || ""; }
+    if (!BIZ) await loadBizOnly();
+    const b = (d.issuer_snapshot && Object.keys(d.issuer_snapshot).length ? d.issuer_snapshot : BIZ) || {};
+    const firm = b.trade_name || b.legal_name || "ITSUPP";
+    const open = sdOpen(d);
+    const subject = `${d.title} ${d.doc_no} — ${firm}`;
+    const body = `Καλησπέρα σας,\n\nσας αποστέλλουμε συνημμένα το ${d.title} ${d.doc_no} της ${fmtFullDate(d.doc_date)}, ποσό ${eur(d.total)}.`
+      + (d.mark ? `\nΜΑΡΚ: ${d.mark}` : "")
+      + (d.status === "issued" && d.kind !== "credit" && open > 0.004 && b.bank_info ? `\n\nΥπόλοιπο προς εξόφληση: ${eur(open)}\nΤραπεζικοί λογαριασμοί:\n${b.bank_info}` : "")
+      + `\n\nΕυχαριστούμε,\n${firm}${b.phone ? "\nΤηλ. " + b.phone : ""}`;
+    const canShareFiles = !!(navigator.canShare && (() => { try { return navigator.canShare({ files: [new File(["x"], "t.pdf", { type: "application/pdf" })] }); } catch (e) { return false; } })());
+    box.innerHTML = `
+      <div class="br-card" style="margin-top:12px;">
+        <div style="font-weight:700;margin-bottom:6px;">✉️ Αποστολή ${escapeHtml(d.doc_no)} στον πελάτη</div>
+        ${d.status === "issued" && !d.mark ? '<div class="sd-need-vat" style="margin-bottom:8px;">⚠️ Δεν έχει ΜΑΡΚ — είναι πρόχειρο, όχι νόμιμο παραστατικό.</div>' : ""}
+        <div id="sdm-msg"></div>
+        <div class="field"><label>Email πελάτη</label><input type="email" id="sdm-to" value="${escapeHtml(to)}" placeholder="email@πελάτη.gr"></div>
+        <div class="field"><label>Θέμα</label><input id="sdm-subj" value="${escapeHtml(subject)}"></div>
+        <div class="field"><label>Κείμενο</label><textarea id="sdm-body" rows="6">${escapeHtml(body)}</textarea></div>
+        <div style="display:flex;gap:8px;flex-wrap:wrap;">
+          ${canShareFiles ? '<button type="button" class="btn-primary btn-sm" id="sdm-share">📎 Αποστολή με το PDF</button>' : ""}
+          <button type="button" class="${canShareFiles ? "btn-ghost" : "btn-primary"} btn-sm" id="sdm-mailto" ${canShareFiles ? 'style="border:1px solid var(--line);"' : ""}>✉️ Άνοιγμα email${canShareFiles ? "" : " + λήψη PDF"}</button>
+        </div>
+        <div class="cell-sub" style="margin-top:6px;">${canShareFiles
+          ? "«Αποστολή με το PDF»: διαλέγεις Gmail / Mail / Outlook και το PDF είναι ήδη συνημμένο. Το email του πελάτη αντιγράφεται — κάνε επικόλληση στο «Προς»."
+          : "Ανοίγει το πρόγραμμα email σου με παραλήπτη, θέμα και κείμενο, και κατεβαίνει το PDF — σύρε το στο email ως συνημμένο."}</div>
+      </div>`;
+    box.scrollIntoView({ block:"nearest", behavior:"smooth" });
+    // το PDF φτιάχνεται ΤΩΡΑ — η κοινοποίηση πρέπει να γίνει αμέσως με το πάτημα (αλλιώς τη μπλοκάρει ο browser)
+    let pdfFile = null, pdfErr = null;
+    const btns = ["#sdm-share", "#sdm-mailto"].map(x => $(x)).filter(Boolean);
+    btns.forEach(bt => { bt.disabled = true; bt.dataset.lbl = bt.innerHTML; bt.innerHTML = '<span class="spinner"></span>PDF…'; });
+    salesDocPdfFile(d.id).then(f => { pdfFile = f; }).catch(er => { pdfErr = er; })
+      .finally(() => { btns.forEach(bt => { bt.disabled = false; bt.innerHTML = bt.dataset.lbl; });
+        if (pdfErr && $("#sdm-msg")) showMsg($("#sdm-msg"), "Δεν φτιάχτηκε το PDF: " + escapeHtml(pdfErr.message || String(pdfErr)), "error"); });
+    // το email του πελάτη μένει στην καρτέλα του αν δεν το είχε
+    const rememberEmail = async (em) => {
+      if (!em || em === to || !d.client_id) return;
+      const brId = c.branch && c.branch.id;
+      if (brId && !c.branch.email) await sb.from("client_branches").update({ email: em }).eq("id", brId);
+      else if (!c.email) { const { data } = await sb.from("clients").select("email").eq("id", d.client_id).maybeSingle(); if (data && !data.email) await sb.from("clients").update({ email: em }).eq("id", d.client_id); }
+    };
+    const getVals = () => {
+      const em = $("#sdm-to").value.trim();
+      if (em && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(em)) { showMsg($("#sdm-msg"), "Το email δεν είναι σωστό.", "error"); return null; }
+      clearMsg($("#sdm-msg"));
+      return { em, subj: $("#sdm-subj").value, text: $("#sdm-body").value };
+    };
+    if ($("#sdm-share")) $("#sdm-share").addEventListener("click", async (e) => {
+      const v = getVals(); if (!v || !pdfFile) return;
+      try {
+        if (v.em && navigator.clipboard) navigator.clipboard.writeText(v.em).catch(() => {});
+        await navigator.share({ files: [pdfFile], title: v.subj, text: v.text });
+        await rememberEmail(v.em);
+        showToast("✓ Στάλθηκε για αποστολή" + (v.em ? " · το email του πελάτη είναι στο πρόχειρο" : ""));
+      } catch (er) {
+        if (er && er.name === "AbortError") return;
+        showMsg($("#sdm-msg"), "Δεν έγινε: " + escapeHtml(er.message || String(er)), "error");
+      }
+    });
+    $("#sdm-mailto").addEventListener("click", async (e) => {
+      const v = getVals(); if (!v) return;
+      try {
+        if (!canShareFiles && pdfFile) downloadBlob(pdfFile, pdfFile.name);
+        await rememberEmail(v.em);
+        window.location.href = `mailto:${encodeURIComponent(v.em)}?subject=${encodeURIComponent(v.subj)}&body=${encodeURIComponent(v.text + (canShareFiles ? "" : "\n"))}`;
+      } catch (er) { showMsg($("#sdm-msg"), "Δεν έγινε: " + escapeHtml(er.message || String(er)), "error"); }
+    });
+  }
+
   async function printSalesDoc(id, w){
     const [dr, lr] = await Promise.all([
       sb.from("sales_docs_view").select("*").eq("id", id).single(),
@@ -7626,6 +7723,132 @@
       showToast(/html2canvas|jspdf/i.test(e.message || "") ? "Δεν φόρτωσε το εργαλείο PDF — έλεγξε τη σύνδεση." : "Σφάλμα PDF: " + e.message);
     } finally { if (btn) { btn.disabled = false; btn.innerHTML = lbl; } }
   }
+  // ---- ΑΠΟ ΑΠΟΔΕΚΤΗ ΠΡΟΣΦΟΡΑ: λίστα ειδών ΧΩΡΙΣ τιμές για τον προμηθευτή ----
+  const SUPLIST_TITLES = ["Λίστα ειδών", "Παραγγελία", "Αίτημα προσφοράς"];
+  function buildSupplierListHtml(o){
+    const b = o.b || {}, sup = o.sup, UP = (t) => String(t).normalize("NFD").replace(/\u0301/g, "").normalize("NFC").toUpperCase();
+    return `<!doctype html><html lang="el"><head><meta charset="UTF-8"><title>${escapeHtml(o.title)} — ${escapeHtml(o.ref)}</title>
+<meta name="viewport" content="width=device-width, initial-scale=1"><style>${PRINT_CSS}
+  .qtab th{text-transform:none;} .qtab{table-layout:fixed;width:100%;} .qtab td{word-wrap:break-word;padding-top:6px;padding-bottom:6px;}
+  .qto{margin-top:16px;border:1px solid #cfd8d8;border-radius:8px;padding:9px 14px;font-size:13px;line-height:1.5;}
+  .qto span{font-size:10px;font-weight:700;letter-spacing:.5px;color:#666;margin-right:8px;}
+  .qnote{margin-top:16px;border:1px solid #cfd8d8;border-radius:8px;padding:10px 14px;line-height:1.55;white-space:pre-line;}
+  .qref{font-size:12px;margin-top:4px;color:#444;} tr{page-break-inside:avoid;}
+</style></head><body>
+  <div class="top">${issuerHtml(b)}
+    <div class="docbox"><div class="t">${UP(o.title)}</div><div class="qref">${escapeHtml(fmtFullDate(o.date))}<br>Αναφ. ${escapeHtml(o.ref)}</div></div>
+  </div>
+  ${sup ? `<div class="qto"><span>${UP("Προς")}</span><b>${escapeHtml(sup.name)}</b>${[sup.vat_number ? "ΑΦΜ " + sup.vat_number : "", sup.phone, sup.email].filter(Boolean).length ? "<br>" + escapeHtml([sup.vat_number ? "ΑΦΜ " + sup.vat_number : "", sup.phone, sup.email].filter(Boolean).join(" · ")) : ""}</div>` : ""}
+  ${o.client ? `<div class="qto"><span>${UP("Για")}</span><b>${escapeHtml(o.client)}</b></div>` : ""}
+  <table class="qtab" style="margin-top:16px;"><colgroup><col style="width:30px"><col style="width:130px"><col><col style="width:80px"></colgroup>
+    <thead><tr><th>#</th><th>${UP("Κωδικός")}</th><th>${UP("Περιγραφή")}</th><th class="r">${UP("Ποσότητα")}</th></tr></thead>
+    <tbody>${o.lines.map((l, i) => `<tr><td>${i + 1}</td><td>${escapeHtml(l.sku || "")}</td><td>${escapeHtml(l.description)}</td><td class="r"><b>${fmtQty(l.qty)}</b></td></tr>`).join("")}</tbody></table>
+  ${o.note ? `<div class="qnote"><b>Σημειώσεις:</b> ${escapeHtml(o.note)}</div>` : ""}
+  <button class="print-btn" onclick="window.print()">🖨 Εκτύπωση / Αποθήκευση ως PDF</button>
+</body></html>`;
+  }
+  async function openSupplierListPanel(quoteId){
+    const box = $("#qt-sup-box"); if (!box) return;
+    if (box.innerHTML) { box.innerHTML = ""; return; }
+    box.innerHTML = '<div class="cell-sub" style="padding:10px 0;">Φόρτωση…</div>';
+    await loadBizOnly();
+    const [qr, ir] = await Promise.all([sb.from("quotes_view").select("*").eq("id", quoteId).single(), sb.from("quote_items").select("*").eq("quote_id", quoteId)]);
+    if (qr.error) { box.innerHTML = `<div class="msg msg-error">${escapeHtml(qr.error.message)}</div>`; return; }
+    const q = qr.data, items = [...(ir.data || [])].sort((a, b) => (a.line_no ?? 0) - (b.line_no ?? 0));
+    if (!SUPPLIERS_CACHE.length) await loadSuppliers();
+    const { data: c } = await sb.from("clients").select("name").eq("id", q.client_id).maybeSingle();
+    const br = q.branch_id ? branchById(q.branch_id) : null;
+    const clientName = [c && c.name, br && br.name].filter(Boolean).join(" — ");
+    const KL = { labor:"🛠 εργασία", materials:"🧰 υλικά", maintenance:"🔧 συμβόλαιο" };
+    // προμηθευτής κάθε είδους από την αποθήκη → προεπιλογή όταν διαλέγεις προμηθευτή
+    const itemSup = (l) => { const it = l.sku && INVENTORY_CACHE.find(i => i.sku === l.sku); return it ? it.supplier_id : null; };
+    box.innerHTML = `
+      <div class="br-card br-edit" style="margin-top:12px;">
+        <div style="font-weight:700;margin-bottom:4px;">📦 Λίστα για προμηθευτή — ${escapeHtml(q.code || "ΠΡ-" + q.quote_no)}</div>
+        <div class="cell-sub" style="margin-bottom:10px;">PDF <b>χωρίς τιμές</b>. Τσέκαρε ό,τι θέλεις να μπει και άλλαξε ποσότητες αν χρειάζεται.</div>
+        <div class="form-row">
+          <div class="field"><label>Προμηθευτής</label><select id="sl-sup"><option value="">— Χωρίς (γενική λίστα) —</option>${SUPPLIERS_CACHE.map(x => `<option value="${x.id}">${escapeHtml(x.name)}</option>`).join("")}</select></div>
+          <div class="field"><label>Τίτλος</label><select id="sl-title">${SUPLIST_TITLES.map(t => `<option>${t}</option>`).join("")}</select></div>
+        </div>
+        <div style="display:flex;gap:14px;flex-wrap:wrap;margin:-2px 0 8px;">
+          <button type="button" class="add-link" id="sl-all">Όλα</button><button type="button" class="add-link" id="sl-none">Κανένα</button>
+          <button type="button" class="add-link hidden" id="sl-bysup">Μόνο τα είδη αυτού του προμηθευτή</button>
+        </div>
+        <div id="sl-lines">${items.map((l, i) => { const k = quoteLineKind(l); return `
+          <label class="sl-line" data-i="${i}">
+            <input type="checkbox" class="sl-on" ${k === "item" ? "checked" : ""}>
+            <span class="sl-desc">${escapeHtml(l.description)}${l.sku ? ` <span class="cell-sub">· ${escapeHtml(l.sku)}</span>` : ""}${k !== "item" ? ` <span class="cell-sub">· ${KL[k] || ""}</span>` : ""}</span>
+            <input type="number" class="sl-qty" min="0" step="0.01" inputmode="decimal" value="${Number(l.qty)}">
+          </label>`; }).join("") || '<div class="cell-sub">Η προσφορά δεν έχει είδη.</div>'}</div>
+        <label class="check-line" style="display:flex;gap:8px;align-items:center;margin:10px 0;"><input type="checkbox" id="sl-client"> Να φαίνεται ο πελάτης${clientName ? ` (${escapeHtml(clientName)})` : ""}</label>
+        <div class="field"><label>Σημείωση προς τον προμηθευτή</label><textarea id="sl-note" rows="2" placeholder="π.χ. Παράδοση έως Παρασκευή στο κατάστημα"></textarea></div>
+        <div id="sl-msg"></div>
+        <div style="display:flex;gap:8px;flex-wrap:wrap;">
+          <button type="button" class="btn-primary btn-sm" id="sl-pdf">⬇ PDF</button>
+          <button type="button" class="btn-ghost btn-sm" id="sl-print" style="border:1px solid var(--line);">🖨 Εκτύπωση</button>
+          ${navigator.canShare ? '<button type="button" class="btn-ghost btn-sm" id="sl-share" style="border:1px solid var(--line);">📎 Αποστολή</button>' : ""}
+        </div>
+      </div>`;
+    box.scrollIntoView({ block:"nearest", behavior:"smooth" });
+    box.addEventListener("keydown", (e) => { if (e.key === "Enter" && e.target.tagName !== "TEXTAREA") e.preventDefault(); });
+    const rows = () => $$("#sl-lines .sl-line");
+    $("#sl-all").addEventListener("click", () => rows().forEach(r => r.querySelector(".sl-on").checked = true));
+    $("#sl-none").addEventListener("click", () => rows().forEach(r => r.querySelector(".sl-on").checked = false));
+    $("#sl-sup").addEventListener("change", () => {
+      const sid = $("#sl-sup").value;
+      $("#sl-bysup").classList.toggle("hidden", !sid || !items.some(l => itemSup(l) === sid));
+    });
+    $("#sl-bysup").addEventListener("click", () => { const sid = $("#sl-sup").value; rows().forEach(r => r.querySelector(".sl-on").checked = itemSup(items[Number(r.dataset.i)]) === sid); });
+    const collect = () => {
+      const lines = rows().filter(r => r.querySelector(".sl-on").checked).map(r => { const l = items[Number(r.dataset.i)];
+        return { sku: quoteLineKind(l) === "maintenance" ? "" : l.sku, description: l.description, qty: parseFloat(r.querySelector(".sl-qty").value) || 0 }; })
+        .filter(l => l.qty > 0);
+      if (!lines.length) { showMsg($("#sl-msg"), "Τσέκαρε τουλάχιστον ένα είδος (με ποσότητα).", "error"); return null; }
+      clearMsg($("#sl-msg"));
+      const sup = SUPPLIERS_CACHE.find(x => x.id === $("#sl-sup").value) || null;
+      const title = $("#sl-title").value;
+      return { b: BIZ || {}, sup, title, ref: q.code || "ΠΡ-" + q.quote_no, date: isoDay(new Date()), lines,
+               client: $("#sl-client").checked ? clientName : "", note: $("#sl-note").value.trim() };
+    };
+    const fileName = (o) => `${o.title}-${o.ref}${o.sup ? "-" + o.sup.name : ""}`.replace(/[^\p{L}\p{N}-]+/gu, "-").replace(/-+/g, "-").replace(/^-|-$/g, "") + ".pdf";
+    const busy = (btn, fn) => async () => {
+      const lbl = btn.innerHTML; btn.disabled = true; btn.innerHTML = '<span class="spinner"></span>PDF…';
+      try { await fn(); } catch (e) { if (!(e && e.name === "AbortError")) showMsg($("#sl-msg"), "Σφάλμα: " + escapeHtml(e.message || String(e)), "error"); }
+      finally { btn.disabled = false; btn.innerHTML = lbl; }
+    };
+    $("#sl-pdf").addEventListener("click", busy($("#sl-pdf"), async () => {
+      const o = collect(); if (!o) return;
+      const blob = await htmlToPdfBlob(buildSupplierListHtml(o));
+      saveBlobAs(blob, fileName(o));
+      window.__LAST_PDF = blob;
+    }));
+    $("#sl-print").addEventListener("click", () => {
+      const o = collect(); if (!o) return;
+      const w = window.open("", "_blank");
+      if (!w) { showToast("Ο browser μπλόκαρε το νέο παράθυρο — επίτρεψε pop-ups."); return; }
+      writePrintWindow(w, buildSupplierListHtml(o));
+    });
+    // κινητό: το PDF φτιάχνεται στο 1ο πάτημα· αν ο browser θέλει νέο πάτημα για την κοινοποίηση, ζητάει «πάτα ξανά»
+    let ready = null;
+    if ($("#sl-share")) $("#sl-share").addEventListener("click", async () => {
+      const btn = $("#sl-share"), o = collect(); if (!o) return;
+      const key = JSON.stringify({ ...o, b: null });
+      try {
+        if (!ready || ready.key !== key) {
+          btn.disabled = true; btn.innerHTML = '<span class="spinner"></span>PDF…';
+          ready = { key, file: new File([await htmlToPdfBlob(buildSupplierListHtml(o))], fileName(o), { type: "application/pdf" }) };
+          btn.disabled = false; btn.innerHTML = "📎 Αποστολή";
+        }
+        if (o.sup && o.sup.email && navigator.clipboard) navigator.clipboard.writeText(o.sup.email).catch(() => {});
+        await navigator.share({ files: [ready.file], title: `${o.title} ${o.ref}`, text: `${o.title} ${o.ref}${o.note ? "\n" + o.note : ""}` });
+      } catch (e) {
+        btn.disabled = false; btn.innerHTML = "📎 Αποστολή";
+        if (e && e.name === "NotAllowedError") { btn.innerHTML = "📎 Πάτα ξανά για αποστολή"; return; }
+        if (!(e && e.name === "AbortError")) showMsg($("#sl-msg"), "Δεν έγινε: " + escapeHtml(e.message || String(e)), "error");
+      }
+    });
+  }
+
   // γραμμές προσφοράς: είδη / εργασία / υλικά (kind από v25, αλλιώς από την έτοιμη περιγραφή)
   const QUOTE_LABOR_DESC = "Εργασία εγκατάστασης & παραμετροποίησης";
   const QUOTE_MATERIALS_DESC = "Υλικά εγκατάστασης (καλώδια, βύσματα, αναλώσιμα)";
