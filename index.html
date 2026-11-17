@@ -5069,10 +5069,39 @@
     if (r && r.ok && r.pdf_base64) return { ...r, blob: b64ToPdf(r.pdf_base64) };
     return r || { ok:false, error:"Σφάλμα." };
   }
+  // η σελίδα «Εμπορική προβολή» του παρόχου (HTML) → PDF εδώ: χωρίς κώδικα/φόρμες της σελίδας, με τα στυλ της
+  function providerPageDoc(html, base){
+    const doc = new DOMParser().parseFromString(String(html || ""), "text/html");
+    // η σελίδα μπορεί να έχει δικό της <base href="/"> — οι σχετικοί σύνδεσμοι λύνονται με αυτό
+    const ob = doc.querySelector("base[href]");
+    if (ob) { try { base = new URL(ob.getAttribute("href"), base).href; } catch (e) {} }
+    doc.querySelectorAll("script,noscript,iframe,frame,frameset,object,embed,applet,form,base,meta[http-equiv],template,dialog,link:not([rel~='stylesheet'])").forEach(e => e.remove());
+    doc.querySelectorAll("*").forEach(el => { for (const a of [...el.attributes]) if (/^on/i.test(a.name) || /^\s*(javascript|vbscript|data:text\/html)/i.test(a.value)) el.removeAttribute(a.name); });
+    doc.querySelectorAll("link[rel~='stylesheet']").forEach(l => {
+      try { const u = new URL(l.getAttribute("href") || "", base); if (u.protocol === "https:") l.setAttribute("href", u.href); else l.remove(); } catch (e) { l.remove(); }
+    });
+    const b = doc.createElement("base"); b.href = base; doc.head.prepend(b);
+    const st = doc.createElement("style");
+    st.textContent = ".no-print{display:none!important}html,body{background:#fff!important;margin:0!important;}body{padding:12px!important;}"
+      + "[role=tabpanel][aria-hidden=true],[role=tablist],[role=tab],[role=tab]+input,input[type=radio]{display:none!important}";
+    doc.head.appendChild(st);
+    const text = (doc.body ? doc.body.textContent : "").replace(/\s+/g, " ").trim();
+    return { html: "<!doctype html>" + doc.documentElement.outerHTML, ok: text.length > 200 && /Α\.?\s?Φ\.?\s?Μ|VAT|ΦΠΑ/i.test(text) };
+  }
+  async function providerPageToPdf(r){
+    const p = providerPageDoc(r.html, r.base || r.url);
+    if (!p.ok) return null;
+    return htmlToPdfBlob(p.html, { sandbox: true, width: 1100 });
+  }
   // κατεβάζει την εμπορική μορφή και τη βάζει ως αρχείο του τιμολογίου (αν δεν έχει ήδη)
-  async function attachCommercialPdf(inv){
-    const r = await commercialPdf(inv);
-    if (!r.ok) return r;
+  async function attachCommercialPdf(inv, url){
+    const r = url ? await aadeCall({ action:"doc_pdf", mark:"", url }) : await commercialPdf(inv);
+    if (r && r.ok && r.pdf_base64 && !r.blob) r.blob = b64ToPdf(r.pdf_base64);
+    // ο πάροχος δίνει μόνο σελίδα (π.χ. Impact): τη μετατρέπουμε εμείς σε PDF
+    if (r && !r.ok && r.page_only && r.html) {
+      try { const blob = await providerPageToPdf(r); if (blob && blob.size > 2000) { r.ok = true; r.blob = blob; r.converted = true; } } catch (e) {}
+    }
+    if (!r || !r.ok) return r || { ok:false, error:"Σφάλμα." };
     if (!inv.file_path) {
       const name = String(inv.doc_number || inv.mark || "timologio").replace(/[\\/:*?"<>|\s]+/g, "_") + ".pdf";
       inv.file_path = await uploadInvoiceFile(inv, new File([r.blob], name, { type:"application/pdf" }));
@@ -5144,7 +5173,9 @@
       }
       if (r.page_only && r.url) {
         if (w) w.location.href = r.url; else window.open(r.url, "_blank", "noopener");
-        $("#piv-com-msg").innerHTML = `<div class="cell-sub">Ο πάροχος του προμηθευτή τη δίνει μόνο ως σελίδα — άνοιξε σε νέα καρτέλα. Αν θες να μείνει στο τιμολόγιο: «Εκτύπωση → Αποθήκευση ως PDF» και μετά «📎 Επισύναψη». <a href="${escapeHtml(r.url)}" target="_blank" rel="noopener">Άνοιγμα ξανά</a></div>`;
+        $("#piv-com-msg").innerHTML = `<div class="cell-sub">${r.captcha
+          ? "Ο πάροχος αυτού του προμηθευτή (" + escapeHtml((() => { try { return new URL(r.url).host; } catch (e) { return ""; } })()) + ") ζητά έλεγχο «δεν είμαι ρομπότ», οπότε η εμπορική μορφή δεν μπαίνει αυτόματα."
+          : "Ο πάροχος του προμηθευτή τη δίνει μόνο ως σελίδα."} Άνοιξε σε νέα καρτέλα — αν θες να μείνει στο τιμολόγιο: «Εκτύπωση → Αποθήκευση ως PDF» και μετά «📎 Επισύναψη». <a href="${escapeHtml(r.url)}" target="_blank" rel="noopener">Άνοιγμα ξανά</a></div>`;
         return;
       }
       if (w) w.close();
@@ -5174,14 +5205,36 @@
     const list = ARCHIVE_ROWS.filter(r => !r.file_path && (r.mark || invQrUrl(r)));
     if (!list.length) return;
     btn.disabled = true;
-    let ok = 0, page = 0, fail = 0;
+    // οι σύνδεσμοι έρχονται με ΜΙΑ ερώτηση στο myDATA ανά έτος (αλλιώς η ΑΑΔΕ κόβει με «429 πολλές κλήσεις»)
+    $("#arch-com-note").textContent = "Σύνδεσμοι από myDATA…";
+    const urls = {};
+    const marked = list.filter(r => r.mark).map(r => r.doc_date).sort();
+    if (marked.length) {
+      const today = isoDay(new Date());
+      let from = isoAdd(marked[0], { days: -7 });
+      const last = isoAdd(marked[marked.length - 1], { days: 7 }) > today ? today : isoAdd(marked[marked.length - 1], { days: 7 });
+      while (from <= last) {
+        const to = isoAdd(from, { days: 360 }) < last ? isoAdd(from, { days: 360 }) : last;
+        const res = await aadeCall({ action:"mydata_inbox", date_from: from, date_to: to, counter_vat: "" });
+        if (res && res.ok) (res.invoices || []).forEach(i => { if (i.mark && i.download_url) urls[i.mark] = i.download_url; });
+        from = isoAdd(to, { days: 1 });
+      }
+    }
+    let ok = 0, page = 0, captcha = 0, none = 0, fail = 0;
     for (const [i, r] of list.entries()) {
       $("#arch-com-note").textContent = `${i + 1} / ${list.length}…`;
-      try { const x = await attachCommercialPdf(r); if (x.ok && x.attached) ok++; else if (x.page_only) page++; else fail++; }
-      catch (err) { fail++; if (/bucket|not found/i.test(err.message || "")) { showToast(V16_MSG); break; } }
+      const url = urls[r.mark] || invQrUrl(r);
+      if (!url) { none++; continue; }
+      try {
+        const x = await attachCommercialPdf(r, url);
+        if (x.ok && x.attached) ok++; else if (x.captcha) captcha++; else if (x.page_only) page++; else fail++;
+      } catch (err) { fail++; if (/bucket|not found/i.test(err.message || "")) { showToast(V16_MSG); break; } }
+      await new Promise(res => setTimeout(res, 300));
     }
     btn.disabled = false;
-    showToast(`📄 Μπήκαν ${ok} εμπορικές μορφές${page ? ` · ${page} μόνο ως σελίδα (άνοιξέ τα από το τιμολόγιο)` : ""}${fail ? ` · ${fail} δεν βρέθηκαν` : ""}`);
+    showToast(`📄 Μπήκαν ${ok} εμπορικές μορφές`
+      + (captcha ? ` · ${captcha} θέλουν «δεν είμαι ρομπότ» στον πάροχο (μόνο χειροκίνητα)` : "")
+      + (page ? ` · ${page} μόνο ως σελίδα` : "") + (none ? ` · ${none} χωρίς εμπορική μορφή στο myDATA` : "") + (fail ? ` · ${fail} δεν βρέθηκαν` : ""));
     await loadInvoiceArchive();
   });
   let ARCHIVE_ROWS = [], ARCHIVE_SEL = new Set(), ARCHIVE_STATUS = "all";
@@ -7763,20 +7816,26 @@
   }
   // ---- PDF που κατεβαίνει (όχι μέσω εκτύπωσης): html → εικόνα → A4 ----
   const loadHtml2Canvas = () => loadScript("https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js", "html2canvas");
-  async function htmlToPdfBlob(html){
+  async function htmlToPdfBlob(html, opts){
+    opts = opts || {};
     const [{ jsPDF }, h2c] = await Promise.all([loadJsPDF(), loadHtml2Canvas()]);
     const fr = document.createElement("iframe");
     fr.setAttribute("aria-hidden", "true");
-    fr.style.cssText = "position:fixed;left:-12000px;top:0;width:820px;height:1160px;border:0;background:#fff;";
+    if (opts.sandbox) fr.setAttribute("sandbox", "allow-same-origin");   // ξένη σελίδα: καμία εκτέλεση κώδικα
+    const W = opts.width || 820;
+    fr.style.cssText = `position:fixed;left:-12000px;top:0;width:${W}px;height:${Math.round(W * 1.414)}px;border:0;background:#fff;`;
     document.body.appendChild(fr);
     try {
       const d = fr.contentDocument;
       d.open(); d.write(html.replace(/<button class="print-btn"[\s\S]*?<\/button>/, "")); d.close();
       await new Promise(r => setTimeout(r, 250));
+      // εξωτερικά stylesheets (σελίδα παρόχου): περιμένουμε να φορτώσουν (έως 6″)
+      const links = [...d.querySelectorAll('link[rel~="stylesheet"]')].filter(l => !l.sheet);
+      if (links.length) await Promise.race([Promise.all(links.map(l => new Promise(r => { l.onload = l.onerror = r; }))), new Promise(r => setTimeout(r, 6000))]);
       if (d.fonts && d.fonts.ready) await d.fonts.ready;
       await Promise.all([...d.images].map(im => im.complete ? 0 : new Promise(r => { im.onload = im.onerror = r; })));
-      fr.style.height = Math.max(1160, d.documentElement.scrollHeight) + "px";
-      const canvas = await h2c(d.documentElement, { scale: 2, backgroundColor: "#ffffff", width: 820, windowWidth: 820, logging: false, useCORS: true });
+      fr.style.height = Math.max(Math.round(W * 1.414), d.documentElement.scrollHeight) + "px";
+      const canvas = await h2c(d.documentElement, { scale: W > 900 ? 1.6 : 2, backgroundColor: "#ffffff", width: W, windowWidth: W, logging: false, useCORS: true });
       const pdf = new jsPDF({ unit: "mm", format: "a4", compress: true });
       const pageH = Math.floor(canvas.width * 297 / 210);
       for (let y = 0, i = 0; y < canvas.height; y += pageH, i++) {
